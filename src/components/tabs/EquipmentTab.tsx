@@ -35,12 +35,23 @@ export const EquipmentTab: React.FC<EquipmentTabProps> = ({ org }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<string>('ALL');
 
-  useEffect(() => {
+  const fetchEquipment = () => {
     if (!activeOrg?.id) return;
     DjangoApi.getEquipment(activeOrg.id).then((data) => {
       if (Array.isArray(data) && data.length > 0) setDbEquipment(data);
     });
+  };
+
+  useEffect(() => {
+    fetchEquipment();
   }, [activeOrg?.id]);
+
+  const handleDeleteEquipment = (id: string) => {
+    deleteEquipment(id);
+    setDbEquipment((prev) =>
+      prev.filter((e) => (e.equipment_code || `EQ-${e.id}`) !== id && String(e.id) !== id)
+    );
+  };
 
   const equipmentList: EquipmentItem[] = dbEquipment.length > 0
     ? dbEquipment.map((eq) => ({
@@ -150,6 +161,7 @@ Main ETP Sludge Centrifuge,Effluent Treatment,ETP Yard,45,42,1.8,91,Operational`
     setCategory('');
     setLocation('');
     setShowAddModal(false);
+    setTimeout(fetchEquipment, 600);
   };
 
   const handleCsvImportSubmit = (e: React.FormEvent) => {
@@ -183,6 +195,7 @@ Main ETP Sludge Centrifuge,Effluent Treatment,ETP Yard,45,42,1.8,91,Operational`
     if (parsedItems.length > 0) {
       importEquipmentBatch(parsedItems);
       setImportSuccessCount(parsedItems.length);
+      setTimeout(fetchEquipment, 700);
       setTimeout(() => {
         setImportSuccessCount(null);
         setShowImportModal(false);
@@ -315,7 +328,7 @@ Main ETP Sludge Centrifuge,Effluent Treatment,ETP Yard,45,42,1.8,91,Operational`
               </div>
 
               <button
-                onClick={() => deleteEquipment(item.id)}
+                onClick={() => handleDeleteEquipment(item.id)}
                 title="Remove Equipment"
                 className="p-2 rounded-xl text-stone-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors"
               >

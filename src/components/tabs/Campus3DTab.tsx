@@ -33,6 +33,7 @@ import {
   Radio,
 } from 'lucide-react';
 import IoTGatewayModal from '@/components/IoTGatewayModal';
+import { DjangoApi } from '@/services/api';
 
 export interface CampusNode {
   id: string;
@@ -293,6 +294,49 @@ export const Campus3DTab: React.FC = () => {
     }
     return generateAutoNodes(activeOrg?.type === 'HOSPITAL');
   });
+
+  // Sync 3D nodes with real NeonDB PostgreSQL telemetry
+  useEffect(() => {
+    if (!activeOrg?.id) return;
+    Promise.all([
+      DjangoApi.getAqiTelemetry(activeOrg.id),
+      DjangoApi.getWaterTelemetry(activeOrg.id),
+      DjangoApi.getEnergyTelemetry(activeOrg.id),
+    ]).then(([dbAqi, dbWater, dbEnergy]) => {
+      if (dbAqi || dbWater || dbEnergy) {
+        setNodes((prevNodes) =>
+          prevNodes.map((n) => {
+            if (n.type === 'aqi' && dbAqi) {
+              return {
+                ...n,
+                pm25: dbAqi.pm25 ?? n.pm25,
+                pm10: dbAqi.pm10 ?? n.pm10,
+                temp: dbAqi.temperature ? Math.round(dbAqi.temperature) : n.temp,
+                humidity: dbAqi.humidity ? Math.round(dbAqi.humidity) : n.humidity,
+                status: dbAqi.overall_aqi > 150 ? 'warning' : dbAqi.overall_aqi > 100 ? 'moderate' : 'optimal',
+              };
+            }
+            if (n.type === 'water' && dbWater) {
+              return {
+                ...n,
+                secondaryValue: `${dbWater.stp_treated_water_kl ?? 420} kL`,
+              };
+            }
+            if (n.type === 'energy' && dbEnergy) {
+              const val = n.name.toLowerCase().includes('solar')
+                ? `${dbEnergy.solar_rooftop_kw ?? 220} kW`
+                : `${dbEnergy.current_load_kw ?? 840} kW`;
+              return {
+                ...n,
+                secondaryValue: val,
+              };
+            }
+            return n;
+          })
+        );
+      }
+    });
+  }, [activeOrg?.id]);
 
   // 3. Viewport Transform & Interactive State:
   // Default tiltPitch is 0deg so the image is clean, upright, and NOT skewed or slanted!

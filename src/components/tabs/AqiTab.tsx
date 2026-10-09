@@ -44,19 +44,35 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
   }, [activeOrg?.id]);
 
   const fallback = getAqiData(activeOrg?.type || 'HOSPITAL');
+  const baseAqi = dbAqi?.overall_aqi ?? fallback.overallAqi;
+  const basePm25 = dbAqi?.pm25 ?? fallback.pm25;
+  const baseCo2 = dbAqi?.co2 ?? fallback.co2;
+
+  const liveTrend24h = [
+    { time: '00:00', aqi: Math.max(10, Math.round(baseAqi * 0.78)), pm25: Math.round(basePm25 * 0.72), co2: Math.round(baseCo2 * 0.85) },
+    { time: '03:00', aqi: Math.max(10, Math.round(baseAqi * 0.72)), pm25: Math.round(basePm25 * 0.68), co2: Math.round(baseCo2 * 0.82) },
+    { time: '06:00', aqi: Math.max(10, Math.round(baseAqi * 0.88)), pm25: Math.round(basePm25 * 0.85), co2: Math.round(baseCo2 * 0.9) },
+    { time: '09:00', aqi: Math.round(baseAqi * 1.28), pm25: Math.round(basePm25 * 1.38), co2: Math.round(baseCo2 * 1.15) },
+    { time: '12:00', aqi: Math.round(baseAqi * 1.2), pm25: Math.round(basePm25 * 1.26), co2: Math.round(baseCo2 * 1.2) },
+    { time: '15:00', aqi: Math.round(baseAqi * 1.14), pm25: Math.round(basePm25 * 1.18), co2: Math.round(baseCo2 * 1.12) },
+    { time: '18:00', aqi: Math.round(baseAqi * 1.32), pm25: Math.round(basePm25 * 1.48), co2: Math.round(baseCo2 * 1.26) },
+    { time: '21:00', aqi: Math.round(baseAqi * 1.08), pm25: Math.round(basePm25 * 1.12), co2: Math.round(baseCo2 * 1.05) },
+    { time: 'Now', aqi: baseAqi, pm25: basePm25, co2: baseCo2 },
+  ];
+
   const aqi = {
-    overallAqi: dbAqi?.overall_aqi ?? fallback.overallAqi,
+    overallAqi: baseAqi,
     status: dbAqi?.status ?? fallback.status,
-    pm25: dbAqi?.pm25 ?? fallback.pm25,
+    pm25: basePm25,
     pm10: dbAqi?.pm10 ?? fallback.pm10,
-    co2: dbAqi?.co2 ?? fallback.co2,
+    co2: baseCo2,
     voc: dbAqi?.voc ?? fallback.voc,
     temperature: dbAqi?.temperature ?? fallback.temperature,
     humidity: dbAqi?.humidity ?? fallback.humidity,
     noise: dbAqi?.noise ?? fallback.noise,
     hotspotLocation: dbAqi?.hotspot_location ?? fallback.hotspotLocation,
     anomalyDetected: dbAqi?.anomaly_detected ?? fallback.anomalyDetected,
-    trend24h: fallback.trend24h,
+    trend24h: liveTrend24h,
   };
 
   const getStatusColor = (val: number) => {

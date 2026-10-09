@@ -43,16 +43,29 @@ export const EnergyTab: React.FC<EnergyTabProps> = ({ org }) => {
   }, [activeOrg?.id]);
 
   const fallback = getEnergyData(activeOrg?.type || 'HOSPITAL');
+  const loadKw = dbEnergy?.current_load_kw ?? fallback.currentLoadKw;
+  const solarKw = dbEnergy?.solar_rooftop_kw ?? fallback.solarRooftopKw;
+
+  const liveTrend24h = [
+    { time: '02:00', grid: Math.round(loadKw * 0.45), solar: 0, load: Math.round(loadKw * 0.45) },
+    { time: '06:00', grid: Math.round(loadKw * 0.52), solar: Math.round(solarKw * 0.12), load: Math.round(loadKw * 0.58) },
+    { time: '10:00', grid: Math.round(loadKw * 0.72), solar: Math.round(solarKw * 0.86), load: Math.round(loadKw * 0.92) },
+    { time: '13:00', grid: Math.round(loadKw * 0.62), solar: Math.round(solarKw * 0.98), load: Math.round(loadKw * 1.0) },
+    { time: '16:00', grid: Math.round(loadKw * 0.78), solar: Math.round(solarKw * 0.62), load: Math.round(loadKw * 0.95) },
+    { time: '19:00', grid: Math.round(loadKw * 0.94), solar: 0, load: Math.round(loadKw * 0.94) },
+    { time: '22:00', grid: Math.round(loadKw * 0.62), solar: 0, load: Math.round(loadKw * 0.62) },
+  ];
+
   const energy = {
-    currentLoadKw: dbEnergy?.current_load_kw ?? fallback.currentLoadKw,
+    currentLoadKw: loadKw,
     dailyTotalKwh: dbEnergy?.daily_total_kwh ?? fallback.dailyTotalKwh,
     peakLoadKw: dbEnergy?.peak_load_kw ?? fallback.peakLoadKw,
     gridPowerKw: dbEnergy?.grid_power_kw ?? fallback.gridPowerKw,
-    solarRooftopKw: dbEnergy?.solar_rooftop_kw ?? fallback.solarRooftopKw,
+    solarRooftopKw: solarKw,
     powerFactor: dbEnergy?.power_factor ?? fallback.powerFactor,
     carbonEmissionsKg: dbEnergy?.carbon_emissions_kg ?? fallback.carbonEmissionsKg,
     savingsInrToday: dbEnergy?.savings_inr_today ?? fallback.savingsInrToday,
-    trend24h: fallback.trend24h,
+    trend24h: liveTrend24h,
   };
 
   const solarPct = Math.round((energy.solarRooftopKw / (energy.currentLoadKw || 1)) * 100);

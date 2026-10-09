@@ -5,11 +5,22 @@ from django.conf import settings
 
 def get_smtp_connection(sender_email, sender_password):
     """
-    Robust cloud SMTP connector: tries Port 587 STARTTLS first (standard for cloud hosts like Render),
-    then falls back to Port 465 SSL.
+    Robust cloud SMTP connector: tries Port 465 SSL first (standard for Gmail),
+    then falls back to Port 587 STARTTLS.
+    Uses short timeouts (5s) so worker threads never get blocked indefinitely.
     """
+    # 1. Try Port 465 SSL first
     try:
-        server = smtplib.SMTP('smtp.gmail.com', 587, timeout=15)
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=5)
+        server.login(sender_email, sender_password)
+        print("[SMTP] Connected via Port 465 SSL successfully.")
+        return server
+    except Exception as e465:
+        print(f"[SMTP_465_WARNING] Port 465 SSL failed ({e465}), trying Port 587 STARTTLS...")
+
+    # 2. Try Port 587 STARTTLS
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587, timeout=5)
         server.ehlo()
         server.starttls()
         server.ehlo()
@@ -17,11 +28,8 @@ def get_smtp_connection(sender_email, sender_password):
         print("[SMTP] Connected via Port 587 STARTTLS successfully.")
         return server
     except Exception as e587:
-        print(f"[SMTP_587_WARNING] Port 587 failed ({e587}), trying Port 465 SSL...")
-        server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=15)
-        server.login(sender_email, sender_password)
-        print("[SMTP] Connected via Port 465 SSL successfully.")
-        return server
+        print(f"[SMTP_587_ERROR] Both Port 465 and Port 587 failed ({e587}).")
+        raise
 
 def send_admin_credentials_email(
     admin_name: str,

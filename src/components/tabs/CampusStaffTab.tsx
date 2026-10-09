@@ -134,6 +134,7 @@ export const CampusStaffTab: React.FC<CampusStaffTabProps> = ({ onSimulateRole, 
     setTitle('');
     setShowAddModal(false);
     triggerToast(`Added ${newStaff.name} as ${getRoleConfig(role).label}!`);
+    setTimeout(fetchStaff, 600);
   };
 
   const getRoleConfig = (r: Role) => {
@@ -407,7 +408,9 @@ export const CampusStaffTab: React.FC<CampusStaffTabProps> = ({ onSimulateRole, 
                               onClick={() => {
                                 if (window.confirm(`Revoke credentials and remove ${u.name}?`)) {
                                   deleteUser(u.id);
+                                  setDbStaff((prev) => prev.filter((s) => `user-${s.id}` !== u.id && String(s.id) !== u.id));
                                   triggerToast(`Removed ${u.name} from campus staff.`);
+                                  setTimeout(fetchStaff, 500);
                                 }
                               }}
                               className="p-1 rounded-lg text-stone-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-colors cursor-pointer"

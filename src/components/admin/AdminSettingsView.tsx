@@ -20,7 +20,7 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react';
-import { INITIAL_ORGANIZATIONS, DEMO_USERS } from '@/data/mockData';
+import { DjangoApi } from '@/services/api';
 
 export const AdminSettingsView: React.FC = () => {
   const { organizations, users, currentUser, updateProfile } = useAuth();
@@ -70,12 +70,15 @@ export const AdminSettingsView: React.FC = () => {
     triggerSavedNotice('Platform governance & security settings successfully saved!');
   };
 
-  const handleResetDemoData = () => {
-    if (window.confirm('Reset all demo organizations and users to official national defaults? This will restore BPUT, AIIMS, ONGC, Tata Steel, and BMC.')) {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('ecoestate-organizations', JSON.stringify(INITIAL_ORGANIZATIONS));
-        localStorage.setItem('ecoestate-users', JSON.stringify(DEMO_USERS));
-        window.location.reload();
+  const handleSyncDatabase = async () => {
+    if (window.confirm('Synchronize and seed baseline telemetry with NeonDB cloud database?')) {
+      triggerSavedNotice('Syncing with NeonDB PostgreSQL...');
+      try {
+        await DjangoApi.seedDatabase();
+        triggerSavedNotice('✅ NeonDB PostgreSQL synchronized successfully!');
+        setTimeout(() => window.location.reload(), 1000);
+      } catch (err) {
+        triggerSavedNotice('Failed to synchronize with database');
       }
     }
   };
@@ -525,18 +528,18 @@ export const AdminSettingsView: React.FC = () => {
               </button>
             </div>
 
-            <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-between gap-4">
+            <div className="p-4 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-center justify-between gap-4">
               <div>
-                <p className="font-bold text-rose-500">Restore Default Mock Data (5 National Campuses)</p>
+                <p className="font-bold text-cyan-500 dark:text-cyan-400">Sync Baseline Telemetry with NeonDB PostgreSQL</p>
                 <p className="text-[11px] text-stone-500 dark:text-slate-400">
-                  Reset local storage to original initial national campuses: BPUT Rourkela, AIIMS Bhubaneswar, ONGC Paradip, Tata Steel Jamshedpur, and BMC.
+                  Ensure all baseline sensors, CAAQMS nodes, STP recycling records, and smart equipment in NeonDB are fully active and synchronized.
                 </p>
               </div>
               <button
-                onClick={handleResetDemoData}
-                className="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white font-bold transition-all flex items-center gap-1.5 cursor-pointer flex-shrink-0"
+                onClick={handleSyncDatabase}
+                className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-600 text-slate-950 font-bold transition-all flex items-center gap-1.5 cursor-pointer flex-shrink-0"
               >
-                <RefreshCw className="w-4 h-4" /> Reset Data
+                <RefreshCw className="w-4 h-4" /> Sync NeonDB
               </button>
             </div>
           </div>

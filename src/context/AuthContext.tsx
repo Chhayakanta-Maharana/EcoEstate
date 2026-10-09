@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Organization, Role, EquipmentItem } from '@/types';
-import { INITIAL_ORGANIZATIONS, DEMO_USERS, getEquipmentList } from '@/data/mockData';
+import { getEquipmentList } from '@/data/mockData';
 import { DjangoApi } from '@/services/api';
 
 export interface AppNotification {
@@ -209,46 +209,106 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     description: o.description || `${o.name} facility managed by EcoEstate IoT Grid.`,
   });
 
-  // Fetch real organizations & staff members directly from NeonDB PostgreSQL backend
+  // Fetch real organizations, staff members & equipment directly from NeonDB PostgreSQL backend
   const refreshBackendData = async () => {
     try {
-      const [backendOrgs, backendStaff] = await Promise.all([
+      const [backendOrgs, backendStaff, backendEquip] = await Promise.all([
         DjangoApi.getOrganizations(),
         DjangoApi.getStaffMembers(),
+        DjangoApi.getEquipment(),
       ]);
 
-      if (Array.isArray(backendOrgs) && backendOrgs.length > 0) {
+      if (Array.isArray(backendEquip) && backendEquip.length > 0) {
+        setEquipmentList(
+          backendEquip.map((eq: any) => ({
+            id: eq.equipment_code || `EQ-${eq.id}`,
+            name: eq.name,
+            category: eq.category,
+            location: eq.location,
+            status: eq.status || 'Operational',
+            healthScore: eq.health_score || 95,
+            powerRatingKw: eq.power_rating_kw || 50,
+            runtimeHoursToday: eq.runtime_hours_today || 14,
+            vibrationMmPerSec: eq.vibration_mm_per_sec || 1.2,
+            operatingTempC: eq.operating_temp_c || 45,
+            lastCalibrated: eq.last_calibrated || '2026-09-15',
+            nextServiceDate: eq.next_service_date || '2026-12-15',
+            dataSource: eq.data_source || 'IoT LAN/WiFi',
+          }))
+        );
+      }
+
+      if (Array.isArray(backendOrgs)) {
         const mappedOrgs = backendOrgs.map(mapBackendOrg);
         setOrganizations(mappedOrgs);
 
-        // Map backend staff members to User[]
-        const mappedStaff: User[] = (backendStaff || []).map((s: any) => ({
-          id: `user-${s.id}`,
-          name: s.name,
-          email: s.email,
-          role: s.role as Role,
-          organizationId: `org-${s.organization_id || s.organization}`,
-          organizationName: mappedOrgs.find((o) => o.id === `org-${s.organization_id || s.organization}`)?.name || 'Estate',
-          title: s.title || `${s.role} - Estate Management`,
-          status: (s.status as 'Active' | 'Inactive') || 'Active',
-          lastActive: s.last_active || 'Connected to NeonDB',
-        }));
+        // Standard SuperAdmin user
+        const superAdminUser: User = {
+          id: 'user-superadmin',
+          name: 'Alex Carter',
+          email: 'superadmin@ecoestate.gov.in',
+          role: 'SUPERADMIN',
+          organizationId: 'all',
+          organizationName: 'National Platform',
+          title: 'National Director & Chief Administrator',
+          status: 'Active',
+          lastActive: 'Live now',
+        };
 
-        setUsers(mappedStaff);
+        const staffMap = new Map<string, User>();
+        staffMap.set(superAdminUser.email.toLowerCase(), superAdminUser);
+
+        // Add all assigned admins from organizations in NeonDB
+        for (const org of mappedOrgs) {
+          if (org.assignedAdminEmail) {
+            const emailKey = org.assignedAdminEmail.toLowerCase();
+            staffMap.set(emailKey, {
+              id: `user-org-${org.id.replace('org-', '')}`,
+              name: org.assignedAdminName || 'Estate Administrator',
+              email: org.assignedAdminEmail,
+              role: 'ORG_ADMIN',
+              organizationId: org.id,
+              organizationName: org.name,
+              title: `Estate Administrator - ${org.name}`,
+              status: 'Active',
+              lastActive: 'Connected to NeonDB',
+            });
+          }
+        }
+
+        // Add all staff members from NeonDB StaffMember table
+        for (const s of (backendStaff || [])) {
+          if (s.email) {
+            const emailKey = s.email.toLowerCase();
+            const matchingOrg = mappedOrgs.find(
+              (o) =>
+                o.id === `org-${s.organization_id || s.organization}` ||
+                o.id === String(s.organization)
+            );
+            staffMap.set(emailKey, {
+              id: `user-${s.id}`,
+              name: s.name,
+              email: s.email,
+              role: s.role as Role,
+              organizationId: matchingOrg ? matchingOrg.id : `org-${s.organization_id || s.organization || 1}`,
+              organizationName: matchingOrg ? matchingOrg.name : 'Estate',
+              title: s.title || `${s.role} - Estate Management`,
+              status: (s.status as 'Active' | 'Inactive') || 'Active',
+              lastActive: s.last_active || 'Connected to NeonDB',
+            });
+          }
+        }
+
+        const allRealUsers = Array.from(staffMap.values());
+        setUsers(allRealUsers);
 
         // If no activeOrgId yet, pick the first
         if (!activeOrgId && mappedOrgs.length > 0) {
           setActiveOrgId(mappedOrgs[0].id);
         }
-      } else {
-        // Fallback only if backend completely unreachable
-        setOrganizations(INITIAL_ORGANIZATIONS);
-        setUsers(DEMO_USERS);
       }
     } catch (err) {
-      console.warn('NeonDB initialization failed, keeping fallback:', err);
-      setOrganizations(INITIAL_ORGANIZATIONS);
-      setUsers(DEMO_USERS);
+      console.warn('NeonDB fetch status:', err);
     }
   };
 
@@ -347,7 +407,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // 2. Strict Fallback only for pre-configured static demo/seeded records (requires exact password match)
     if (cleanEmail === 'superadmin@ecoestate.gov.in') {
       if (cleanPassword === 'admin123' || cleanPassword === 'superadmin@2026' || cleanPassword === 'ecoestate@2026') {
-        const superUser = DEMO_USERS[0];
+        const superUser: User = {
+          id: 'user-superadmin',
+          name: 'Alex Carter',
+          email: 'superadmin@ecoestate.gov.in',
+          role: 'SUPERADMIN',
+          organizationId: 'all',
+          organizationName: 'National Platform',
+          title: 'National Director & Chief Administrator',
+          status: 'Active',
+          lastActive: 'Just now',
+        };
         setCurrentUser(superUser);
         return { success: true, redirectUrl: '/admin/dashboard' };
       }
@@ -398,7 +468,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const sendCredentialsEmail = async (
     orgId: string
   ): Promise<{ success: boolean; message?: string; error?: string }> => {
-    return await DjangoApi.sendCredentialsEmail(orgId);
+    const org = organizations.find((o) => o.id === orgId || o.id === `org-${orgId}`);
+    return await DjangoApi.sendCredentialsEmail(orgId, org ? {
+      name: org.name,
+      facility_type: org.type,
+      assigned_admin_name: org.assignedAdminName,
+      assigned_admin_email: org.assignedAdminEmail,
+      assigned_password: org.assignedPassword,
+      id: Number(org.id.replace('org-', '')),
+    } as any : undefined);
   };
 
 
@@ -555,6 +633,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const remaining = organizations.filter((o) => o.id !== id);
       setActiveOrgId(remaining[0].id);
     }
+    const cleanId = id.replace('org-', '');
+    if (/^\d+$/.test(cleanId)) {
+      DjangoApi.deleteOrganization(cleanId);
+    }
   };
 
   // Full User Management CRUD synced with NeonDB PostgreSQL
@@ -618,23 +700,53 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const addEquipment = (item: Omit<EquipmentItem, 'id'>) => {
+    const rawOrgId = activeOrg?.id || '1';
+    const cleanOrgId = rawOrgId.replace('org-', '');
+    const numericOrgId = /^\d+$/.test(cleanOrgId) ? parseInt(cleanOrgId, 10) : 1;
+
     const newItem: EquipmentItem = {
       ...item,
       id: `EQ-MANUAL-${Math.floor(100 + Math.random() * 900)}`,
     };
     setEquipmentList((prev) => [newItem, ...prev]);
+
+    // Persist to NeonDB
+    DjangoApi.createEquipment({
+      organization: numericOrgId,
+      equipment_code: newItem.id,
+      name: item.name,
+      category: item.category,
+      location: item.location,
+      power_rating_kw: item.powerRatingKw || 50,
+      operating_temp_c: item.operatingTempC || 40,
+      vibration_mm_per_sec: item.vibrationMmPerSec || 1.0,
+      health_score: item.healthScore || 95,
+      status: item.status || 'Operational',
+    }).catch((err) => console.warn('Could not persist equipment to NeonDB:', err));
   };
 
   const importEquipmentBatch = (items: Omit<EquipmentItem, 'id'>[]) => {
+    const rawOrgId = activeOrg?.id || '1';
+    const cleanOrgId = rawOrgId.replace('org-', '');
+    const numericOrgId = /^\d+$/.test(cleanOrgId) ? parseInt(cleanOrgId, 10) : 1;
+
     const newItems: EquipmentItem[] = items.map((it, idx) => ({
       ...it,
       id: `EQ-IMP-${Date.now().toString().slice(-4)}-${idx + 1}`,
     }));
     setEquipmentList((prev) => [...newItems, ...prev]);
+
+    // Persist batch to NeonDB
+    DjangoApi.batchImportEquipment(numericOrgId, newItems).catch((err) =>
+      console.warn('Could not persist batch equipment to NeonDB:', err)
+    );
   };
 
   const deleteEquipment = (id: string) => {
     setEquipmentList((prev) => prev.filter((e) => e.id !== id));
+    DjangoApi.deleteEquipment(id).catch((err) =>
+      console.warn('Could not delete equipment from NeonDB:', err)
+    );
   };
 
   return (

@@ -42,16 +42,29 @@ export const ParkingTab: React.FC<ParkingTabProps> = ({ org }) => {
   }, [activeOrg?.id]);
 
   const fallback = getParkingData(activeOrg?.type || 'HOSPITAL');
+  const total = dbParking?.total_slots ?? fallback.totalSlots;
+  const occ = dbParking?.occupied_slots ?? fallback.occupiedSlots;
+  const evOcc = dbParking?.ev_charging_occupied ?? fallback.evChargingSlotsOccupied;
+
+  const liveHourlyOccupancy = [
+    { time: '08:00', standard: Math.round(total * 0.32), ev: Math.max(2, Math.round(evOcc * 0.35)) },
+    { time: '10:00', standard: Math.round(total * 0.78), ev: Math.round(evOcc * 0.9) },
+    { time: '12:00', standard: Math.round(occ * 0.95), ev: evOcc },
+    { time: '14:00', standard: Math.round(occ * 0.88), ev: Math.max(2, evOcc - 4) },
+    { time: '16:00', standard: occ, ev: evOcc },
+    { time: '18:00', standard: Math.round(total * 0.52), ev: Math.max(2, Math.round(evOcc * 0.5)) },
+  ];
+
   const parking = {
-    totalSlots: dbParking?.total_slots ?? fallback.totalSlots,
-    occupiedSlots: dbParking?.occupied_slots ?? fallback.occupiedSlots,
-    availableSlots: dbParking?.available_slots ?? fallback.availableSlots,
+    totalSlots: total,
+    occupiedSlots: occ,
+    availableSlots: dbParking?.available_slots ?? (total - occ),
     evChargingSlotsTotal: dbParking?.ev_charging_total ?? fallback.evChargingSlotsTotal,
-    evChargingSlotsOccupied: dbParking?.ev_charging_occupied ?? fallback.evChargingSlotsOccupied,
-    occupancyRatePct: dbParking?.occupancy_rate_pct ?? fallback.occupancyRatePct,
+    evChargingSlotsOccupied: evOcc,
+    occupancyRatePct: dbParking?.occupancy_rate_pct ?? Math.round((occ / (total || 1)) * 100),
     peakCongestionZone: dbParking?.peak_congestion_zone ?? fallback.peakCongestionZone,
     entryFlowRatePerHour: dbParking?.entry_flow_rate ?? fallback.entryFlowRatePerHour,
-    hourlyOccupancy: fallback.hourlyOccupancy,
+    hourlyOccupancy: liveHourlyOccupancy,
   };
 
   return (

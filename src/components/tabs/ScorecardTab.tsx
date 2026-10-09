@@ -1,8 +1,9 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { getSustainabilityScorecard } from '@/data/mockData';
+import { DjangoApi } from '@/services/api';
 import {
   Award,
   Leaf,
@@ -33,9 +34,44 @@ interface ScorecardTabProps {
 export const ScorecardTab: React.FC<ScorecardTabProps> = ({ org }) => {
   const { activeOrg: contextOrg } = useAuth();
   const activeOrg = org || contextOrg;
+  const [dbEnergy, setDbEnergy] = useState<any>(null);
+  const [dbWater, setDbWater] = useState<any>(null);
+
+  useEffect(() => {
+    if (!activeOrg?.id) return;
+    Promise.all([
+      DjangoApi.getEnergyTelemetry(activeOrg.id),
+      DjangoApi.getWaterTelemetry(activeOrg.id),
+    ]).then(([energy, water]) => {
+      if (energy) setDbEnergy(energy);
+      if (water) setDbWater(water);
+    });
+  }, [activeOrg?.id]);
+
   if (!activeOrg) return null;
 
-  const card = getSustainabilityScorecard(activeOrg);
+  const baseCard = getSustainabilityScorecard(activeOrg);
+  const renewableEnergySharePct = dbEnergy
+    ? Math.round((dbEnergy.solar_rooftop_kw / (dbEnergy.current_load_kw || 1)) * 100)
+    : baseCard.renewableEnergySharePct;
+  const waterNeutralityPct = dbWater
+    ? dbWater.stp_recycle_rate_pct
+    : baseCard.waterNeutralityPct;
+
+  const card = {
+    ...baseCard,
+    overallScore: activeOrg.sustainabilityScore,
+    renewableEnergySharePct,
+    waterNeutralityPct,
+    breakdown: [
+      { category: 'Air Quality & Indoor Comfort', score: 88, maxScore: 100, benchmarkIndiaAvg: 65 },
+      { category: 'Energy Efficiency & Solar Share', score: Math.min(100, Math.round(renewableEnergySharePct * 1.5 + 40)), maxScore: 100, benchmarkIndiaAvg: 58 },
+      { category: 'Water Conservation & STP Reuse', score: Math.min(100, waterNeutralityPct), maxScore: 100, benchmarkIndiaAvg: 62 },
+      { category: 'Solid & Hazardous Waste Management', score: 92, maxScore: 100, benchmarkIndiaAvg: 70 },
+      { category: 'Low-Carbon Transport & EV Charging', score: 78, maxScore: 100, benchmarkIndiaAvg: 50 },
+      { category: 'Predictive Equipment Health & Safety', score: 85, maxScore: 100, benchmarkIndiaAvg: 60 },
+    ],
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
