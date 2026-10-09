@@ -209,7 +209,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           success: true,
           redirectUrl: backendRes.redirect_url || (authenticatedUser.role === 'SUPERADMIN' ? '/admin/dashboard' : `/user/${authenticatedUser.organizationId}`),
         };
-      } else if (backendRes.error) {
+      } else if (backendRes.error && !backendRes.error.toLowerCase().includes('cannot connect')) {
         return { success: false, error: backendRes.error };
       }
     } catch (apiErr) {

@@ -38,7 +38,7 @@ except ImportError:
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_TCP_PORT = 5000
 DEFAULT_UDP_PORT = 5005
-DEFAULT_HTTP_URL = "http://127.0.0.1:8000/api/iot/ingest/"
+DEFAULT_HTTP_URL = "https://ecoestate.onrender.com/api/iot/ingest/"
 
 # Sensor Presets with Healthy vs Anomaly telemetry
 SENSOR_TEMPLATES = {
