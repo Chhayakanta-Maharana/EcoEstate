@@ -18,14 +18,18 @@ class Organization(models.Model):
     occupancy_current = models.IntegerField(default=5000)
     occupancy_max = models.IntegerField(default=10000)
     assigned_admin_name = models.CharField(max_length=255)
-    assigned_admin_email = models.EmailField(unique=True)
+    assigned_admin_email = models.EmailField(blank=True, default='')
     assigned_password = models.CharField(max_length=255, default='estate@2026')
+
     iot_gateway_ip = models.GenericIPAddressField(default='192.168.1.1')
     iot_status = models.CharField(max_length=50, default='ONLINE')
     sustainability_score = models.IntegerField(default=85)
     carbon_target_reduction_pct = models.IntegerField(default=25)
     description = models.TextField(blank=True, default='')
+    campus_image_url = models.TextField(blank=True, default='')
+    campus_nodes_json = models.TextField(blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
+
 
     def __str__(self):
         return f"{self.name} ({self.facility_type})"
@@ -122,8 +126,9 @@ class AiRecommendation(models.Model):
 class StaffMember(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='staff_members')
     name = models.CharField(max_length=255)
-    email = models.EmailField(unique=True)
+    email = models.EmailField(default='')
     password = models.CharField(max_length=255, default='staff@2026')
+
     role = models.CharField(max_length=50, default='ESTATE_MANAGER')
     title = models.CharField(max_length=255, blank=True, default='')
     status = models.CharField(max_length=50, default='Active')

@@ -207,7 +207,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     sustainabilityScore: o.sustainability_score || 85,
     carbonTargetReductionPct: o.carbon_target_reduction_pct || 25,
     description: o.description || `${o.name} facility managed by EcoEstate IoT Grid.`,
+    campusImageUrl: o.campus_image_url || '',
+    campusNodesJson: o.campus_nodes_json || '',
   });
+
 
   // Fetch real organizations, staff members & equipment directly from NeonDB PostgreSQL backend
   const refreshBackendData = async () => {

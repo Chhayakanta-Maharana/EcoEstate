@@ -41,7 +41,10 @@ export interface Organization {
   sustainabilityScore: number; // 0 - 100
   carbonTargetReductionPct: number;
   description: string;
+  campusImageUrl?: string;
+  campusNodesJson?: string;
 }
+
 
 export interface AqiMetric {
   overallAqi: number;

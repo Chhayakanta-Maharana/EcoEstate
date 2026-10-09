@@ -373,7 +373,48 @@ export const Campus3DTab: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  // Persistence
+  // Fetch latest 3D campus twin image & nodes from NeonDB whenever activeOrg changes
+  useEffect(() => {
+    if (!activeOrg?.id) return;
+
+    if (activeOrg.campusImageUrl) {
+      setCampusImage(activeOrg.campusImageUrl);
+    }
+    if (activeOrg.campusNodesJson) {
+      try {
+        const parsed = JSON.parse(activeOrg.campusNodesJson);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setNodes(parsed);
+        }
+      } catch (e) {}
+    }
+
+    DjangoApi.getOrganizations().then((orgs) => {
+      const numericId = Number(String(activeOrg.id).replace(/^org-/, ''));
+      const dbOrg = orgs.find((o) => o.id === numericId);
+      if (dbOrg) {
+        if (dbOrg.campus_image_url) {
+          setCampusImage(dbOrg.campus_image_url);
+          if (typeof window !== 'undefined') {
+            localStorage.setItem(`ecoestate-campus-image-${orgKey}`, dbOrg.campus_image_url);
+          }
+        }
+        if (dbOrg.campus_nodes_json) {
+          try {
+            const parsed = JSON.parse(dbOrg.campus_nodes_json);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              setNodes(parsed);
+              if (typeof window !== 'undefined') {
+                localStorage.setItem(`ecoestate-campus-nodes-${orgKey}`, dbOrg.campus_nodes_json);
+              }
+            }
+          } catch (e) {}
+        }
+      }
+    });
+  }, [activeOrg?.id, orgKey]);
+
+  // Persistence to local cache & NeonDB
   useEffect(() => {
     if (typeof window !== 'undefined' && nodes.length > 0) {
       localStorage.setItem(`ecoestate-campus-nodes-${orgKey}`, JSON.stringify(nodes));
@@ -385,6 +426,7 @@ export const Campus3DTab: React.FC = () => {
       localStorage.setItem(`ecoestate-campus-image-${orgKey}`, campusImage);
     }
   }, [campusImage, orgKey]);
+
 
   // Canvas Mouse Down for Panning
   const handleCanvasMouseDown = (e: React.MouseEvent) => {
@@ -491,6 +533,10 @@ export const Campus3DTab: React.FC = () => {
           const newImg = event.target.result as string;
           setCampusImage(newImg);
           setShowUploadModal(false);
+          // Persist uploaded image to NeonDB so ALL users in this organization see it!
+          if (activeOrg?.id) {
+            DjangoApi.updateCampusTwin(activeOrg.id, { campus_image_url: newImg });
+          }
           // Automatically seed smart points across the newly uploaded image!
           handleRunAiAutoDetect();
         }
@@ -503,11 +549,18 @@ export const Campus3DTab: React.FC = () => {
     e.preventDefault();
     if (!editingNode) return;
 
+    let updatedNodes: CampusNode[] = [];
     const exists = nodes.find((n) => n.id === editingNode.id);
     if (exists) {
-      setNodes((prev) => prev.map((n) => (n.id === editingNode.id ? ({ ...n, ...editingNode } as CampusNode) : n)));
+      updatedNodes = nodes.map((n) => (n.id === editingNode.id ? ({ ...n, ...editingNode } as CampusNode) : n));
     } else {
-      setNodes((prev) => [...prev, editingNode as CampusNode]);
+      updatedNodes = [...nodes, editingNode as CampusNode];
+    }
+    setNodes(updatedNodes);
+
+    // Persist node updates to NeonDB so ALL users in this organization see them!
+    if (activeOrg?.id) {
+      DjangoApi.updateCampusTwin(activeOrg.id, { campus_nodes_json: JSON.stringify(updatedNodes) });
     }
 
     setShowNodeModal(false);
@@ -515,8 +568,14 @@ export const Campus3DTab: React.FC = () => {
   };
 
   const handleDeleteNode = (id: string) => {
-    setNodes((prev) => prev.filter((n) => n.id !== id));
+    const updatedNodes = nodes.filter((n) => n.id !== id);
+    setNodes(updatedNodes);
     if (selectedNode?.id === id) setSelectedNode(null);
+
+    // Persist node removal to NeonDB
+    if (activeOrg?.id) {
+      DjangoApi.updateCampusTwin(activeOrg.id, { campus_nodes_json: JSON.stringify(updatedNodes) });
+    }
   };
 
   const handleResetDefaults = () => {
@@ -528,7 +587,16 @@ export const Campus3DTab: React.FC = () => {
     setPanOffset({ x: 0, y: 0 });
     setTiltPitch(0);
     setIs3DMode(false);
+
+    // Reset twin config in NeonDB
+    if (activeOrg?.id) {
+      DjangoApi.updateCampusTwin(activeOrg.id, {
+        campus_image_url: baseImg,
+        campus_nodes_json: JSON.stringify(baseNodes),
+      });
+    }
   };
+
 
   // Filter nodes according to selected category
   const filteredNodes = nodes.filter((n) => {

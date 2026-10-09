@@ -56,7 +56,10 @@ export interface BackendOrg {
   sustainability_score: number;
   carbon_target_reduction_pct: number;
   description: string;
+  campus_image_url?: string;
+  campus_nodes_json?: string;
 }
+
 
 export const DjangoApi = {
   // Fetch all organizations from NeonDB
@@ -87,7 +90,25 @@ export const DjangoApi = {
     }
   },
 
+  // Update 3D Twin Campus Image and Nodes in NeonDB
+  async updateCampusTwin(orgId: string | number, payload: { campus_image_url?: string; campus_nodes_json?: string }): Promise<BackendOrg | null> {
+    try {
+      const numericId = String(orgId).replace(/^org-/, '');
+      const res = await fetch(`${API_BASE_URL}/organizations/${numericId}/`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error('Failed to update 3D twin in Django');
+      return await res.json();
+    } catch (err) {
+      console.error('Error updating 3D campus twin in NeonDB:', err);
+      return null;
+    }
+  },
+
   // Predict Energy Load via Python AI Engine
+
   async predictEnergy(baseLoadKw: number, tempC: number, occupancy: number, maxOcc: number) {
     try {
       const res = await fetch(`${API_BASE_URL}/predict/energy-load/`, {
