@@ -92,11 +92,11 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen relative flex flex-col justify-between p-4 sm:p-6 md:p-8 bg-white dark:bg-[#070b16] text-slate-900 dark:text-slate-100 overflow-hidden font-sans select-none transition-colors duration-300">
-      {/* Subtle Ambient Glows */}
-      <div className="absolute -top-32 -left-32 w-72 sm:w-[500px] h-72 sm:h-[500px] bg-emerald-500/15 dark:bg-emerald-500/10 rounded-full blur-[100px] sm:blur-[130px] pointer-events-none animate-pulse-slow" />
-      <div className="absolute top-1/2 -right-32 w-72 sm:w-[450px] h-72 sm:h-[450px] bg-indigo-500/15 dark:bg-indigo-600/10 rounded-full blur-[100px] sm:blur-[140px] pointer-events-none" />
-      <div className="absolute -bottom-32 left-1/3 w-72 sm:w-[450px] h-72 sm:h-[450px] bg-cyan-500/15 dark:bg-cyan-500/10 rounded-full blur-[100px] sm:blur-[150px] pointer-events-none" />
+    <div className="min-h-screen relative flex flex-col justify-between p-4 sm:p-6 md:p-8 bg-[#fbf8f3] dark:bg-[#030408] text-stone-900 dark:text-slate-100 overflow-hidden font-sans select-none transition-colors duration-300">
+      {/* Aesthetic Ambient Glows */}
+      <div className="absolute -top-32 -left-32 w-72 sm:w-[500px] h-72 sm:h-[500px] bg-amber-500/10 dark:bg-cyan-500/15 rounded-full blur-[100px] sm:blur-[130px] pointer-events-none animate-pulse-slow" />
+      <div className="absolute top-1/2 -right-32 w-72 sm:w-[450px] h-72 sm:h-[450px] bg-orange-500/8 dark:bg-indigo-600/15 rounded-full blur-[100px] sm:blur-[140px] pointer-events-none" />
+      <div className="absolute -bottom-32 left-1/3 w-72 sm:w-[450px] h-72 sm:h-[450px] bg-emerald-500/10 dark:bg-emerald-500/15 rounded-full blur-[100px] sm:blur-[150px] pointer-events-none" />
 
       {/* Top Header */}
       <header className="relative z-10 max-w-6xl w-full mx-auto flex items-center justify-between">
@@ -108,23 +108,24 @@ export const LoginPage: React.FC = () => {
         <button
           onClick={toggleTheme}
           aria-label="Toggle Theme"
-          className="p-2 sm:p-2.5 rounded-2xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:border-emerald-500 transition-all shadow-sm"
+          title={theme === 'dark' ? 'Switch to Skin Light Mode' : 'Switch to Vibrant Black Dark Mode'}
+          className="p-2 sm:p-2.5 rounded-2xl bg-[#f5efe6] dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] text-stone-700 dark:text-slate-200 hover:border-cyan-500 transition-all shadow-sm cursor-pointer"
         >
           {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-indigo-600" />}
         </button>
       </header>
 
-      {/* Clean Centered Card without autofill button */}
+      {/* Clean Centered Card */}
       <main className="relative z-10 w-full max-w-[420px] mx-auto my-auto py-6 sm:py-8">
-        <div className="rounded-3xl bg-white dark:bg-[#0e1628]/95 border border-slate-200/90 dark:border-slate-800/90 shadow-xl dark:shadow-[0_20px_50px_-15px_rgba(0,0,0,0.7)] backdrop-blur-2xl p-6 sm:p-8 space-y-6">
+        <div className="rounded-3xl bg-[#f5efe6]/95 dark:bg-[#07080e]/95 border border-[#ece3d6] dark:border-[#151722] shadow-xl dark:shadow-[0_25px_60px_-15px_rgba(0,0,0,0.95),0_0_35px_rgba(6,182,212,0.12)] backdrop-blur-2xl p-6 sm:p-8 space-y-6">
           
           {/* Title Header */}
           <div className="text-center space-y-1.5">
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-stone-900 dark:text-white">
               Sign In
             </h1>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Enter your assigned institutional email & password
+            <p className="text-xs text-stone-500 dark:text-slate-400">
+              Enter your assigned institutional email &amp; password
             </p>
           </div>
 
@@ -138,18 +139,18 @@ export const LoginPage: React.FC = () => {
 
             {/* Email Field */}
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              <label className="text-xs font-semibold text-stone-700 dark:text-slate-300">
                 Email Address:
               </label>
               <div className="relative">
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <Mail className="w-4 h-4 text-stone-400 dark:text-slate-500 absolute left-3.5 top-3" />
                 <input
                   type="email"
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="admin@estate.gov.in"
-                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-xs placeholder:text-slate-400 focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-all"
+                  className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-[#f8f4ed] dark:bg-[#030408] text-stone-900 dark:text-white text-xs placeholder:text-stone-400 dark:placeholder:text-slate-600 focus:ring-2 focus:ring-cyan-500 dark:focus:ring-cyan-400 focus:outline-none transition-all"
                 />
               </div>
             </div>
@@ -157,31 +158,31 @@ export const LoginPage: React.FC = () => {
             {/* Password Field */}
             <div className="space-y-1.5">
               <div className="flex justify-between items-center">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                <label className="text-xs font-semibold text-stone-700 dark:text-slate-300">
                   Password:
                 </label>
                 <button
                   type="button"
                   onClick={handleOpenForgotModal}
-                  className="text-[11px] text-emerald-600 dark:text-emerald-400 hover:underline cursor-pointer bg-transparent border-0 p-0 font-medium"
+                  className="text-[11px] text-cyan-700 dark:text-cyan-400 hover:underline cursor-pointer bg-transparent border-0 p-0 font-medium"
                 >
                   Forgot?
                 </button>
               </div>
               <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                <Lock className="w-4 h-4 text-stone-400 dark:text-slate-500 absolute left-3.5 top-3" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••••••"
-                  className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-xs placeholder:text-slate-400 focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-all"
+                  className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-[#f8f4ed] dark:bg-[#030408] text-stone-900 dark:text-white text-xs placeholder:text-stone-400 dark:placeholder:text-slate-600 focus:ring-2 focus:ring-cyan-500 dark:focus:ring-cyan-400 focus:outline-none transition-all font-mono"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-3 text-slate-400 hover:text-slate-600 dark:hover:text-white"
+                  className="absolute right-3.5 top-3 text-stone-400 dark:text-slate-500 hover:text-stone-700 dark:hover:text-white cursor-pointer"
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
@@ -192,7 +193,7 @@ export const LoginPage: React.FC = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 dark:bg-emerald-500 dark:hover:bg-emerald-400 text-white dark:text-slate-950 font-extrabold text-xs shadow-lg shadow-emerald-500/25 flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-70 mt-2 cursor-pointer"
+              className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 dark:from-cyan-400 dark:via-teal-400 dark:to-emerald-400 dark:hover:from-cyan-300 dark:hover:to-emerald-300 text-white dark:text-slate-950 font-black text-xs shadow-lg shadow-cyan-500/25 dark:shadow-[0_0_25px_rgba(6,182,212,0.35)] flex items-center justify-center gap-2 transition-all transform hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-70 mt-2 cursor-pointer"
             >
               {isLoading ? (
                 <span className="inline-block w-4 h-4 border-2 border-white dark:border-slate-950 border-t-transparent rounded-full animate-spin" />
@@ -210,17 +211,17 @@ export const LoginPage: React.FC = () => {
       {/* Forgot Password Modal Dialog */}
       {showForgotModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-150">
-          <div className="w-full max-w-md p-6 sm:p-7 rounded-3xl bg-white dark:bg-[#0c1222] border border-slate-200 dark:border-slate-800 shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-200 dark:border-slate-800/80">
+          <div className="w-full max-w-md p-6 sm:p-7 rounded-3xl bg-[#f5efe6] dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-2xl space-y-5 animate-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-3 border-b border-[#ece3d6] dark:border-[#151722]">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                <div className="w-9 h-9 rounded-2xl bg-cyan-500/10 border border-cyan-500/25 text-cyan-600 dark:text-cyan-400 flex items-center justify-center">
                   <KeyRound className="w-4 h-4" />
                 </div>
                 <div>
-                  <h3 className="text-base font-extrabold text-slate-900 dark:text-white">
+                  <h3 className="text-base font-extrabold text-stone-900 dark:text-white">
                     Reset Account Password
                   </h3>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  <p className="text-[11px] text-stone-500 dark:text-slate-400">
                     EcoEstate India Verified Credential Recovery
                   </p>
                 </div>
@@ -228,13 +229,13 @@ export const LoginPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setShowForgotModal(false)}
-                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-700 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                className="p-1.5 rounded-xl text-stone-400 hover:text-stone-700 dark:hover:text-white hover:bg-[#ece3d6] dark:hover:bg-slate-800 transition-colors cursor-pointer"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-xs text-slate-600 dark:text-slate-300 leading-relaxed">
+            <p className="text-xs text-stone-600 dark:text-slate-300 leading-relaxed">
               Enter your registered organizational email address. We will verify your account in the database and immediately dispatch a secure password reset link to your email.
             </p>
 
@@ -261,18 +262,18 @@ export const LoginPage: React.FC = () => {
               {!forgotStatus?.success && (
                 <>
                   <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                    <label className="text-xs font-bold text-stone-700 dark:text-slate-300">
                       Registered Email Address:
                     </label>
                     <div className="relative">
-                      <Mail className="w-4 h-4 text-slate-400 absolute left-3.5 top-3" />
+                      <Mail className="w-4 h-4 text-stone-400 dark:text-slate-500 absolute left-3.5 top-3" />
                       <input
                         type="email"
                         required
                         value={forgotEmail}
                         onChange={(e) => setForgotEmail(e.target.value)}
                         placeholder="admin@estate.gov.in"
-                        className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-white text-xs placeholder:text-slate-400 focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-all"
+                        className="w-full pl-10 pr-3.5 py-2.5 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-[#f8f4ed] dark:bg-[#030408] text-stone-900 dark:text-white text-xs placeholder:text-stone-400 dark:placeholder:text-slate-600 focus:ring-2 focus:ring-cyan-500 focus:outline-none transition-all"
                       />
                     </div>
                   </div>
@@ -281,7 +282,7 @@ export const LoginPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => setShowForgotModal(false)}
-                      className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                      className="px-4 py-2.5 rounded-xl border border-[#ece3d6] dark:border-[#181a28] text-stone-700 dark:text-slate-300 text-xs font-bold hover:bg-[#ece3d6] dark:hover:bg-[#121422] transition-colors cursor-pointer"
                     >
                       Cancel
                     </button>
@@ -289,7 +290,7 @@ export const LoginPage: React.FC = () => {
                     <button
                       type="submit"
                       disabled={isForgotLoading || !forgotEmail.trim()}
-                      className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-md shadow-emerald-500/25 flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
+                      className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 hover:from-cyan-500 hover:to-indigo-500 dark:from-cyan-400 dark:to-emerald-400 text-white dark:text-slate-950 font-extrabold text-xs shadow-md shadow-cyan-500/25 flex items-center gap-2 transition-all cursor-pointer disabled:opacity-50"
                     >
                       {isForgotLoading ? (
                         <span className="inline-block w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -309,7 +310,7 @@ export const LoginPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => setShowForgotModal(false)}
-                    className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer"
+                    className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-indigo-600 text-white font-extrabold text-xs shadow-md transition-all cursor-pointer"
                   >
                     Back to Sign In
                   </button>
@@ -321,9 +322,9 @@ export const LoginPage: React.FC = () => {
       )}
 
       {/* Footer */}
-      <footer className="relative z-10 max-w-6xl w-full mx-auto flex flex-col sm:flex-row items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 gap-2 text-center sm:text-left">
-        <span>EcoEstate India • Sustainable Facility & Estate Intelligence Platform</span>
-        <span>Aligned with CPCB & GRIHA Standards</span>
+      <footer className="relative z-10 max-w-6xl w-full mx-auto flex flex-col sm:flex-row items-center justify-between text-[11px] text-stone-500 dark:text-slate-500 gap-2 text-center sm:text-left">
+        <span>EcoEstate India • Sustainable Facility &amp; Estate Intelligence Platform</span>
+        <span>Aligned with CPCB &amp; GRIHA Standards</span>
       </footer>
     </div>
   );
