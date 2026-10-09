@@ -1,0 +1,131 @@
+'use client';
+
+import React from 'react';
+import { useAuth } from '@/context/AuthContext';
+import { getSustainabilityScorecard } from '@/data/mockData';
+import {
+  Award,
+  Leaf,
+  ShieldCheck,
+  CheckCircle2,
+  TrendingUp,
+  Download,
+  FileCheck,
+  Star,
+} from 'lucide-react';
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  Legend,
+} from 'recharts';
+
+import { Organization } from '@/types';
+
+interface ScorecardTabProps {
+  org?: Organization;
+}
+
+export const ScorecardTab: React.FC<ScorecardTabProps> = ({ org }) => {
+  const { activeOrg: contextOrg } = useAuth();
+  const activeOrg = org || contextOrg;
+  if (!activeOrg) return null;
+
+  const card = getSustainabilityScorecard(activeOrg);
+
+  return (
+    <div className="space-y-6 animate-in fade-in duration-200">
+      {/* Header */}
+      <div className="p-6 rounded-3xl bg-gradient-to-r from-emerald-950 via-slate-900 to-slate-950 border border-emerald-800/40 text-white flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 mb-1">
+            <Award className="w-4 h-4" /> National Green Estate Rating (GRIHA / LEED / BEE Star Protocol)
+          </div>
+          <h1 className="text-2xl font-extrabold">ESG Sustainability Scorecard & Compliance</h1>
+          <p className="text-xs text-slate-300 mt-1">
+            Certified sustainability performance benchmarks for {activeOrg.name}
+          </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-1 p-3 rounded-2xl bg-white/10 border border-white/15 text-amber-300">
+            {[...Array(card.grihaStars)].map((_, i) => (
+              <Star key={i} className="w-5 h-5 fill-amber-400 text-amber-400" />
+            ))}
+            <span className="text-xs font-bold text-white ml-1">{card.grihaStars}-Star GRIHA</span>
+          </div>
+
+          <button
+            onClick={() => alert('Exporting Certified ESG Audit Report PDF for ' + activeOrg.name)}
+            className="px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 transition-all shadow-md shadow-emerald-600/30"
+          >
+            <Download className="w-4 h-4" /> Export ESG Audit PDF
+          </button>
+        </div>
+      </div>
+
+      {/* 4 Summary Score Badges */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="p-5 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-2">
+          <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Overall Sustainability Score</span>
+          <p className="text-4xl font-extrabold text-emerald-500">{card.overallScore}<span className="text-lg font-normal text-stone-400 dark:text-slate-500"> / 100</span></p>
+          <p className="text-xs text-emerald-600 dark:text-emerald-400 font-bold">Grade: {card.esgRating} (Top Decile in India)</p>
+        </div>
+
+        <div className="p-5 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-2">
+          <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Renewable Energy Share</span>
+          <p className="text-4xl font-extrabold text-amber-500">{card.renewableEnergySharePct}%</p>
+          <p className="text-xs text-stone-400 dark:text-slate-500">Target: 50% by 2028</p>
+        </div>
+
+        <div className="p-5 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-2">
+          <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Water Circularity Loop</span>
+          <p className="text-4xl font-extrabold text-cyan-500">{card.waterNeutralityPct}%</p>
+          <p className="text-xs text-stone-400 dark:text-slate-500">STP Treated Water Reuse Ratio</p>
+        </div>
+
+        <div className="p-5 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-2">
+          <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Waste Landfill Diversion</span>
+          <p className="text-4xl font-extrabold text-purple-500">{card.wasteDiversionPct}%</p>
+          <p className="text-xs text-stone-400 dark:text-slate-500">Segregated at Source</p>
+        </div>
+      </div>
+
+      {/* Category Breakdown vs National Benchmark */}
+      <div className="p-6 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-4">
+        <div>
+          <h2 className="font-bold text-sm text-stone-900 dark:text-white">
+            Category-wise Performance vs Indian National Facility Average (Out of 100)
+          </h2>
+          <p className="text-xs text-stone-500 dark:text-slate-400">
+            Evaluated according to Central Pollution Control Board (CPCB) and Bureau of Energy Efficiency (BEE) guidelines.
+          </p>
+        </div>
+
+        <div className="h-80 w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={card.breakdown} layout="vertical">
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} />
+              <XAxis type="number" domain={[0, 100]} stroke="#94a3b8" fontSize={11} />
+              <YAxis dataKey="category" type="category" width={180} stroke="#94a3b8" fontSize={11} />
+              <Tooltip
+                contentStyle={{ backgroundColor: '#07080e', borderRadius: '12px', border: '1px solid #151722', color: '#ffffff' }}
+                itemStyle={{ color: '#ffffff', fontWeight: 700 }}
+                labelStyle={{ color: '#38bdf8', fontWeight: 700 }}
+              />
+              <Legend />
+              <Bar dataKey="score" name="Estate Score" fill="#10b981" radius={[0, 6, 6, 0]} />
+              <Bar dataKey="benchmarkIndiaAvg" name="Indian National Average" fill="#64748b" radius={[0, 6, 6, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default ScorecardTab;

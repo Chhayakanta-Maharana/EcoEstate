@@ -1,0 +1,59 @@
+# Node dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Next.js build output & cache
+.next/
+out/
+build/
+dist/
+
+# TypeScript cache
+*.tsbuildinfo
+next-env.d.ts
+
+# Python / Django
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Django staticfiles collected & sqlite
+backend/staticfiles/
+backend/__pycache__/
+backend/api/__pycache__/
+backend/ecoestate_backend/__pycache__/
+*.sqlite3
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+*.log
+
+# Editor & OS files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db

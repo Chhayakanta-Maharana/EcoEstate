@@ -1,0 +1,132 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Aesthetic warm skin & porcelain tone */
+    --background: #fbf8f3;
+    --foreground: #1c1917;
+    --card: #ffffff;
+    --card-foreground: #1c1917;
+    --border: #ece3d6;
+  }
+
+  html.dark {
+    /* Aesthetic deep obsidian & AMOLED black */
+    --background: #020305;
+    --foreground: #f8fafc;
+    --card: #07080e;
+    --card-foreground: #f8fafc;
+    --border: #151722;
+  }
+
+  body {
+    @apply bg-[#fbf8f3] text-stone-900 antialiased selection:bg-emerald-500 selection:text-white dark:bg-[#020305] dark:text-slate-100 transition-colors duration-200 min-h-screen;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+/* Custom aesthetic scrollbars */
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.4);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: rgba(50, 55, 75, 0.6);
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: rgba(80, 88, 120, 0.9);
+}
+
+/* Hide scrollbar utility */
+.no-scrollbar::-webkit-scrollbar {
+  display: none !important;
+}
+.no-scrollbar {
+  -ms-overflow-style: none !important;
+  scrollbar-width: none !important;
+}
+
+/* Recharts Global Tooltip Overrides (High-contrast, crystal clear in both light and dark modes) */
+.recharts-default-tooltip {
+  border-radius: 0.75rem !important;
+  border: 1px solid #1f2438 !important;
+  background-color: #080912 !important;
+  color: #ffffff !important;
+  padding: 8px 12px !important;
+  box-shadow: 0 10px 30px -3px rgba(0, 0, 0, 0.75) !important;
+}
+
+.recharts-default-tooltip *,
+.recharts-tooltip-item,
+.recharts-tooltip-item-name,
+.recharts-tooltip-item-value,
+.recharts-tooltip-label {
+  color: #ffffff !important;
+  font-weight: 700 !important;
+  font-size: 11px !important;
+  line-height: 1.4 !important;
+}
+
+.recharts-tooltip-item-name {
+  color: #38bdf8 !important; /* Sharp cyan property name */
+}
+
+.recharts-tooltip-item-value {
+  color: #ffffff !important; /* Pure white crisp values */
+  font-weight: 800 !important;
+  margin-left: 4px !important;
+}
+
+.recharts-tooltip-label {
+  color: #fbbf24 !important; /* Warm amber label header */
+  font-size: 11px !important;
+  font-weight: 800 !important;
+  margin-bottom: 3px !important;
+}
+
+/* Light mode tooltip styling */
+html:not(.dark) .recharts-default-tooltip {
+  background-color: #ffffff !important;
+  border: 1px solid #e0d5c5 !important;
+  color: #1c1917 !important;
+  box-shadow: 0 10px 25px -4px rgba(0, 0, 0, 0.15) !important;
+}
+
+html:not(.dark) .recharts-default-tooltip *,
+html:not(.dark) .recharts-tooltip-item,
+html:not(.dark) .recharts-tooltip-item-value,
+html:not(.dark) .recharts-tooltip-label {
+  color: #1c1917 !important;
+  font-weight: 700 !important;
+}
+
+html:not(.dark) .recharts-tooltip-item-name {
+  color: #0284c7 !important; /* Crisp blue property name in light mode */
+}
+
+html:not(.dark) .recharts-tooltip-item-value {
+  color: #0f172a !important; /* Dark bold value */
+  font-weight: 800 !important;
+}
+
+html:not(.dark) .recharts-tooltip-label {
+  color: #d97706 !important; /* Deep amber header in light mode */
+  font-weight: 800 !important;
+}
