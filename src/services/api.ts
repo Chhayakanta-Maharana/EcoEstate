@@ -1,5 +1,13 @@
 export function getApiBaseUrl(): string {
-  const envUrl = process.env.NEXT_PUBLIC_API_URL;
+  let envUrl = process.env.NEXT_PUBLIC_API_URL;
+  
+  if (envUrl) {
+    envUrl = envUrl.trim().replace(/\/+$/, '');
+    if (!envUrl.endsWith('/api')) {
+      envUrl = `${envUrl}/api`;
+    }
+  }
+
   if (typeof window !== 'undefined') {
     const hostname = window.location.hostname;
     const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
@@ -7,14 +15,14 @@ export function getApiBaseUrl(): string {
     // In browser in production (e.g. on eco-estate-delta.vercel.app or any domain other than localhost)
     if (!isLocal) {
       if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
-        return envUrl.replace(/\/+$/, '');
+        return envUrl;
       }
       return 'https://ecoestate.onrender.com/api';
     }
   }
 
   if (envUrl) {
-    return envUrl.replace(/\/+$/, '');
+    return envUrl;
   }
 
   if (process.env.NODE_ENV === 'production') {
@@ -23,6 +31,7 @@ export function getApiBaseUrl(): string {
 
   return 'http://127.0.0.1:8000/api';
 }
+
 
 const API_BASE_URL: string = ({
   toString: () => getApiBaseUrl(),

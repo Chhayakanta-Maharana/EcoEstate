@@ -1,17 +1,80 @@
+import os
+import requests
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from django.conf import settings
 
+def send_email_http_api(to_email: str, subject: str, html_content: str, text_content: str, sender_email: str = None) -> bool:
+    """
+    Sends email over HTTPS REST API (Port 443) using Resend or SendGrid API.
+    Bypasses cloud provider SMTP port blocking (Render/Vercel/AWS).
+    """
+    resend_api_key = os.environ.get('RESEND_API_KEY')
+    sendgrid_api_key = os.environ.get('SENDGRID_API_KEY')
+    from_address = sender_email or getattr(settings, 'DEFAULT_FROM_EMAIL', 'EcoEstate India <onboarding@resend.dev>')
+
+    # 1. Try Resend API if key available
+    if resend_api_key:
+        try:
+            url = "https://api.resend.com/emails"
+            headers = {
+                "Authorization": f"Bearer {resend_api_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "from": "EcoEstate India <onboarding@resend.dev>",
+                "to": [to_email],
+                "subject": subject,
+                "html": html_content,
+                "text": text_content
+            }
+            resp = requests.post(url, json=payload, headers=headers, timeout=8)
+            if resp.status_code in (200, 201, 202):
+                print(f"[HTTP_API_SUCCESS] Email sent to {to_email} via Resend REST API (Status {resp.status_code})")
+                return True
+            else:
+                print(f"[HTTP_API_WARNING] Resend REST API returned {resp.status_code}: {resp.text}")
+        except Exception as e:
+            print(f"[HTTP_API_ERROR] Resend API request failed: {e}")
+
+    # 2. Try SendGrid API if key available
+    if sendgrid_api_key:
+        try:
+            url = "https://api.sendgrid.com/v3/mail/send"
+            headers = {
+                "Authorization": f"Bearer {sendgrid_api_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "personalizations": [{"to": [{"email": to_email}]}],
+                "from": {"email": "chhayakantamaharan@gmail.com", "name": "EcoEstate India"},
+                "subject": subject,
+                "content": [
+                    {"type": "text/plain", "value": text_content},
+                    {"type": "text/html", "value": html_content}
+                ]
+            }
+            resp = requests.post(url, json=payload, headers=headers, timeout=8)
+            if resp.status_code in (200, 201, 202):
+                print(f"[HTTP_API_SUCCESS] Email sent to {to_email} via SendGrid REST API (Status {resp.status_code})")
+                return True
+            else:
+                print(f"[HTTP_API_WARNING] SendGrid REST API returned {resp.status_code}: {resp.text}")
+        except Exception as e:
+            print(f"[HTTP_API_ERROR] SendGrid API request failed: {e}")
+
+    return False
+
 def get_smtp_connection(sender_email, sender_password):
     """
     Robust cloud SMTP connector: tries Port 465 SSL first (standard for Gmail),
     then falls back to Port 587 STARTTLS.
-    Uses short timeouts (5s) so worker threads never get blocked indefinitely.
+    Uses short timeouts (3s) so worker threads never get blocked indefinitely on Render.
     """
     # 1. Try Port 465 SSL first
     try:
-        server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=5)
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=3)
         server.login(sender_email, sender_password)
         print("[SMTP] Connected via Port 465 SSL successfully.")
         return server
@@ -20,7 +83,7 @@ def get_smtp_connection(sender_email, sender_password):
 
     # 2. Try Port 587 STARTTLS
     try:
-        server = smtplib.SMTP('smtp.gmail.com', 587, timeout=5)
+        server = smtplib.SMTP('smtp.gmail.com', 587, timeout=3)
         server.ehlo()
         server.starttls()
         server.ehlo()
@@ -28,8 +91,42 @@ def get_smtp_connection(sender_email, sender_password):
         print("[SMTP] Connected via Port 587 STARTTLS successfully.")
         return server
     except Exception as e587:
-        print(f"[SMTP_587_ERROR] Both Port 465 and Port 587 failed ({e587}).")
+        print(f"[SMTP_587_ERROR] Both Port 465 and Port 587 failed ({e587}). Cloud SMTP ports may be blocked.")
         raise
+
+def send_email_with_fallbacks(to_email: str, subject: str, html_content: str, text_content: str, sender_email: str = None, sender_password: str = None) -> bool:
+    """
+    Tries HTTPS REST API first (Resend / SendGrid), then falls back to SMTP (Gmail SSL / STARTTLS).
+    Ensures zero blocking on Render / Vercel cloud environments.
+    """
+    # 1. First attempt HTTP REST API (Port 443)
+    if send_email_http_api(to_email, subject, html_content, text_content, sender_email):
+        return True
+
+    # 2. Fallback to SMTP (Port 465 / 587)
+    s_email = sender_email or getattr(settings, 'EMAIL_HOST_USER', 'chhayakantamaharan@gmail.com')
+    s_pwd = sender_password or getattr(settings, 'EMAIL_HOST_PASSWORD', 'miapcthmikywftlt')
+    
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From'] = f"EcoEstate India <{s_email}>"
+        msg['To'] = to_email
+
+        part1 = MIMEText(text_content, 'plain')
+        part2 = MIMEText(html_content, 'html')
+        msg.attach(part1)
+        msg.attach(part2)
+
+        server = get_smtp_connection(s_email, s_pwd)
+        server.sendmail(s_email, [to_email], msg.as_string())
+        server.quit()
+        print(f"[EMAIL_DISPATCH_SUCCESS] Email sent to {to_email} via SMTP.")
+        return True
+    except Exception as e:
+        print(f"[EMAIL_DISPATCH_ERROR] Both HTTP API and SMTP failed for {to_email}: {e}")
+        return False
+
 
 def send_admin_credentials_email(
     admin_name: str,
@@ -258,25 +355,14 @@ def send_admin_credentials_email(
     EcoEstate India Platform
     """
 
-    try:
-        msg = MIMEMultipart('alternative')
-        msg['Subject'] = subject
-        msg['From'] = f"EcoEstate India <{sender_email}>"
-        msg['To'] = admin_email
-
-        part1 = MIMEText(text_content, 'plain')
-        part2 = MIMEText(html_content, 'html')
-        msg.attach(part1)
-        msg.attach(part2)
-
-        server = get_smtp_connection(sender_email, sender_password)
-        server.sendmail(sender_email, [admin_email], msg.as_string())
-        server.quit()
-        print(f"[EMAIL_DISPATCH_SUCCESS] Credentials email dispatched to {admin_email} for {org_name}")
-        return True
-    except Exception as e:
-        print(f"[EMAIL_DISPATCH_ERROR] Failed to send email to {admin_email}: {e}")
-        return False
+    return send_email_with_fallbacks(
+        to_email=admin_email,
+        subject=subject,
+        html_content=html_content,
+        text_content=text_content,
+        sender_email=sender_email,
+        sender_password=sender_password
+    )
 
 
 def send_user_role_assignment_email(
@@ -535,25 +621,14 @@ def send_user_role_assignment_email(
     EcoEstate India Platform
     """
 
-    try:
-        msg = MIMEMultipart('alternative')
-        msg['Subject'] = subject
-        msg['From'] = f"EcoEstate India <{sender_email}>"
-        msg['To'] = user_email
-
-        part1 = MIMEText(text_content, 'plain')
-        part2 = MIMEText(html_content, 'html')
-        msg.attach(part1)
-        msg.attach(part2)
-
-        server = get_smtp_connection(sender_email, sender_password)
-        server.sendmail(sender_email, [user_email], msg.as_string())
-        server.quit()
-        print(f"[EMAIL_DISPATCH_SUCCESS] Role assignment & credentials email dispatched to {user_email} (Role: {role_label})")
-        return True
-    except Exception as e:
-        print(f"[EMAIL_DISPATCH_ERROR] Failed to send role email to {user_email}: {e}")
-        return False
+    return send_email_with_fallbacks(
+        to_email=user_email,
+        subject=subject,
+        html_content=html_content,
+        text_content=text_content,
+        sender_email=sender_email,
+        sender_password=sender_password
+    )
 
 
 def send_password_reset_email(
@@ -722,24 +797,13 @@ def send_password_reset_email(
     EcoEstate India Security Team
     """
 
-    try:
-        msg = MIMEMultipart('alternative')
-        msg['Subject'] = subject
-        msg['From'] = f"EcoEstate India <{sender_email}>"
-        msg['To'] = user_email
-
-        part1 = MIMEText(text_content, 'plain')
-        part2 = MIMEText(html_content, 'html')
-        msg.attach(part1)
-        msg.attach(part2)
-
-        server = get_smtp_connection(sender_email, sender_password)
-        server.sendmail(sender_email, [user_email], msg.as_string())
-        server.quit()
-        print(f"[EMAIL_DISPATCH_SUCCESS] Password reset email dispatched to {user_email}")
-        return True
-    except Exception as e:
-        print(f"[EMAIL_DISPATCH_ERROR] Failed to send password reset email to {user_email}: {e}")
-        return False
+    return send_email_with_fallbacks(
+        to_email=user_email,
+        subject=subject,
+        html_content=html_content,
+        text_content=text_content,
+        sender_email=sender_email,
+        sender_password=sender_password
+    )
 
 
