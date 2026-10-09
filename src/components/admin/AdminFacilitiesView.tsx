@@ -20,15 +20,19 @@ import {
   Mail,
   Send,
   Sparkles,
+  Edit3,
 } from 'lucide-react';
+import { Organization } from '@/types';
 
 export const AdminFacilitiesView: React.FC = () => {
-  const { organizations, createOrganization, deleteOrganization, sendCredentialsEmail } = useAuth();
+  const { organizations, createOrganization, updateOrganization, deleteOrganization, sendCredentialsEmail, addNotification } = useAuth();
   const [showProvisionModal, setShowProvisionModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingOrg, setEditingOrg] = useState<Organization | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [sendingEmailOrgId, setSendingEmailOrgId] = useState<string | null>(null);
 
-  // Form state
+  // Provision Form state
   const [orgName, setOrgName] = useState('');
   const [facilityType, setFacilityType] = useState<'HOSPITAL' | 'COLLEGE' | 'PSU' | 'INDUSTRY' | 'MUNICIPAL'>('COLLEGE');
   const [city, setCity] = useState('');
@@ -38,9 +42,68 @@ export const AdminFacilitiesView: React.FC = () => {
   const [adminPassword, setAdminPassword] = useState('estate@2026');
   const [iotGatewayIp, setIotGatewayIp] = useState('192.168.20.1');
 
+  // Edit Form state
+  const [editName, setEditName] = useState('');
+  const [editType, setEditType] = useState<'HOSPITAL' | 'COLLEGE' | 'PSU' | 'INDUSTRY' | 'MUNICIPAL'>('COLLEGE');
+  const [editCity, setEditCity] = useState('');
+  const [editState, setEditState] = useState('');
+  const [editAdminName, setEditAdminName] = useState('');
+  const [editAdminEmail, setEditAdminEmail] = useState('');
+  const [editAdminPassword, setEditAdminPassword] = useState('estate@2026');
+  const [editIotIp, setEditIotIp] = useState('');
+
   const triggerToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
+  };
+
+  const openEditModal = (org: Organization) => {
+    setEditingOrg(org);
+    setEditName(org.name);
+    setEditType(org.type);
+    setEditCity(org.city);
+    setEditState(org.state);
+    setEditAdminName(org.assignedAdminName);
+    setEditAdminEmail(org.assignedAdminEmail);
+    setEditAdminPassword(org.assignedPassword || 'estate@2026');
+    setEditIotIp(org.iotGatewayIp || '192.168.1.1');
+    setShowEditModal(true);
+  };
+
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingOrg) return;
+
+    updateOrganization(editingOrg.id, {
+      name: editName,
+      type: editType,
+      city: editCity,
+      state: editState,
+      assignedAdminName: editAdminName,
+      assignedAdminEmail: editAdminEmail,
+      assignedPassword: editAdminPassword,
+      iotGatewayIp: editIotIp,
+    });
+
+    setShowEditModal(false);
+    triggerToast(`✉️ Updated ${editName}. Dispatching onboarding email to ${editAdminEmail}...`);
+
+    try {
+      const res = await sendCredentialsEmail(editingOrg.id);
+      if (res.success) {
+        triggerToast(`✉️ Credentials successfully delivered to ${editAdminEmail}!`);
+        addNotification({
+          title: 'Estate Admin Updated & Credentials Sent',
+          message: `Onboarding credentials sent to ${editAdminEmail} for ${editName}.`,
+          type: 'EMAIL_SENT',
+          targetRole: 'SUPERADMIN',
+        });
+      } else {
+        triggerToast(`Updated ${editName}. Mail notification queued for ${editAdminEmail}.`);
+      }
+    } catch (err) {
+      console.error('Error dispatching updated credentials:', err);
+    }
   };
 
   const handleSendEmail = async (orgId: string, orgName: string, email: string) => {
@@ -48,7 +111,13 @@ export const AdminFacilitiesView: React.FC = () => {
     try {
       const res = await sendCredentialsEmail(orgId);
       if (res.success) {
-        triggerToast(`Credentials email delivered to ${email}!`);
+        triggerToast(`✉️ Credentials email delivered to ${email}!`);
+        addNotification({
+          title: 'Credentials Dispatched',
+          message: `Onboarding credentials delivered to ${email} for ${orgName}.`,
+          type: 'EMAIL_SENT',
+          targetRole: 'SUPERADMIN',
+        });
       } else {
         triggerToast(`Email delivery update: ${res.message || res.error || 'Dispatched'}`);
       }
@@ -214,8 +283,8 @@ export const AdminFacilitiesView: React.FC = () => {
                 </div>
               </div>
 
-              {/* Credentials Email & Decommission Actions */}
-              <div className="pt-2 border-t border-[#ece3d6] dark:border-[#151722] flex items-center justify-between gap-2">
+              {/* Credentials Email, Edit & Decommission Actions */}
+              <div className="pt-2 border-t border-[#ece3d6] dark:border-[#151722] flex items-center justify-between gap-2 flex-wrap">
                 <button
                   type="button"
                   onClick={() => handleSendEmail(org.id, org.name, org.assignedAdminEmail)}
@@ -224,14 +293,23 @@ export const AdminFacilitiesView: React.FC = () => {
                   className="px-2.5 py-1 rounded-xl bg-cyan-500/10 hover:bg-cyan-500 text-cyan-600 dark:text-cyan-400 hover:text-slate-950 font-bold text-[11px] border border-cyan-500/30 transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
                 >
                   <Mail className="w-3 h-3" />
-                  <span>{sendingEmailOrgId === org.id ? 'Sending...' : 'Send Credentials Email'}</span>
+                  <span>{sendingEmailOrgId === org.id ? 'Sending...' : 'Mail Creds'}</span>
                 </button>
-                <button
-                  onClick={() => handleDeleteOrg(org.id, org.name)}
-                  className="px-2.5 py-1 rounded-xl bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white font-bold text-[11px] border border-rose-500/30 transition-all cursor-pointer flex items-center gap-1"
-                >
-                  <Trash2 className="w-3 h-3" /> Decommission
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => openEditModal(org)}
+                    title="Edit estate configuration and designated administrator"
+                    className="px-2.5 py-1 rounded-xl bg-[#ece3d6] dark:bg-[#151722] hover:bg-cyan-500/20 text-stone-700 dark:text-slate-300 hover:text-cyan-400 font-bold text-[11px] border border-transparent hover:border-cyan-500/30 transition-all cursor-pointer flex items-center gap-1"
+                  >
+                    <Edit3 className="w-3 h-3" /> Edit
+                  </button>
+                  <button
+                    onClick={() => handleDeleteOrg(org.id, org.name)}
+                    className="px-2.5 py-1 rounded-xl bg-rose-500/10 hover:bg-rose-500 text-rose-500 hover:text-white font-bold text-[11px] border border-rose-500/30 transition-all cursor-pointer flex items-center gap-1"
+                  >
+                    <Trash2 className="w-3 h-3" /> Delete
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -372,6 +450,148 @@ export const AdminFacilitiesView: React.FC = () => {
                   className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 font-extrabold shadow-lg transition-all cursor-pointer"
                 >
                   Provision & Save
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Estate & Administrator Modal */}
+      {showEditModal && editingOrg && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-150">
+          <div className="w-full max-w-lg p-6 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-cyan-500/40 shadow-2xl text-stone-900 dark:text-white space-y-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-[#ece3d6] dark:border-[#151722]">
+              <div className="flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-cyan-500" />
+                <h3 className="font-bold text-base">Edit Estate &amp; Administrator</h3>
+              </div>
+              <button
+                onClick={() => setShowEditModal(false)}
+                className="p-1 rounded-lg text-stone-400 hover:text-white hover:bg-stone-800 transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleEditSubmit} className="space-y-4 text-xs">
+              <div className="space-y-1">
+                <label className="text-stone-600 dark:text-slate-400 font-semibold">Campus / Facility Name</label>
+                <input
+                  type="text"
+                  required
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-white dark:bg-[#07080e] text-stone-900 dark:text-white focus:outline-none focus:border-cyan-500"
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-stone-600 dark:text-slate-400 font-semibold">Facility Category</label>
+                  <select
+                    value={editType}
+                    onChange={(e: any) => setEditType(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-white dark:bg-[#07080e] text-stone-900 dark:text-white focus:outline-none focus:border-cyan-500"
+                  >
+                    <option value="COLLEGE">Engineering College / Univ</option>
+                    <option value="HOSPITAL">Government Hospital / Apex AIIMS</option>
+                    <option value="PSU">Public-Sector PSU Facility</option>
+                    <option value="INDUSTRY">Manufacturing Industrial Estate</option>
+                    <option value="MUNICIPAL">Municipal Urban Facility</option>
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-stone-600 dark:text-slate-400 font-semibold">City &amp; State</label>
+                  <input
+                    type="text"
+                    required
+                    value={`${editCity}${editState ? `, ${editState}` : ''}`}
+                    onChange={(e) => {
+                      const parts = e.target.value.split(',');
+                      setEditCity(parts[0]?.trim() || '');
+                      if (parts[1]) setEditState(parts[1]?.trim());
+                    }}
+                    className="w-full px-3 py-2 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-white dark:bg-[#07080e] text-stone-900 dark:text-white focus:outline-none focus:border-cyan-500"
+                  />
+                </div>
+              </div>
+
+              {/* Designated Administrator & Credentials */}
+              <div className="p-3.5 rounded-2xl bg-[#f8f4ed] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#181a28] space-y-3">
+                <p className="font-bold text-[11px] uppercase tracking-wider text-cyan-600 dark:text-cyan-400 flex items-center gap-1.5">
+                  <Mail className="w-3.5 h-3.5" /> Assigned Estate Administrator
+                </p>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-stone-600 dark:text-slate-400">Admin Full Name:</label>
+                    <input
+                      type="text"
+                      required
+                      value={editAdminName}
+                      onChange={(e) => setEditAdminName(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-white dark:bg-[#07080e] text-stone-900 dark:text-white"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-stone-600 dark:text-slate-400">Authorized Work Email:</label>
+                    <input
+                      type="email"
+                      required
+                      value={editAdminEmail}
+                      onChange={(e) => setEditAdminEmail(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-white dark:bg-[#07080e] text-stone-900 dark:text-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1">
+                    <label className="text-stone-600 dark:text-slate-400">IoT Gateway IP:</label>
+                    <input
+                      type="text"
+                      value={editIotIp}
+                      onChange={(e) => setEditIotIp(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-white dark:bg-[#07080e] font-mono"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-stone-600 dark:text-slate-400">Account Password:</label>
+                    <input
+                      type="text"
+                      value={editAdminPassword}
+                      onChange={(e) => setEditAdminPassword(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-white dark:bg-[#07080e] text-cyan-600 dark:text-cyan-400 font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Automatic Email Callout */}
+              <div className="p-3 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex items-start gap-2.5 text-xs text-cyan-900 dark:text-cyan-200">
+                <Sparkles className="w-4 h-4 text-cyan-500 flex-shrink-0 mt-0.5" />
+                <div className="space-y-0.5">
+                  <p className="font-bold">Automated Email Dispatch</p>
+                  <p className="text-[11px] text-stone-600 dark:text-slate-400 leading-relaxed">
+                    Saving these changes will immediately dispatch an onboarding email with updated credentials to <strong>{editAdminEmail}</strong> via Gmail SMTP.
+                  </p>
+                </div>
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-[#ece3d6] dark:border-[#181a28] font-bold hover:bg-[#f8f4ed] dark:hover:bg-[#121422] transition-colors cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 font-extrabold shadow-lg transition-all cursor-pointer"
+                >
+                  Save &amp; Notify Admin
                 </button>
               </div>
             </form>

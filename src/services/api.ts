@@ -233,10 +233,28 @@ export const DjangoApi = {
     }
   },
 
+  // Update organization in NeonDB
+  async updateOrganization(orgId: string | number, data: Partial<BackendOrg>): Promise<BackendOrg | null> {
+    try {
+      const cleanId = String(orgId).replace('org-', '');
+      const res = await fetch(`${API_BASE_URL}/organizations/${cleanId}/`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      if (!res.ok) throw new Error('Failed to update organization in Django');
+      return await res.json();
+    } catch (err) {
+      console.error('Error updating organization in Django NeonDB:', err);
+      return null;
+    }
+  },
+
   // Trigger sending credentials email to assigned admin
   async sendCredentialsEmail(orgId: string | number): Promise<{ success: boolean; message?: string; error?: string }> {
     try {
-      const res = await fetch(`${API_BASE_URL}/organizations/${orgId}/send-credentials/`, {
+      const cleanId = String(orgId).replace('org-', '');
+      const res = await fetch(`${API_BASE_URL}/organizations/${cleanId}/send-credentials/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });

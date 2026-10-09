@@ -16,13 +16,16 @@ import {
   Save,
   Sliders,
   FileText,
+  User,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { INITIAL_ORGANIZATIONS, DEMO_USERS } from '@/data/mockData';
 
 export const AdminSettingsView: React.FC = () => {
-  const { organizations, users } = useAuth();
+  const { organizations, users, currentUser, updateProfile } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<'general' | 'security' | 'roles' | 'notifications' | 'backup'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'profile' | 'security' | 'roles' | 'notifications' | 'backup'>('general');
   const [platformName, setPlatformName] = useState('EcoEstate INDIA National Smart Intelligence Platform');
   const [supportEmail, setSupportEmail] = useState('support@ecoestate.gov.in');
   const [sessionTimeoutMinutes, setSessionTimeoutMinutes] = useState(30);
@@ -33,9 +36,33 @@ export const AdminSettingsView: React.FC = () => {
   const [alertWeeklyReport, setAlertWeeklyReport] = useState(true);
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
 
+  // Profile Form state
+  const [profileName, setProfileName] = useState(currentUser?.name || '');
+  const [profileEmail, setProfileEmail] = useState(currentUser?.email || '');
+  const [profileTitle, setProfileTitle] = useState(currentUser?.title || '');
+  const [profileNewPassword, setProfileNewPassword] = useState('');
+  const [profileConfirmPassword, setProfileConfirmPassword] = useState('');
+  const [showProfilePassword, setShowProfilePassword] = useState(false);
+
   const triggerSavedNotice = (msg: string) => {
     setSavedNotice(msg);
     setTimeout(() => setSavedNotice(null), 3500);
+  };
+
+  const handleSaveProfile = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (profileNewPassword && profileNewPassword !== profileConfirmPassword) {
+      triggerSavedNotice('⚠️ Passwords do not match!');
+      return;
+    }
+    updateProfile({
+      name: profileName.trim(),
+      email: profileEmail.trim().toLowerCase(),
+      title: profileTitle.trim(),
+    });
+    setProfileNewPassword('');
+    setProfileConfirmPassword('');
+    triggerSavedNotice('✅ Profile & credentials updated and saved to database!');
   };
 
   const handleSaveSettings = (e: React.FormEvent) => {
@@ -103,6 +130,7 @@ export const AdminSettingsView: React.FC = () => {
       <div className="flex border-b border-[#ece3d6] dark:border-[#151722] gap-2 overflow-x-auto pb-1 text-xs font-bold">
         {[
           { id: 'general', label: 'General Configuration', icon: Sliders },
+          { id: 'profile', label: 'My Profile & Security', icon: User },
           { id: 'security', label: 'Security & 2FA Policies', icon: Shield },
           { id: 'roles', label: 'RBAC Permission Matrix', icon: Lock },
           { id: 'notifications', label: 'Alert Channels', icon: Bell },
@@ -126,6 +154,100 @@ export const AdminSettingsView: React.FC = () => {
           );
         })}
       </div>
+
+      {/* TAB: MY PROFILE & SECURITY */}
+      {activeTab === 'profile' && (
+        <form onSubmit={handleSaveProfile} className="p-6 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-sm dark:shadow-xl space-y-5 text-xs animate-in fade-in duration-150">
+          <div className="flex items-center gap-3 pb-3 border-b border-[#ece3d6] dark:border-[#151722]">
+            <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 text-cyan-500 font-extrabold flex items-center justify-center text-sm border border-cyan-500/30">
+              {currentUser?.name?.slice(0, 2).toUpperCase() || 'AD'}
+            </div>
+            <div>
+              <h3 className="font-extrabold text-sm text-stone-900 dark:text-white">Admin Identity & Credentials</h3>
+              <p className="text-[11px] text-stone-500 dark:text-slate-400">
+                Update your administrative name, verified contact address, and security access password.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="font-bold text-stone-700 dark:text-slate-300">Full Name</label>
+              <input
+                type="text"
+                required
+                value={profileName}
+                onChange={(e) => setProfileName(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-[#f8f4ed] dark:bg-[#0a0b12] text-stone-900 dark:text-white outline-none focus:border-cyan-500"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="font-bold text-stone-700 dark:text-slate-300">Authorized Email Address</label>
+              <input
+                type="email"
+                required
+                value={profileEmail}
+                onChange={(e) => setProfileEmail(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-[#f8f4ed] dark:bg-[#0a0b12] text-stone-900 dark:text-white outline-none focus:border-cyan-500"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="font-bold text-stone-700 dark:text-slate-300">Institutional Designation / Title</label>
+            <input
+              type="text"
+              value={profileTitle}
+              onChange={(e) => setProfileTitle(e.target.value)}
+              placeholder="e.g. National Director & Chief Administrator"
+              className="w-full px-3.5 py-2.5 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-[#f8f4ed] dark:bg-[#0a0b12] text-stone-900 dark:text-white outline-none focus:border-cyan-500"
+            />
+          </div>
+
+          <div className="p-4 rounded-2xl bg-[#f8f4ed] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#181a28] space-y-3">
+            <p className="font-bold text-stone-800 dark:text-slate-200 flex items-center justify-between">
+              <span>Change Account Password</span>
+              <button
+                type="button"
+                onClick={() => setShowProfilePassword(!showProfilePassword)}
+                className="text-[11px] text-cyan-600 dark:text-cyan-400 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                {showProfilePassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                {showProfilePassword ? 'Hide' : 'Show'}
+              </button>
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-[11px] text-stone-500 dark:text-slate-400">New Password (leave blank to keep current):</label>
+                <input
+                  type={showProfilePassword ? 'text' : 'password'}
+                  placeholder="••••••••"
+                  value={profileNewPassword}
+                  onChange={(e) => setProfileNewPassword(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-white dark:bg-[#07080e] text-stone-900 dark:text-white font-mono"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-[11px] text-stone-500 dark:text-slate-400">Confirm New Password:</label>
+                <input
+                  type={showProfilePassword ? 'text' : 'password'}
+                  placeholder="••••••••"
+                  value={profileConfirmPassword}
+                  onChange={(e) => setProfileConfirmPassword(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-white dark:bg-[#07080e] text-stone-900 dark:text-white font-mono"
+                />
+              </div>
+            </div>
+          </div>
+
+          <button
+            type="submit"
+            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-500 to-indigo-600 hover:from-cyan-400 hover:to-indigo-500 text-slate-950 font-extrabold shadow-md cursor-pointer transition-all"
+          >
+            Update &amp; Save Profile
+          </button>
+        </form>
+      )}
 
       {/* TAB 1: GENERAL CONFIGURATION */}
       {activeTab === 'general' && (

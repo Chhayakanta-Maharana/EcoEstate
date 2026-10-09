@@ -3,6 +3,26 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from django.conf import settings
 
+def get_smtp_connection(sender_email, sender_password):
+    """
+    Robust cloud SMTP connector: tries Port 587 STARTTLS first (standard for cloud hosts like Render),
+    then falls back to Port 465 SSL.
+    """
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587, timeout=15)
+        server.ehlo()
+        server.starttls()
+        server.ehlo()
+        server.login(sender_email, sender_password)
+        print("[SMTP] Connected via Port 587 STARTTLS successfully.")
+        return server
+    except Exception as e587:
+        print(f"[SMTP_587_WARNING] Port 587 failed ({e587}), trying Port 465 SSL...")
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=15)
+        server.login(sender_email, sender_password)
+        print("[SMTP] Connected via Port 465 SSL successfully.")
+        return server
+
 def send_admin_credentials_email(
     admin_name: str,
     admin_email: str,
@@ -10,11 +30,11 @@ def send_admin_credentials_email(
     org_name: str,
     org_type: str,
     org_id: str,
-    portal_base_url: str = "http://localhost:3000"
+    portal_base_url: str = "https://eco-estate-delta.vercel.app"
 ) -> bool:
     """
     Sends an official onboarding and credentials email to a newly assigned
-    Estate / Institutional Administrator via Gmail SMTP SSL port 465.
+    Estate / Institutional Administrator via Gmail SMTP.
     """
     subject = f"🌿 EcoEstate India: You are Appointed as Estate Admin for {org_name}"
     sender_email = getattr(settings, 'EMAIL_HOST_USER', 'chhayakantamaharan@gmail.com')
@@ -241,8 +261,7 @@ def send_admin_credentials_email(
         msg.attach(part1)
         msg.attach(part2)
 
-        server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=20)
-        server.login(sender_email, sender_password)
+        server = get_smtp_connection(sender_email, sender_password)
         server.sendmail(sender_email, [admin_email], msg.as_string())
         server.quit()
         print(f"[EMAIL_DISPATCH_SUCCESS] Credentials email dispatched to {admin_email} for {org_name}")
@@ -519,8 +538,7 @@ def send_user_role_assignment_email(
         msg.attach(part1)
         msg.attach(part2)
 
-        server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=20)
-        server.login(sender_email, sender_password)
+        server = get_smtp_connection(sender_email, sender_password)
         server.sendmail(sender_email, [user_email], msg.as_string())
         server.quit()
         print(f"[EMAIL_DISPATCH_SUCCESS] Role assignment & credentials email dispatched to {user_email} (Role: {role_label})")
@@ -707,8 +725,7 @@ def send_password_reset_email(
         msg.attach(part1)
         msg.attach(part2)
 
-        server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=20)
-        server.login(sender_email, sender_password)
+        server = get_smtp_connection(sender_email, sender_password)
         server.sendmail(sender_email, [user_email], msg.as_string())
         server.quit()
         print(f"[EMAIL_DISPATCH_SUCCESS] Password reset email dispatched to {user_email}")

@@ -32,6 +32,7 @@ export const AdminUsersView: React.FC = () => {
     updateUserStatus,
     deleteUser,
     currentUser,
+    addNotification,
   } = useAuth();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -98,9 +99,21 @@ export const AdminUsersView: React.FC = () => {
         password: pwdToNotify,
       });
       if (res?.success) {
-        triggerToast(`✉️ Credentials email delivered to ${emailToNotify} via Gmail SSL!`);
+        triggerToast(`✉️ Credentials email delivered to ${emailToNotify} via Gmail!`);
+        addNotification({
+          title: 'Role & Credentials Dispatched',
+          message: `Official login credentials and role ${roleLabel} delivered to ${emailToNotify}.`,
+          type: 'EMAIL_SENT',
+          targetRole: 'SUPERADMIN',
+        });
       } else {
         triggerToast(`User registered. Email notification queued for ${emailToNotify}.`);
+        addNotification({
+          title: 'User Registered & Notification Queued',
+          message: `User ${nameToNotify} registered. Credentials mailer queued for ${emailToNotify}.`,
+          type: 'ROLE_ASSIGNED',
+          targetRole: 'SUPERADMIN',
+        });
       }
     } catch (err) {
       console.error('Error dispatching user email:', err);
@@ -130,8 +143,20 @@ export const AdminUsersView: React.FC = () => {
       });
       if (res?.success) {
         triggerToast(`✉️ Role update & login credentials email delivered to ${userEmail}!`);
+        addNotification({
+          title: 'Role Updated & Email Sent',
+          message: `Updated role to ${roleLabel} for ${userName} and emailed credentials to ${userEmail}.`,
+          type: 'EMAIL_SENT',
+          targetRole: 'SUPERADMIN',
+        });
       } else {
         triggerToast(`Role updated for ${userName} to ${roleLabel}.`);
+        addNotification({
+          title: 'Role Updated',
+          message: `Role changed to ${roleLabel} for ${userName}.`,
+          type: 'ROLE_ASSIGNED',
+          targetRole: 'SUPERADMIN',
+        });
       }
     } catch (err) {
       console.error('Error dispatching role email:', err);

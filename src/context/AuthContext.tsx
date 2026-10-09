@@ -5,6 +5,16 @@ import { User, Organization, Role, EquipmentItem } from '@/types';
 import { INITIAL_ORGANIZATIONS, DEMO_USERS, getEquipmentList } from '@/data/mockData';
 import { DjangoApi } from '@/services/api';
 
+export interface AppNotification {
+  id: string;
+  title: string;
+  message: string;
+  type: 'EMAIL_SENT' | 'ROLE_ASSIGNED' | 'ESTATE_CREATED' | 'ALERT' | 'SYSTEM';
+  timestamp: string;
+  read: boolean;
+  targetRole?: Role | 'ALL';
+}
+
 interface AuthContextType {
   currentUser: User | null;
   activeOrg: Organization | null;
@@ -15,8 +25,10 @@ interface AuthContextType {
   toggleIoTSimulation: () => void;
   login: (email: string, password?: string) => Promise<{ success: boolean; error?: string; redirectUrl?: string }>;
   logout: () => void;
+  updateProfile: (data: Partial<User>) => void;
   selectOrganization: (orgId: string) => void;
   createOrganization: (org: Omit<Organization, 'id' | 'iotStatus' | 'lastPing' | 'sustainabilityScore'>) => Organization;
+  updateOrganization: (orgId: string, data: Partial<Organization>) => void;
   sendCredentialsEmail: (orgId: string) => Promise<{ success: boolean; message?: string; error?: string }>;
   deleteOrganization: (id: string) => void;
   addUser: (userData: Omit<User, 'id'>) => User;
@@ -27,6 +39,11 @@ interface AuthContextType {
   addEquipment: (item: Omit<EquipmentItem, 'id'>) => void;
   importEquipmentBatch: (items: Omit<EquipmentItem, 'id'>[]) => void;
   deleteEquipment: (id: string) => void;
+  notifications: AppNotification[];
+  unreadNotificationCount: number;
+  addNotification: (notif: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => void;
+  markNotificationAsRead: (id: string) => void;
+  markAllNotificationsAsRead: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -58,6 +75,117 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [isSimulatingIoT, setIsSimulatingIoT] = useState<boolean>(true);
   const [equipmentList, setEquipmentList] = useState<EquipmentItem[]>(getEquipmentList('HOSPITAL'));
+
+  // Live Notifications State
+  const [notifications, setNotifications] = useState<AppNotification[]>([
+    {
+      id: 'notif-1',
+      title: 'Credentials Dispatched',
+      message: 'Official credentials email delivered to hari.pangi@gcek.ac.in for GCEK Bhawanipatna.',
+      type: 'EMAIL_SENT',
+      timestamp: '2 mins ago',
+      read: false,
+      targetRole: 'SUPERADMIN',
+    },
+    {
+      id: 'notif-2',
+      title: 'Institutional Lead Appointed',
+      message: 'Dr. A.K. Mohapatra appointed as Estate Administrator for AIIMS Bhubaneswar.',
+      type: 'ROLE_ASSIGNED',
+      timestamp: '15 mins ago',
+      read: false,
+      targetRole: 'ALL',
+    },
+    {
+      id: 'notif-3',
+      title: 'Estate Provisioned',
+      message: 'Tata Steel Kalinganagar industrial complex connected with CEMS telemetry.',
+      type: 'ESTATE_CREATED',
+      timestamp: '1 hr ago',
+      read: true,
+      targetRole: 'SUPERADMIN',
+    },
+    {
+      id: 'notif-4',
+      title: 'Dual-Channel Gateway Online',
+      message: 'IoT Ingestion Gateway active on TCP:5000, UDP:5005, and Cloud WiFi HTTP.',
+      type: 'SYSTEM',
+      timestamp: '3 hrs ago',
+      read: true,
+      targetRole: 'ALL',
+    },
+  ]);
+
+  const unreadNotificationCount = notifications.filter((n) => !n.read).length;
+
+  const addNotification = (notif: Omit<AppNotification, 'id' | 'timestamp' | 'read'>) => {
+    const newNotif: AppNotification = {
+      ...notif,
+      id: `notif-${Date.now()}`,
+      timestamp: 'Just now',
+      read: false,
+    };
+    setNotifications((prev) => [newNotif, ...prev]);
+  };
+
+  const markNotificationAsRead = (id: string) => {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+    );
+  };
+
+  const markAllNotificationsAsRead = () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+  };
+
+  const updateProfile = (data: Partial<User>) => {
+    setCurrentUser((prev) => {
+      if (!prev) return null;
+      const updated = { ...prev, ...data };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('ecoestate-current-user', JSON.stringify(updated));
+      }
+      return updated;
+    });
+
+    setUsers((prev) =>
+      prev.map((u) => (u.id === currentUser?.id ? { ...u, ...data } : u))
+    );
+
+    // Sync with NeonDB if user has database ID
+    if (currentUser?.id) {
+      const cleanId = currentUser.id.replace('user-', '').replace('staff-', '');
+      if (/^\d+$/.test(cleanId)) {
+        DjangoApi.updateStaffMember(cleanId, {
+          name: data.name,
+          email: data.email,
+          title: data.title,
+        }).catch((err) => console.warn('Could not update staff in NeonDB:', err));
+      }
+    }
+
+    // If current user is ORG_ADMIN, also update the organization's assigned admin name/email
+    if (currentUser?.role === 'ORG_ADMIN' && currentUser?.organizationId) {
+      setOrganizations((prev) =>
+        prev.map((o) =>
+          o.id === currentUser.organizationId
+            ? {
+                ...o,
+                assignedAdminName: data.name || o.assignedAdminName,
+                assignedAdminEmail: data.email || o.assignedAdminEmail,
+              }
+            : o
+        )
+      );
+    }
+
+    addNotification({
+      title: 'Profile Updated',
+      message: `Account settings updated for ${data.name || currentUser?.name || 'Administrator'}.`,
+      type: 'SYSTEM',
+      targetRole: currentUser?.role || 'ALL',
+    });
+  };
 
   // Helper to map backend organization record to frontend Organization
   const mapBackendOrg = (o: any): Organization => ({
@@ -305,15 +433,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const createOrganization = (
     orgData: Omit<Organization, 'id' | 'iotStatus' | 'lastPing' | 'sustainabilityScore'>
   ): Organization => {
+    const newOrgId = `org-${Date.now()}`;
     const newOrg: Organization = {
       ...orgData,
-      id: `org-${Date.now()}`,
+      id: newOrgId,
       iotStatus: 'ONLINE',
       lastPing: 'Connected just now',
       sustainabilityScore: Math.floor(Math.random() * 12) + 82, // 82 - 94
     };
 
     setOrganizations((prev) => [newOrg, ...prev]);
+
+    // Register assigned admin directly in users state so they immediately appear in User Directory
+    if (newOrg.assignedAdminEmail) {
+      const assignedUser: User = {
+        id: `user-${newOrgId}`,
+        name: newOrg.assignedAdminName || `Admin of ${newOrg.name}`,
+        email: newOrg.assignedAdminEmail,
+        role: 'ORG_ADMIN',
+        organizationId: newOrgId,
+        organizationName: newOrg.name,
+        title: `Estate Administrator - ${newOrg.name}`,
+        status: 'Active',
+        lastActive: 'Provisioned just now',
+      };
+      setUsers((prev) => {
+        const exists = prev.some((u) => u.email.toLowerCase() === newOrg.assignedAdminEmail.toLowerCase());
+        return exists ? prev : [assignedUser, ...prev];
+      });
+    }
+
+    // Trigger notification
+    addNotification({
+      title: 'Estate Provisioned & Admin Onboarded',
+      message: `Onboarding credentials dispatched to ${newOrg.assignedAdminEmail} for ${newOrg.name}.`,
+      type: 'EMAIL_SENT',
+      targetRole: 'SUPERADMIN',
+    });
 
     // Send to Django backend & NeonDB in background and re-sync
     DjangoApi.createOrganization({
@@ -333,9 +489,63 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       sustainability_score: newOrg.sustainabilityScore,
       carbon_target_reduction_pct: newOrg.carbonTargetReductionPct,
       description: newOrg.description,
-    }).then(() => refreshBackendData());
+    }).then((createdBackendOrg) => {
+      refreshBackendData();
+      if (createdBackendOrg?.id) {
+        DjangoApi.sendCredentialsEmail(createdBackendOrg.id).catch(() => {});
+      }
+    });
 
     return newOrg;
+  };
+
+  const updateOrganization = (orgId: string, data: Partial<Organization>) => {
+    setOrganizations((prev) =>
+      prev.map((o) => (o.id === orgId ? { ...o, ...data } : o))
+    );
+
+    // If assigned admin details updated, sync corresponding user in users list
+    if (data.assignedAdminEmail || data.assignedAdminName) {
+      setUsers((prev) =>
+        prev.map((u) => {
+          if (u.organizationId === orgId && u.role === 'ORG_ADMIN') {
+            return {
+              ...u,
+              name: data.assignedAdminName || u.name,
+              email: data.assignedAdminEmail || u.email,
+            };
+          }
+          return u;
+        })
+      );
+    }
+
+    // Persist to NeonDB via DjangoApi
+    const cleanId = orgId.replace('org-', '');
+    if (/^\d+$/.test(cleanId)) {
+      DjangoApi.updateOrganization(cleanId, {
+        name: data.name,
+        facility_type: data.type,
+        city: data.city,
+        state: data.state,
+        assigned_admin_name: data.assignedAdminName,
+        assigned_admin_email: data.assignedAdminEmail,
+        assigned_password: data.assignedPassword,
+        iot_gateway_ip: data.iotGatewayIp,
+        description: data.description,
+      }).then(() => refreshBackendData());
+    }
+
+    // If assigned admin changed, dispatch credentials email and add notification
+    if (data.assignedAdminEmail) {
+      DjangoApi.sendCredentialsEmail(cleanId).catch(() => {});
+      addNotification({
+        title: 'Estate Admin Updated & Credentials Sent',
+        message: `Updated administrator email for estate. Credentials dispatched to ${data.assignedAdminEmail}.`,
+        type: 'EMAIL_SENT',
+        targetRole: 'SUPERADMIN',
+      });
+    }
   };
 
   const deleteOrganization = (id: string) => {
@@ -441,16 +651,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         logout,
         selectOrganization,
         createOrganization,
+        updateOrganization,
         sendCredentialsEmail,
         deleteOrganization,
         addUser,
         updateUserRole,
         updateUserStatus,
         deleteUser,
+        updateProfile,
         equipmentList,
         addEquipment,
         importEquipmentBatch,
         deleteEquipment,
+        notifications,
+        unreadNotificationCount,
+        addNotification,
+        markNotificationAsRead,
+        markAllNotificationsAsRead,
       }}
     >
       {children}

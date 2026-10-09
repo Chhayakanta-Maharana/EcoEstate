@@ -18,11 +18,15 @@ import {
   PlusCircle,
   ExternalLink,
   LogOut,
+  User,
+  Edit3,
 } from 'lucide-react';
 import AdminDashboardView from './admin/AdminDashboardView';
 import AdminUsersView from './admin/AdminUsersView';
 import AdminFacilitiesView from './admin/AdminFacilitiesView';
 import AdminSettingsView from './admin/AdminSettingsView';
+import { NotificationCenterDropdown } from './NotificationCenterDropdown';
+import { UserProfileModal } from './UserProfileModal';
 
 interface SuperAdminPortalProps {
   initialTab?: 'dashboard' | 'users' | 'facilities' | 'settings';
@@ -40,6 +44,7 @@ export const SuperAdminPortal: React.FC<SuperAdminPortalProps> = ({
 
   const [activeNav, setActiveNav] = useState<string>(initialTab);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   useEffect(() => {
     if (initialTab) {
@@ -113,26 +118,39 @@ export const SuperAdminPortal: React.FC<SuperAdminPortalProps> = ({
         {/* Bottom Profile Card */}
         <div className="space-y-2">
           <div className="p-2.5 rounded-2xl bg-[#f5efe6] dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] flex items-center justify-between">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-full bg-cyan-500 text-slate-950 font-bold flex items-center justify-center text-xs flex-shrink-0">
+            <div
+              onClick={() => setIsProfileModalOpen(true)}
+              className="flex items-center gap-2.5 min-w-0 cursor-pointer group"
+              title="Click to edit your account profile and credentials"
+            >
+              <div className="w-8 h-8 rounded-full bg-cyan-500 text-slate-950 font-bold flex items-center justify-center text-xs flex-shrink-0 group-hover:ring-2 group-hover:ring-cyan-400 transition-all">
                 {currentUser?.name?.slice(0, 2).toUpperCase() || 'AC'}
               </div>
               <div className="min-w-0">
-                <p className="text-xs font-bold text-stone-900 dark:text-white truncate">
+                <p className="text-xs font-bold text-stone-900 dark:text-white truncate group-hover:text-cyan-500 transition-colors">
                   {currentUser?.name || 'Alex Carter'}
                 </p>
                 <span className="text-[10px] text-cyan-700 dark:text-cyan-400 font-semibold block leading-none">
-                  Super Admin
+                  Super Admin (Edit)
                 </span>
               </div>
             </div>
-            <button
-              onClick={logout}
-              title="Sign Out"
-              className="p-1.5 rounded-lg text-stone-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-[#16223b] transition-colors cursor-pointer flex-shrink-0"
-            >
-              <LogOut className="w-4 h-4" />
-            </button>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setIsProfileModalOpen(true)}
+                title="Edit Profile & Password"
+                className="p-1.5 rounded-lg text-stone-400 hover:text-cyan-500 hover:bg-cyan-50 dark:hover:bg-[#16223b] transition-colors cursor-pointer flex-shrink-0"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={logout}
+                title="Sign Out"
+                className="p-1.5 rounded-lg text-stone-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-[#16223b] transition-colors cursor-pointer flex-shrink-0"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            </div>
           </div>
         </div>
       </aside>
@@ -166,13 +184,18 @@ export const SuperAdminPortal: React.FC<SuperAdminPortalProps> = ({
               <span>System Online</span>
             </div>
 
-            {/* Notification Icon */}
-            <div className="relative p-2 rounded-xl bg-[#f5efe6] dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] text-stone-700 dark:text-slate-300">
-              <Bell className="w-4 h-4" />
-              <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-cyan-500 text-[9px] font-extrabold text-slate-950 flex items-center justify-center">
-                {users.length}
-              </span>
-            </div>
+            {/* Interactive Role-Based Notification Drawer */}
+            <NotificationCenterDropdown />
+
+            {/* Profile Edit Trigger */}
+            <button
+              onClick={() => setIsProfileModalOpen(true)}
+              aria-label="Edit Profile"
+              title="Edit Profile & Security"
+              className="p-2 rounded-xl bg-[#f5efe6] dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] text-stone-700 dark:text-slate-300 hover:border-cyan-500 transition-all cursor-pointer flex items-center justify-center"
+            >
+              <User className="w-4 h-4" />
+            </button>
 
             {/* Quick Action Button: Manage Users */}
             <button
@@ -236,6 +259,12 @@ export const SuperAdminPortal: React.FC<SuperAdminPortalProps> = ({
           {activeNav === 'settings' && <AdminSettingsView />}
         </main>
       </div>
+
+      {/* Global Profile & Security Edit Modal */}
+      <UserProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+      />
     </div>
   );
 };
