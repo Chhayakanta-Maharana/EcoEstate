@@ -39,11 +39,14 @@ DEFAULT_TCP_PORT = 5000
 DEFAULT_UDP_PORT = 5005
 
 
+import concurrent.futures
+
+CLOUD_INGEST_URL = "https://ecoestate.onrender.com/api/iot/ingest/"
+
+
 def get_local_ip() -> str:
     """Auto-detect the machine's local network IP (works on shared WiFi)."""
     try:
-        # Create a UDP socket and connect to an external address
-        # This doesn't actually send data, just determines the local IP
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.settimeout(2.0)
         s.connect(("8.8.8.8", 80))
@@ -54,42 +57,82 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
-def discover_server_url(base_ip: str = "", port: int = 8000) -> str:
-    """Try to discover the Django backend server on the network.
-    Checks: localhost, detected IP, and common subnet IPs."""
-    candidates = []
+def normalize_ingest_url(raw_url: str) -> str:
+    """Clean and normalize ingest URL, fixing common typos."""
+    url = raw_url.strip()
+    if not url:
+        return CLOUD_INGEST_URL
+    if not url.startswith("http://") and not url.startswith("https://"):
+        url = "http://" + url
     
-    if base_ip:
-        candidates.append(base_ip)
+    # Fix typo where colon is omitted before 8000 (e.g. 192.168.0.1918000)
+    import re
+    m = re.match(r'(https?://\d+\.\d+\.\d+\.\d{1,3})(8000|5000|5005)(.*)', url)
+    if m:
+        url = f"{m.group(1)}:{m.group(2)}{m.group(3)}"
     
-    local_ip = get_local_ip()
-    candidates.append(local_ip)
-    candidates.append("127.0.0.1")
-    candidates.append("localhost")
+    if not url.endswith("/api/iot/ingest/") and not url.endswith("/api/iot/ingest"):
+        if url.endswith("/"):
+            url = url + "api/iot/ingest/"
+        else:
+            url = url + "/api/iot/ingest/"
     
-    # Also try common IPs in the same subnet
-    if local_ip != "127.0.0.1":
-        prefix = ".".join(local_ip.split(".")[:3])
-        for last_octet in [1, 2, 100, 101, 102, 50]:
-            candidates.append(f"{prefix}.{last_octet}")
-    
-    for ip in candidates:
-        try:
+    if not url.endswith("/"):
+        url = url + "/"
+    return url
+
+
+def _probe_server_ip(ip: str, port: int = 8000) -> str | None:
+    """Probes a single IP address to check if EcoEstate Django backend is running."""
+    try:
+        test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        test_sock.settimeout(0.4)
+        result = test_sock.connect_ex((ip, port))
+        test_sock.close()
+        if result == 0:
             test_url = f"http://{ip}:{port}/api/iot/status/"
             req = urllib.request.Request(test_url, headers={'User-Agent': 'ESP32-WiFi-Node/1.0'})
-            with urllib.request.urlopen(req, timeout=1.5) as resp:
+            with urllib.request.urlopen(req, timeout=0.8) as resp:
                 if resp.getcode() == 200:
                     return f"http://{ip}:{port}/api/iot/ingest/"
-        except Exception:
-            continue
+    except Exception:
+        pass
+    return None
+
+
+def discover_server_url(base_ip: str = "", port: int = 8000) -> str:
+    """High-speed concurrent subnet scanner. Scans all 254 IPs on WiFi subnet in parallel."""
+    local_ip = get_local_ip()
+    candidates = ["127.0.0.1", "localhost"]
     
-    # Fallback: use detected local IP
-    return f"http://{local_ip}:{port}/api/iot/ingest/"
+    # Check local IP and entire /24 subnet
+    if local_ip != "127.0.0.1":
+        prefix = ".".join(local_ip.split(".")[:3])
+        # Add all IPs 1 to 254
+        for i in range(1, 255):
+            candidates.append(f"{prefix}.{i}")
+    
+    found_url = None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=60) as executor:
+        future_to_ip = {executor.submit(_probe_server_ip, ip, port): ip for ip in candidates}
+        for future in concurrent.futures.as_completed(future_to_ip):
+            res = future.result()
+            if res:
+                found_url = res
+                # Cancel remaining
+                executor.shutdown(wait=False, cancel_futures=True)
+                break
+    
+    if found_url:
+        return found_url
+    
+    # If not on local subnet, fallback to Cloud Hosted Server
+    return CLOUD_INGEST_URL
 
 
 # Auto-detect host IP for shared WiFi support
 DETECTED_LOCAL_IP = get_local_ip()
-DEFAULT_HOST = DETECTED_LOCAL_IP if DETECTED_LOCAL_IP != "127.0.0.1" else "127.0.0.1"
+DEFAULT_HOST = "255.255.255.255"
 DEFAULT_HTTP_URL = f"http://{DETECTED_LOCAL_IP}:8000/api/iot/ingest/"
 
 # Sensor Presets with Healthy vs Anomaly telemetry
@@ -422,27 +465,45 @@ class IoTSenderGui:
 
         tk.Label(wifi_grid, text="HTTP Ingest URL:", bg="#0d111f", fg="#94a3b8").grid(row=0, column=0, sticky="w", pady=2)
         self.wifi_url_var = tk.StringVar(value=DEFAULT_HTTP_URL)
-        tk.Entry(wifi_grid, textvariable=self.wifi_url_var, width=38, bg="#070913", fg="#ffffff", insertbackground="#ffffff").grid(row=0, column=1, columnspan=2, sticky="w", padx=5, pady=2)
+        url_entry = tk.Entry(wifi_grid, textvariable=self.wifi_url_var, width=38, bg="#070913", fg="#ffffff", insertbackground="#ffffff")
+        url_entry.grid(row=0, column=1, columnspan=2, sticky="w", padx=5, pady=2)
 
-        # Auto-Discover Server Button
-        btn_discover = tk.Button(
-            wifi_grid, text="🔍 Discover", font=("Segoe UI", 8, "bold"),
-            bg="#064e3b", fg="#6ee7b7", activebackground="#047857", activeforeground="#ffffff",
-            bd=0, padx=8, pady=2, cursor="hand2", command=self._discover_server
+        # Preset & Auto-Discover buttons row
+        btn_wifi_box = tk.Frame(wifi_grid, bg="#0d111f")
+        btn_wifi_box.grid(row=1, column=1, columnspan=3, sticky="w", padx=5, pady=2)
+
+        btn_cloud = tk.Button(
+            btn_wifi_box, text="🌐 Cloud (Render)", font=("Segoe UI", 7, "bold"),
+            bg="#1e3a8a", fg="#93c5fd", activebackground="#2563eb", activeforeground="#ffffff",
+            bd=0, padx=5, pady=1, cursor="hand2", command=lambda: self.wifi_url_var.set(CLOUD_INGEST_URL)
         )
-        btn_discover.grid(row=0, column=3, sticky="w", padx=5, pady=2)
+        btn_cloud.pack(side="left", padx=2)
 
-        tk.Label(wifi_grid, text="WiFi SSID:", bg="#0d111f", fg="#94a3b8").grid(row=1, column=0, sticky="w", pady=2)
+        btn_local_http = tk.Button(
+            btn_wifi_box, text="🏠 Localhost", font=("Segoe UI", 7, "bold"),
+            bg="#374151", fg="#e5e7eb", activebackground="#4b5563", activeforeground="#ffffff",
+            bd=0, padx=5, pady=1, cursor="hand2", command=lambda: self.wifi_url_var.set("http://127.0.0.1:8000/api/iot/ingest/")
+        )
+        btn_local_http.pack(side="left", padx=2)
+
+        btn_discover = tk.Button(
+            btn_wifi_box, text="🔍 Subnet Scan", font=("Segoe UI", 7, "bold"),
+            bg="#064e3b", fg="#6ee7b7", activebackground="#047857", activeforeground="#ffffff",
+            bd=0, padx=6, pady=1, cursor="hand2", command=self._discover_server
+        )
+        btn_discover.pack(side="left", padx=2)
+
+        tk.Label(wifi_grid, text="WiFi SSID:", bg="#0d111f", fg="#94a3b8").grid(row=2, column=0, sticky="w", pady=2)
         self.wifi_ssid_var = tk.StringVar(value="EcoEstate_IoT_Grid")
-        tk.Entry(wifi_grid, textvariable=self.wifi_ssid_var, width=18, bg="#070913", fg="#ffffff", insertbackground="#ffffff").grid(row=1, column=1, sticky="w", padx=5, pady=2)
+        tk.Entry(wifi_grid, textvariable=self.wifi_ssid_var, width=18, bg="#070913", fg="#ffffff", insertbackground="#ffffff").grid(row=2, column=1, sticky="w", padx=5, pady=2)
 
-        tk.Label(wifi_grid, text="Signal (RSSI dBm):", bg="#0d111f", fg="#94a3b8").grid(row=1, column=2, sticky="w", padx=(10, 0), pady=2)
+        tk.Label(wifi_grid, text="Signal (RSSI dBm):", bg="#0d111f", fg="#94a3b8").grid(row=2, column=2, sticky="w", padx=(10, 0), pady=2)
         self.wifi_rssi_var = tk.IntVar(value=-54)
-        tk.Scale(wifi_grid, from_=-90, to=-30, orient="horizontal", variable=self.wifi_rssi_var, bg="#0d111f", fg="#38bdf8", highlightthickness=0, length=120).grid(row=1, column=3, sticky="w", padx=5)
+        tk.Scale(wifi_grid, from_=-90, to=-30, orient="horizontal", variable=self.wifi_rssi_var, bg="#0d111f", fg="#38bdf8", highlightthickness=0, length=120).grid(row=2, column=3, sticky="w", padx=5)
 
         # Server IP helper label
-        wifi_help = tk.Label(wifi_frame, text=f"💡 Server IP auto-detected: {self.detected_ip} — Use 'Discover' to find server on shared WiFi", bg="#0d111f", fg="#10b981", font=("Segoe UI", 8))
-        wifi_help.pack(anchor="w", padx=10, pady=(4, 6))
+        wifi_help = tk.Label(wifi_frame, text=f"💡 Local IP: {self.detected_ip} • Click 'Subnet Scan' to auto-find server or 'Cloud (Render)'", bg="#0d111f", fg="#10b981", font=("Segoe UI", 8))
+        wifi_help.pack(anchor="w", padx=10, pady=(2, 6))
 
         # --- Sensor Node Preset Selection ---
         sensor_box = tk.LabelFrame(parent, text=" 2. Sensor Node Preset & Location ", font=("Segoe UI", 9, "bold"), bg="#0d111f", fg="#38bdf8", bd=1)
@@ -690,7 +751,9 @@ class IoTSenderGui:
                 self._log(f"Dispatching [LAN UDP Broadcast] to {host}:{port} ({payload['device_id']})...", "INFO")
                 ok, msg = send_packet_lan_udp(host, port, payload)
         else:
-            url = self.wifi_url_var.get().strip() or DEFAULT_HTTP_URL
+            raw_url = self.wifi_url_var.get().strip() or DEFAULT_HTTP_URL
+            url = normalize_ingest_url(raw_url)
+            self.wifi_url_var.set(url)
             self._log(f"Dispatching [WiFi HTTP POST] to {url} (RSSI: {payload['signal_dbm']} dBm)...", "INFO")
             ok, msg = send_packet_wifi_http(url, payload)
 
@@ -703,6 +766,8 @@ class IoTSenderGui:
         else:
             self._log(f"❌ {msg}", "FAIL")
             self.stat_last_label.config(text=f"Failed ({proto})", fg="#f87171")
+            if not is_lan:
+                self._log("💡 TIP: Switch to 'LAN (Ethernet RJ45)' tab -> select UDP Broadcast (255.255.255.255) for Zero-Config transmission.", "INFO")
 
     def toggle_stream(self):
         if self.streaming:
