@@ -15,6 +15,8 @@ export interface AppNotification {
   targetRole?: Role | 'ALL';
 }
 
+export type DataSourceType = 'loading' | 'backend' | 'mock';
+
 interface AuthContextType {
   currentUser: User | null;
   isAuthReady: boolean;
@@ -23,6 +25,7 @@ interface AuthContextType {
   users: User[];
   isSuperAdmin: boolean;
   isSimulatingIoT: boolean;
+  dataSource: DataSourceType;
   toggleIoTSimulation: () => void;
   login: (email: string, password?: string) => Promise<{ success: boolean; error?: string; redirectUrl?: string }>;
   logout: () => void;
@@ -81,6 +84,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   const [isSimulatingIoT, setIsSimulatingIoT] = useState<boolean>(true);
+  const [dataSource, setDataSource] = useState<DataSourceType>('loading');
   const [equipmentList, setEquipmentList] = useState<EquipmentItem[]>(getEquipmentList('HOSPITAL'));
 
   // Live Notifications State
@@ -307,6 +311,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (Array.isArray(backendOrgs) && backendOrgs.length > 0) {
         const mappedOrgs = backendOrgs.map(mapBackendOrg);
         setOrganizations(mappedOrgs);
+        setDataSource('backend');
 
         // Standard SuperAdmin user
         let superAdminName = 'Alex Carter';
@@ -394,6 +399,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     } catch (err) {
       console.warn('NeonDB fetch status:', err);
+      // Fall back to mock data only if we have no real data yet
+      if (organizations.length === 0 || organizations === INITIAL_ORGANIZATIONS) {
+        setOrganizations(INITIAL_ORGANIZATIONS);
+        setDataSource('mock');
+      } else {
+        // Keep existing real data, just note the fetch failed
+        setDataSource((prev) => prev === 'backend' ? 'backend' : 'mock');
+      }
     }
   };
 
@@ -899,6 +912,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         users,
         isSuperAdmin,
         isSimulatingIoT,
+        dataSource,
         toggleIoTSimulation,
         login,
         logout,

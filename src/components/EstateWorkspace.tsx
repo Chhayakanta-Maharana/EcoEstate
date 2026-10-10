@@ -43,6 +43,8 @@ import {
   AlertTriangle,
   User,
   Edit3,
+  Database,
+  AlertCircle,
 } from 'lucide-react';
 import { NotificationCenterDropdown } from '@/components/NotificationCenterDropdown';
 import { UserProfileModal } from '@/components/UserProfileModal';
@@ -148,6 +150,7 @@ export const EstateWorkspace: React.FC<EstateWorkspaceProps> = ({
     selectOrganization,
     logout,
     isSuperAdmin,
+    dataSource,
   } = useAuth();
   const { theme, toggleTheme } = useTheme();
 
@@ -506,6 +509,35 @@ export const EstateWorkspace: React.FC<EstateWorkspaceProps> = ({
 
             {/* Live Interactive Notification Center */}
             <NotificationCenterDropdown />
+
+            {/* Data Source Indicator Badge */}
+            <div
+              className={`hidden sm:flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl border text-[11px] font-bold shadow-sm ${
+                dataSource === 'backend'
+                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-400'
+                  : dataSource === 'mock'
+                  ? 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-400'
+                  : 'bg-slate-500/10 border-slate-500/30 text-slate-500 dark:text-slate-400'
+              }`}
+              title={dataSource === 'backend' ? 'All data is live from NeonDB PostgreSQL' : dataSource === 'mock' ? 'Showing simulated demo data — backend not connected' : 'Connecting to NeonDB...'}
+            >
+              {dataSource === 'backend' ? (
+                <>
+                  <Database className="w-3.5 h-3.5" />
+                  <span>Live NeonDB</span>
+                </>
+              ) : dataSource === 'mock' ? (
+                <>
+                  <AlertCircle className="w-3.5 h-3.5" />
+                  <span>Demo Data</span>
+                </>
+              ) : (
+                <>
+                  <Database className="w-3.5 h-3.5 animate-pulse" />
+                  <span>Syncing...</span>
+                </>
+              )}
+            </div>
 
             {/* Profile Edit Trigger */}
             <button

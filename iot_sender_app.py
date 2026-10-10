@@ -35,10 +35,62 @@ except ImportError:
     HAS_TKINTER = False
 
 # Default configurations
-DEFAULT_HOST = "127.0.0.1"
 DEFAULT_TCP_PORT = 5000
 DEFAULT_UDP_PORT = 5005
-DEFAULT_HTTP_URL = "https://ecoestate.onrender.com/api/iot/ingest/"
+
+
+def get_local_ip() -> str:
+    """Auto-detect the machine's local network IP (works on shared WiFi)."""
+    try:
+        # Create a UDP socket and connect to an external address
+        # This doesn't actually send data, just determines the local IP
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(2.0)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except Exception:
+        return "127.0.0.1"
+
+
+def discover_server_url(base_ip: str = "", port: int = 8000) -> str:
+    """Try to discover the Django backend server on the network.
+    Checks: localhost, detected IP, and common subnet IPs."""
+    candidates = []
+    
+    if base_ip:
+        candidates.append(base_ip)
+    
+    local_ip = get_local_ip()
+    candidates.append(local_ip)
+    candidates.append("127.0.0.1")
+    candidates.append("localhost")
+    
+    # Also try common IPs in the same subnet
+    if local_ip != "127.0.0.1":
+        prefix = ".".join(local_ip.split(".")[:3])
+        for last_octet in [1, 2, 100, 101, 102, 50]:
+            candidates.append(f"{prefix}.{last_octet}")
+    
+    for ip in candidates:
+        try:
+            test_url = f"http://{ip}:{port}/api/iot/status/"
+            req = urllib.request.Request(test_url, headers={'User-Agent': 'ESP32-WiFi-Node/1.0'})
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                if resp.getcode() == 200:
+                    return f"http://{ip}:{port}/api/iot/ingest/"
+        except Exception:
+            continue
+    
+    # Fallback: use detected local IP
+    return f"http://{local_ip}:{port}/api/iot/ingest/"
+
+
+# Auto-detect host IP for shared WiFi support
+DETECTED_LOCAL_IP = get_local_ip()
+DEFAULT_HOST = DETECTED_LOCAL_IP if DETECTED_LOCAL_IP != "127.0.0.1" else "127.0.0.1"
+DEFAULT_HTTP_URL = f"http://{DETECTED_LOCAL_IP}:8000/api/iot/ingest/"
 
 # Sensor Presets with Healthy vs Anomaly telemetry
 SENSOR_TEMPLATES = {
@@ -241,6 +293,7 @@ class IoTSenderGui:
         self.streaming = False
         self.stream_thread = None
         self.packet_count = 0
+        self.detected_ip = DETECTED_LOCAL_IP
 
         # Current telemetry metrics dict
         self.current_metrics = {}
@@ -329,8 +382,12 @@ class IoTSenderGui:
         tk.Entry(lan_grid, textvariable=self.lan_host_var, width=16, bg="#070913", fg="#ffffff", insertbackground="#ffffff").grid(row=0, column=1, sticky="w", padx=5, pady=2)
 
         tk.Label(lan_grid, text="Device LAN IP:", bg="#0d111f", fg="#94a3b8").grid(row=0, column=2, sticky="w", padx=(10, 0), pady=2)
-        self.lan_dev_ip_var = tk.StringVar(value="192.168.1.108")
+        self.lan_dev_ip_var = tk.StringVar(value=self.detected_ip)
         tk.Entry(lan_grid, textvariable=self.lan_dev_ip_var, width=16, bg="#070913", fg="#ffffff", insertbackground="#ffffff").grid(row=0, column=3, sticky="w", padx=5, pady=2)
+
+        # Detected IP info label
+        ip_info = tk.Label(lan_frame, text=f"🌐 Auto-Detected Network IP: {self.detected_ip} (Shared WiFi Ready)", bg="#0d111f", fg="#10b981", font=("Segoe UI", 8, "bold"))
+        ip_info.pack(anchor="w", padx=10, pady=(4, 6))
 
         # TAB 2: WIFI (ESP32)
         wifi_frame = tk.Frame(self.channel_tab, bg="#0d111f")
@@ -341,7 +398,15 @@ class IoTSenderGui:
 
         tk.Label(wifi_grid, text="HTTP Ingest URL:", bg="#0d111f", fg="#94a3b8").grid(row=0, column=0, sticky="w", pady=2)
         self.wifi_url_var = tk.StringVar(value=DEFAULT_HTTP_URL)
-        tk.Entry(wifi_grid, textvariable=self.wifi_url_var, width=44, bg="#070913", fg="#ffffff", insertbackground="#ffffff").grid(row=0, column=1, columnspan=3, sticky="w", padx=5, pady=2)
+        tk.Entry(wifi_grid, textvariable=self.wifi_url_var, width=38, bg="#070913", fg="#ffffff", insertbackground="#ffffff").grid(row=0, column=1, columnspan=2, sticky="w", padx=5, pady=2)
+
+        # Auto-Discover Server Button
+        btn_discover = tk.Button(
+            wifi_grid, text="🔍 Discover", font=("Segoe UI", 8, "bold"),
+            bg="#064e3b", fg="#6ee7b7", activebackground="#047857", activeforeground="#ffffff",
+            bd=0, padx=8, pady=2, cursor="hand2", command=self._discover_server
+        )
+        btn_discover.grid(row=0, column=3, sticky="w", padx=5, pady=2)
 
         tk.Label(wifi_grid, text="WiFi SSID:", bg="#0d111f", fg="#94a3b8").grid(row=1, column=0, sticky="w", pady=2)
         self.wifi_ssid_var = tk.StringVar(value="EcoEstate_IoT_Grid")
@@ -350,6 +415,10 @@ class IoTSenderGui:
         tk.Label(wifi_grid, text="Signal (RSSI dBm):", bg="#0d111f", fg="#94a3b8").grid(row=1, column=2, sticky="w", padx=(10, 0), pady=2)
         self.wifi_rssi_var = tk.IntVar(value=-54)
         tk.Scale(wifi_grid, from_=-90, to=-30, orient="horizontal", variable=self.wifi_rssi_var, bg="#0d111f", fg="#38bdf8", highlightthickness=0, length=120).grid(row=1, column=3, sticky="w", padx=5)
+
+        # Server IP helper label
+        wifi_help = tk.Label(wifi_frame, text=f"💡 Server IP auto-detected: {self.detected_ip} — Use 'Discover' to find server on shared WiFi", bg="#0d111f", fg="#10b981", font=("Segoe UI", 8))
+        wifi_help.pack(anchor="w", padx=10, pady=(4, 6))
 
         # --- Sensor Node Preset Selection ---
         sensor_box = tk.LabelFrame(parent, text=" 2. Sensor Node Preset & Location ", font=("Segoe UI", 9, "bold"), bg="#0d111f", fg="#38bdf8", bd=1)
@@ -509,6 +578,26 @@ class IoTSenderGui:
                 highlightthickness=0, font=("Consolas", 8)
             )
             scale.grid(row=row*2+1, column=col, sticky="w", padx=6, pady=(0, 4))
+
+    def _discover_server(self):
+        """Auto-discover the Django backend server on the local network."""
+        self._log("🔍 Scanning network for EcoEstate Django backend server...", "INFO")
+        
+        def _scan():
+            found_url = discover_server_url(self.detected_ip)
+            self.root.after(0, lambda: self._on_discover_result(found_url))
+        
+        threading.Thread(target=_scan, daemon=True).start()
+
+    def _on_discover_result(self, url: str):
+        self.wifi_url_var.set(url)
+        # Also update LAN host based on discovered URL
+        try:
+            host_part = url.split("//")[1].split(":")[0]
+            self.lan_host_var.set(host_part)
+        except Exception:
+            pass
+        self._log(f"✅ Server discovered! URL set to: {url}", "SUCCESS")
 
     def _set_healthy_preset(self):
         key = self._get_selected_key()
