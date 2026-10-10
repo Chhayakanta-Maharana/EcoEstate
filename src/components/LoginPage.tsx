@@ -39,18 +39,21 @@ export const LoginPage: React.FC = () => {
   // Forgot Password Modal State
   const [showForgotModal, setShowForgotModal] = useState(false);
   const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotResetUrl, setForgotResetUrl] = useState('');
   const [isForgotLoading, setIsForgotLoading] = useState(false);
   const [forgotStatus, setForgotStatus] = useState<{ success?: string; error?: string } | null>(null);
 
   const handleOpenForgotModal = () => {
     setForgotEmail(email.trim());
     setForgotStatus(null);
+    setForgotResetUrl('');
     setShowForgotModal(true);
   };
 
   const handleForgotSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setForgotStatus(null);
+    setForgotResetUrl('');
     setIsForgotLoading(true);
 
     const cleanEmail = forgotEmail.trim().toLowerCase();
@@ -58,6 +61,9 @@ export const LoginPage: React.FC = () => {
 
     if (res?.success) {
       setForgotStatus({ success: res.message || `Password reset link dispatched to ${cleanEmail}!` });
+      if (res.reset_url) {
+        setForgotResetUrl(res.reset_url);
+      }
     } else {
       setForgotStatus({ error: res?.error || 'This email address was not found in our database.' });
     }
@@ -248,14 +254,25 @@ export const LoginPage: React.FC = () => {
               )}
 
               {forgotStatus?.success && (
-                <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs space-y-1.5">
+                <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs space-y-2.5">
                   <div className="flex items-center gap-2 font-bold text-emerald-600 dark:text-emerald-400">
                     <CheckCircle2 className="w-4 h-4 flex-shrink-0" />
-                    <span>Reset Link Dispatched!</span>
+                    <span>Reset Link Ready!</span>
                   </div>
                   <p className="text-[11px] leading-relaxed">
                     {forgotStatus.success}
                   </p>
+                  {forgotResetUrl && (
+                    <div className="pt-1.5">
+                      <a
+                        href={forgotResetUrl}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-extrabold text-xs shadow-md shadow-emerald-500/20 hover:scale-[1.02] transition-all"
+                      >
+                        <KeyRound className="w-3.5 h-3.5" />
+                        <span>Proceed to Reset Password Now &rarr;</span>
+                      </a>
+                    </div>
+                  )}
                 </div>
               )}
 

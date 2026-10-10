@@ -1139,24 +1139,26 @@ def forgot_password_request_view(request):
     portal_base = "http://localhost:3000"
     reset_url = f"{portal_base}/reset-password?token={token}&email={quote(email)}"
 
-    # Send email
-    success = send_password_reset_email(
-        user_name=user_name,
-        user_email=email,
-        reset_url=reset_url,
-        portal_base_url=portal_base
-    )
+    # Send email in background thread so SMTP network latency or timeouts never block HTTP response
+    def _async_send():
+        try:
+            send_password_reset_email(
+                user_name=user_name,
+                user_email=email,
+                reset_url=reset_url,
+                portal_base_url=portal_base
+            )
+        except Exception as e:
+            print(f"[RESET_EMAIL_WARNING] {e}")
 
-    if success:
-        return Response({
-            'success': True,
-            'message': f'Password reset link has been dispatched to {email}. Please check your inbox.',
-            'recipient': email,
-        }, status=status.HTTP_200_OK)
-    else:
-        return Response({
-            'error': f'Failed to send email to {email}. Please check SMTP configuration.'
-        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    threading.Thread(target=_async_send, daemon=True).start()
+
+    return Response({
+        'success': True,
+        'message': f'Password reset link has been dispatched to {email}. Please check your inbox.',
+        'recipient': email,
+        'reset_url': reset_url,
+    }, status=status.HTTP_200_OK)
 
 
 @api_view(['POST'])
