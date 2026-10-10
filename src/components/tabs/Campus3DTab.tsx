@@ -489,6 +489,44 @@ export const Campus3DTab: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
 
+  // Live Telemetry states & Real-time polling
+  const [aqiList, setAqiList] = useState<any[]>([]);
+  const [waterList, setWaterList] = useState<any[]>([]);
+  const [energyList, setEnergyList] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!activeOrg?.id) return;
+    const fetchLiveStreams = () => {
+      DjangoApi.getAqiTelemetry(activeOrg.id).then(res => setAqiList(Array.isArray(res) ? res : [])).catch(() => {});
+      DjangoApi.getWaterTelemetry(activeOrg.id).then(res => setWaterList(Array.isArray(res) ? res : [])).catch(() => {});
+      DjangoApi.getEnergyTelemetry(activeOrg.id).then(res => setEnergyList(Array.isArray(res) ? res : [])).catch(() => {});
+    };
+    fetchLiveStreams();
+    const interval = setInterval(fetchLiveStreams, 1500);
+    return () => clearInterval(interval);
+  }, [activeOrg?.id]);
+
+  const hasAqiData = aqiList.length > 0;
+  const hasWaterData = waterList.length > 0;
+  const hasEnergyData = energyList.length > 0;
+
+  // Averages for AQI & Weather
+  const avgAqi = hasAqiData ? Math.round(aqiList.reduce((acc, r) => acc + (r.overall_aqi || 0), 0) / aqiList.length) : null;
+  const avgPm25 = hasAqiData ? Math.round((aqiList.reduce((acc, r) => acc + (r.pm25 || 0), 0) / aqiList.length) * 10) / 10 : null;
+  const avgPm10 = hasAqiData ? Math.round((aqiList.reduce((acc, r) => acc + (r.pm10 || 0), 0) / aqiList.length) * 10) / 10 : null;
+  const avgTemp = hasAqiData ? Math.round((aqiList.reduce((acc, r) => acc + (r.temperature || 0), 0) / aqiList.length) * 10) / 10 : null;
+  const avgHumidity = hasAqiData ? Math.round((aqiList.reduce((acc, r) => acc + (r.humidity || 0), 0) / aqiList.length) * 10) / 10 : null;
+
+  // Averages for Water
+  const avgFlow = hasWaterData ? Math.round((waterList.reduce((acc, r) => acc + (r.flow_rate_lps || 0), 0) / waterList.length) * 10) / 10 : null;
+  const avgTreated = hasWaterData ? Math.round((waterList.reduce((acc, r) => acc + (r.treated_output_kl || 0), 0) / waterList.length) * 10) / 10 : null;
+  const avgTds = hasWaterData ? Math.round((waterList.reduce((acc, r) => acc + (r.tds_ppm || 0), 0) / waterList.length) * 10) / 10 : null;
+
+  // Averages for Energy
+  const avgPower = hasEnergyData ? Math.round((energyList.reduce((acc, r) => acc + (r.real_power_kw || 0), 0) / energyList.length) * 10) / 10 : null;
+  const avgPowerFactor = hasEnergyData ? Math.round((energyList.reduce((acc, r) => acc + (r.power_factor || 0), 0) / energyList.length) * 100) / 100 : null;
+  const avgSolar = hasEnergyData ? Math.round((energyList.reduce((acc, r) => acc + (r.solar_generation_kw || 0), 0) / energyList.length) * 10) / 10 : null;
+
   // Fetch latest 3D campus twin image & nodes from NeonDB whenever activeOrg changes
   useEffect(() => {
     if (!activeOrg?.id) return;
@@ -942,6 +980,42 @@ export const Campus3DTab: React.FC = () => {
         </div>
       </div>
 
+      {/* 1.5 CAMPUS REAL-TIME AVERAGE AGGREGATE STRIP */}
+      <div className="px-4 py-2.5 rounded-2xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-sm flex flex-wrap items-center justify-between gap-3 text-xs">
+        <div className="flex items-center gap-2">
+          <span className={`w-2.5 h-2.5 rounded-full ${hasAqiData || hasWaterData || hasEnergyData ? 'bg-emerald-400 animate-pulse' : 'bg-stone-500'}`} />
+          <span className="font-extrabold uppercase tracking-wider text-[11px] text-stone-700 dark:text-stone-300">
+            {hasAqiData || hasWaterData || hasEnergyData ? 'Live Campus Spatial Averages' : 'Awaiting Sensor Telemetry (Spatial Mesh Standby)'}
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono">
+          <div className="flex items-center gap-1 text-amber-500">
+            <span>Avg PM2.5:</span>
+            <span className="font-bold">{hasAqiData ? `${avgPm25} µg/m³` : '--'}</span>
+          </div>
+          <div className="flex items-center gap-1 text-cyan-500">
+            <span>Avg PM10:</span>
+            <span className="font-bold">{hasAqiData ? `${avgPm10} µg/m³` : '--'}</span>
+          </div>
+          <div className="flex items-center gap-1 text-emerald-500">
+            <span>Avg Temp:</span>
+            <span className="font-bold">{hasAqiData ? `${avgTemp} °C` : '--'}</span>
+          </div>
+          <div className="flex items-center gap-1 text-blue-500">
+            <span>Avg Humid:</span>
+            <span className="font-bold">{hasAqiData ? `${avgHumidity}%` : '--'}</span>
+          </div>
+          <div className="flex items-center gap-1 text-cyan-400">
+            <span>Avg Flow:</span>
+            <span className="font-bold">{hasWaterData ? `${avgFlow} L/s` : '--'}</span>
+          </div>
+          <div className="flex items-center gap-1 text-amber-400">
+            <span>Avg Power:</span>
+            <span className="font-bold">{hasEnergyData ? `${avgPower} kW` : '--'}</span>
+          </div>
+        </div>
+      </div>
+
       {/* 2. MAIN INTERACTIVE MAP CANVAS CONTAINER */}
       <div
         ref={containerRef}
@@ -1080,11 +1154,19 @@ export const Campus3DTab: React.FC = () => {
           {filteredNodes.map((node) => {
             const isSelected = selectedNode?.id === node.id;
             const isDragging = draggingNodeId === node.id;
-            const hourDelta = Math.sin((timelineHour / 24) * Math.PI) * 10;
-            const currentPm25 = Math.round(node.pm25 + hourDelta);
-            const currentPm10 = Math.round(node.pm10 + hourDelta * 1.4);
-            const currentTemp = Math.round(node.temp + (hourDelta > 0 ? 3 : -2));
-            const currentHumidity = Math.round(node.humidity - (hourDelta > 0 ? 8 : -5));
+
+            // Live values when telemetry has arrived, otherwise clean '--' standby placeholders
+            const nodePm25 = hasAqiData ? (avgPm25 ?? '--') : '--';
+            const nodePm10 = hasAqiData ? (avgPm10 ?? '--') : '--';
+            const nodeTemp = hasAqiData ? (avgTemp ?? '--') : '--';
+            const nodeHumidity = hasAqiData ? (avgHumidity ?? '--') : '--';
+
+            const nodeStatus = (
+              node.type === 'aqi' ? (hasAqiData ? 'OPTIMAL' : 'STANDBY') :
+              node.type === 'water' ? (hasWaterData ? 'OPTIMAL' : 'STANDBY') :
+              node.type === 'energy' ? (hasEnergyData ? 'OPTIMAL' : 'STANDBY') :
+              'STANDBY'
+            );
 
             const theme = getDomainTheme(node.type);
 
@@ -1132,7 +1214,9 @@ export const Campus3DTab: React.FC = () => {
                         )}
                       </span>
                       <div className="flex items-center gap-1.5">
-                        <span className="text-stone-400 font-sans">{node.status.toUpperCase()}</span>
+                        <span className={`font-sans font-bold ${nodeStatus === 'STANDBY' ? 'text-amber-400/80' : 'text-emerald-400'}`}>
+                          {nodeStatus}
+                        </span>
                         <Edit3 className="w-2.5 h-2.5 text-stone-500 group-hover/card:text-amber-400 transition-colors" />
                       </div>
                     </div>
@@ -1143,19 +1227,19 @@ export const Campus3DTab: React.FC = () => {
                       <>
                         <div className="flex items-center gap-1 text-cyan-400">
                           <Waves className="w-3 h-3 flex-shrink-0" />
-                          <span>{node.metric1Value || node.secondaryValue || '550 kL'} <span className="text-[9px] text-cyan-500/70 font-sans">{node.metric1Label || 'Flow'}</span></span>
+                          <span>{hasWaterData ? `${avgFlow} L/s` : '-- L/s'} <span className="text-[9px] text-cyan-500/70 font-sans">{node.metric1Label || 'Flow'}</span></span>
                         </div>
                         <div className="flex items-center gap-1 text-blue-400">
                           <Droplets className="w-3 h-3 flex-shrink-0" />
-                          <span>{node.metric2Value || '84%'} <span className="text-[9px] text-blue-500/70 font-sans">{node.metric2Label || 'Tank'}</span></span>
+                          <span>{hasWaterData ? `${avgTreated} kL` : '-- %'} <span className="text-[9px] text-blue-500/70 font-sans">{node.metric2Label || 'Tank'}</span></span>
                         </div>
                         <div className="flex items-center gap-1 text-emerald-400">
                           <Gauge className="w-3 h-3 flex-shrink-0" />
-                          <span>{node.metric3Value || '4.2 bar'} <span className="text-[9px] text-emerald-500/70 font-sans">{node.metric3Label || 'Press'}</span></span>
+                          <span>{hasWaterData ? '4.2 bar' : '-- bar'} <span className="text-[9px] text-emerald-500/70 font-sans">{node.metric3Label || 'Press'}</span></span>
                         </div>
                         <div className="flex items-center gap-1 text-indigo-400">
                           <Activity className="w-3 h-3 flex-shrink-0" />
-                          <span>{node.metric4Value || '142 ppm'} <span className="text-[9px] text-indigo-500/70 font-sans">{node.metric4Label || 'TDS'}</span></span>
+                          <span>{hasWaterData ? `${avgTds} ppm` : '-- ppm'} <span className="text-[9px] text-indigo-500/70 font-sans">{node.metric4Label || 'TDS'}</span></span>
                         </div>
                       </>
                     ) : node.type === 'energy' ? (
@@ -1163,19 +1247,19 @@ export const Campus3DTab: React.FC = () => {
                       <>
                         <div className="flex items-center gap-1 text-amber-400">
                           <Sun className="w-3 h-3 flex-shrink-0" />
-                          <span>{node.metric1Value || node.secondaryValue || '185 kW'} <span className="text-[9px] text-amber-500/70 font-sans">{node.metric1Label || 'Solar'}</span></span>
+                          <span>{hasEnergyData ? `${avgSolar} kW` : '-- kW'} <span className="text-[9px] text-amber-500/70 font-sans">{node.metric1Label || 'Solar'}</span></span>
                         </div>
                         <div className="flex items-center gap-1 text-orange-400">
                           <Zap className="w-3 h-3 flex-shrink-0" />
-                          <span>{node.metric2Value || '280 kVA'} <span className="text-[9px] text-orange-500/70 font-sans">{node.metric2Label || 'Grid'}</span></span>
+                          <span>{hasEnergyData ? `${avgPower} kVA` : '-- kVA'} <span className="text-[9px] text-orange-500/70 font-sans">{node.metric2Label || 'Grid'}</span></span>
                         </div>
                         <div className="flex items-center gap-1 text-emerald-400">
                           <BatteryCharging className="w-3 h-3 flex-shrink-0" />
-                          <span>{node.metric3Value || '910 kWh'} <span className="text-[9px] text-emerald-500/70 font-sans">{node.metric3Label || 'Yield'}</span></span>
+                          <span>{hasEnergyData ? `${Math.round((avgPower || 0) * 4.2)} kWh` : '-- kWh'} <span className="text-[9px] text-emerald-500/70 font-sans">{node.metric3Label || 'Yield'}</span></span>
                         </div>
                         <div className="flex items-center gap-1 text-cyan-400">
                           <Gauge className="w-3 h-3 flex-shrink-0" />
-                          <span>{node.metric4Value || '0.99 PF'} <span className="text-[9px] text-cyan-500/70 font-sans">{node.metric4Label || 'PF'}</span></span>
+                          <span>{hasEnergyData ? `${avgPowerFactor} PF` : '-- PF'} <span className="text-[9px] text-cyan-500/70 font-sans">{node.metric4Label || 'PF'}</span></span>
                         </div>
                       </>
                     ) : node.type === 'parking' ? (
@@ -1183,19 +1267,19 @@ export const Campus3DTab: React.FC = () => {
                       <>
                         <div className="flex items-center gap-1 text-emerald-400">
                           <Car className="w-3 h-3 flex-shrink-0" />
-                          <span>{node.metric1Value || '18 / 28'} <span className="text-[9px] text-emerald-500/70 font-sans">{node.metric1Label || 'Slots'}</span></span>
+                          <span>-- / -- <span className="text-[9px] text-emerald-500/70 font-sans">{node.metric1Label || 'Slots'}</span></span>
                         </div>
                         <div className="flex items-center gap-1 text-cyan-400">
                           <BatteryCharging className="w-3 h-3 flex-shrink-0" />
-                          <span>{node.metric2Value || '4 Active'} <span className="text-[9px] text-cyan-500/70 font-sans">{node.metric2Label || 'EV'}</span></span>
+                          <span>-- Active <span className="text-[9px] text-cyan-500/70 font-sans">{node.metric2Label || 'EV'}</span></span>
                         </div>
                         <div className="flex items-center gap-1 text-amber-400">
                           <Gauge className="w-3 h-3 flex-shrink-0" />
-                          <span>{node.metric3Value || '64%'} <span className="text-[9px] text-amber-500/70 font-sans">{node.metric3Label || 'Occ'}</span></span>
+                          <span>-- % <span className="text-[9px] text-amber-500/70 font-sans">{node.metric3Label || 'Occ'}</span></span>
                         </div>
                         <div className="flex items-center gap-1 text-blue-400">
                           <Activity className="w-3 h-3 flex-shrink-0" />
-                          <span>{node.metric4Value || 'OPEN'} <span className="text-[9px] text-blue-500/70 font-sans">{node.metric4Label || 'Gate'}</span></span>
+                          <span>STANDBY <span className="text-[9px] text-blue-500/70 font-sans">{node.metric4Label || 'Gate'}</span></span>
                         </div>
                       </>
                     ) : node.type === 'waste' ? (
@@ -1203,19 +1287,19 @@ export const Campus3DTab: React.FC = () => {
                       <>
                         <div className="flex items-center gap-1 text-purple-400">
                           <Trash2 className="w-3 h-3 flex-shrink-0" />
-                          <span>{node.metric1Value || '38%'} <span className="text-[9px] text-purple-500/70 font-sans">{node.metric1Label || 'Fill'}</span></span>
+                          <span>-- % <span className="text-[9px] text-purple-500/70 font-sans">{node.metric1Label || 'Fill'}</span></span>
                         </div>
                         <div className="flex items-center gap-1 text-indigo-400">
                           <Scale className="w-3 h-3 flex-shrink-0" />
-                          <span>{node.metric2Value || '14 kg'} <span className="text-[9px] text-indigo-500/70 font-sans">{node.metric2Label || 'Weight'}</span></span>
+                          <span>-- kg <span className="text-[9px] text-indigo-500/70 font-sans">{node.metric2Label || 'Weight'}</span></span>
                         </div>
                         <div className="flex items-center gap-1 text-emerald-400">
                           <Activity className="w-3 h-3 flex-shrink-0" />
-                          <span>{node.metric3Value || 'Clean'} <span className="text-[9px] text-emerald-500/70 font-sans">{node.metric3Label || 'Odor'}</span></span>
+                          <span>STANDBY <span className="text-[9px] text-emerald-500/70 font-sans">{node.metric3Label || 'Odor'}</span></span>
                         </div>
                         <div className="flex items-center gap-1 text-cyan-400">
                           <Truck className="w-3 h-3 flex-shrink-0" />
-                          <span>{node.metric4Value || 'Active'} <span className="text-[9px] text-cyan-500/70 font-sans">{node.metric4Label || 'Route'}</span></span>
+                          <span>STANDBY <span className="text-[9px] text-cyan-500/70 font-sans">{node.metric4Label || 'Route'}</span></span>
                         </div>
                       </>
                     ) : (
@@ -1224,25 +1308,25 @@ export const Campus3DTab: React.FC = () => {
                         {showPm25 && (
                           <div className="flex items-center gap-1 text-amber-400">
                             <Cloud className="w-3 h-3 flex-shrink-0" />
-                            <span>{currentPm25} <span className="text-[9px] text-amber-500/70 font-normal">µg/m³</span></span>
+                            <span>{nodePm25} <span className="text-[9px] text-amber-500/70 font-normal">µg/m³</span></span>
                           </div>
                         )}
                         {showPm10 && (
                           <div className="flex items-center gap-1 text-cyan-400">
                             <Cloud className="w-3 h-3 flex-shrink-0" />
-                            <span>{currentPm10} <span className="text-[9px] text-cyan-500/70 font-normal">µg/m³</span></span>
+                            <span>{nodePm10} <span className="text-[9px] text-cyan-500/70 font-normal">µg/m³</span></span>
                           </div>
                         )}
                         {showTemp && (
                           <div className="flex items-center gap-1 text-emerald-400">
                             <Thermometer className="w-3 h-3 flex-shrink-0" />
-                            <span>{currentTemp} <span className="text-[9px] text-emerald-500/70 font-normal">°C</span></span>
+                            <span>{nodeTemp} <span className="text-[9px] text-emerald-500/70 font-normal">°C</span></span>
                           </div>
                         )}
                         {showHumidity && (
                           <div className="flex items-center gap-1 text-blue-400">
                             <Droplets className="w-3 h-3 flex-shrink-0" />
-                            <span>{currentHumidity} <span className="text-[9px] text-blue-500/70 font-normal">%</span></span>
+                            <span>{nodeHumidity} <span className="text-[9px] text-blue-500/70 font-normal">%</span></span>
                           </div>
                         )}
                         {node.secondaryLabel && (
