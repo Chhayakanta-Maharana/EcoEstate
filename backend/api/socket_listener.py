@@ -199,6 +199,28 @@ def _udp_server_worker():
                 data, addr = udp_sock.recvfrom(4096)
                 if data:
                     text = data.decode('utf-8', errors='ignore').strip()
+                    # Check for Zero-Config Auto-Discovery Beacon Ping
+                    if 'ECOESTATE_DISCOVERY_PING' in text:
+                        try:
+                            server_ip = get_gateway_config().get('server_local_ip', '127.0.0.1')
+                            http_p = GATEWAY_CONFIG.get('http_port', 8000)
+                            announce_ack = json.dumps({
+                                'msg': 'ECOESTATE_SERVER_ACK',
+                                'server_ip': server_ip,
+                                'http_port': http_p,
+                                'http_url': f"http://{server_ip}:{http_p}/api/iot/ingest/",
+                                'udp_port': GATEWAY_CONFIG['udp_port'],
+                                'tcp_port': GATEWAY_CONFIG['tcp_port'],
+                                'status': 'ONLINE',
+                                'timestamp': datetime.now().strftime('%H:%M:%S')
+                            })
+                            udp_sock.sendto(announce_ack.encode('utf-8'), addr)
+                            print(f"[IoT Gateway] [AUTO-DISCOVERY] Responded to beacon from {addr[0]}:{addr[1]} -> Announced {server_ip}:{http_p}")
+                            continue
+                        except Exception as e:
+                            print(f"[IoT Gateway] Discovery beacon error: {e}")
+                            continue
+
                     pkt = _ingest_socket_packet(text, addr[0], 'UDP')
                     ack = json.dumps({'status': 'ACK', 'id': pkt['id'], 'protocol': 'UDP', 'timestamp': pkt['timestamp']})
                     try:

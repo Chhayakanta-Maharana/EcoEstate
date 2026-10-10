@@ -82,11 +82,29 @@ def normalize_ingest_url(raw_url: str) -> str:
     return url
 
 
+def discover_server_via_beacon(port: int = 5005, timeout: float = 0.8) -> dict | None:
+    """Zero-Config UDP Broadcast Beacon handshake on port 5005 (runs in < 50ms)."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        s.settimeout(timeout)
+        ping_msg = json.dumps({"msg": "ECOESTATE_DISCOVERY_PING"}).encode('utf-8')
+        s.sendto(ping_msg, ("255.255.255.255", port))
+        data, addr = s.recvfrom(2048)
+        s.close()
+        info = json.loads(data.decode('utf-8', errors='ignore'))
+        if info.get('msg') == 'ECOESTATE_SERVER_ACK':
+            return info
+    except Exception:
+        pass
+    return None
+
+
 def _probe_server_ip(ip: str, port: int = 8000) -> str | None:
     """Probes a single IP address to check if EcoEstate Django backend is running."""
     try:
         test_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        test_sock.settimeout(0.4)
+        test_sock.settimeout(0.35)
         result = test_sock.connect_ex((ip, port))
         test_sock.close()
         if result == 0:
@@ -100,40 +118,43 @@ def _probe_server_ip(ip: str, port: int = 8000) -> str | None:
     return None
 
 
-def discover_server_url(base_ip: str = "", port: int = 8000) -> str:
-    """High-speed concurrent subnet scanner. Scans all 254 IPs on WiFi subnet in parallel."""
+def discover_server_url(base_ip: str = "", port: int = 8000) -> tuple[str, str]:
+    """
+    Auto-Discovers EcoEstate Server URL:
+    1. Zero-Config UDP Broadcast Beacon (Takes < 0.05s on same WiFi/LAN)
+    2. Concurrent Subnet Scanner across local /24
+    3. Production Cloud Fallback (https://ecoestate.onrender.com/api/iot/ingest/)
+    Returns (url, discovery_source_text).
+    """
+    # 1. Ultra-fast UDP Beacon
+    beacon = discover_server_via_beacon(port=5005)
+    if beacon and beacon.get('http_url'):
+        return beacon['http_url'], f"Auto UDP Beacon (Server IP: {beacon.get('server_ip')})"
+
+    # 2. Fast Concurrent Subnet Scan
     local_ip = get_local_ip()
     candidates = ["127.0.0.1", "localhost"]
-    
-    # Check local IP and entire /24 subnet
     if local_ip != "127.0.0.1":
         prefix = ".".join(local_ip.split(".")[:3])
-        # Add all IPs 1 to 254
         for i in range(1, 255):
             candidates.append(f"{prefix}.{i}")
-    
-    found_url = None
+
     with concurrent.futures.ThreadPoolExecutor(max_workers=60) as executor:
         future_to_ip = {executor.submit(_probe_server_ip, ip, port): ip for ip in candidates}
         for future in concurrent.futures.as_completed(future_to_ip):
             res = future.result()
             if res:
-                found_url = res
-                # Cancel remaining
                 executor.shutdown(wait=False, cancel_futures=True)
-                break
-    
-    if found_url:
-        return found_url
-    
-    # If not on local subnet, fallback to Cloud Hosted Server
-    return CLOUD_INGEST_URL
+                return res, f"WiFi Subnet Scan (Found: {future_to_ip[future]})"
+
+    # 3. Production Cloud Fallback
+    return CLOUD_INGEST_URL, "Production Cloud Fallback (Render)"
 
 
 # Auto-detect host IP for shared WiFi support
 DETECTED_LOCAL_IP = get_local_ip()
 DEFAULT_HOST = "255.255.255.255"
-DEFAULT_HTTP_URL = f"http://{DETECTED_LOCAL_IP}:8000/api/iot/ingest/"
+DEFAULT_HTTP_URL = CLOUD_INGEST_URL
 
 # Sensor Presets with Healthy vs Anomaly telemetry
 SENSOR_TEMPLATES = {
@@ -347,6 +368,7 @@ class IoTSenderGui:
         self._apply_dark_style()
         self._build_ui()
         self._on_sensor_changed()
+        self._auto_connect_server_on_startup()
 
     def _apply_dark_style(self):
         style = ttk.Style()
@@ -363,15 +385,24 @@ class IoTSenderGui:
         style.configure("Success.TButton", font=("Segoe UI", 9, "bold"), background="#10b981", foreground="#ffffff")
 
     def _build_ui(self):
-        # 1. Top Title Banner
+        # 1. Top Title Banner with Auto-Discovery Badge
         banner = tk.Frame(self.root, bg="#0d111f", height=65, relief="solid", bd=1)
         banner.pack(fill="x", padx=10, pady=(10, 5))
 
+        banner_top = tk.Frame(banner, bg="#0d111f")
+        banner_top.pack(fill="x", padx=15, pady=(8, 2))
+
         title_label = tk.Label(
-            banner, text="⚡ EcoEstate IoT Telemetry Simulator & Hardware Sender",
-            font=("Segoe UI", 14, "bold"), bg="#0d111f", fg="#38bdf8"
+            banner_top, text="⚡ EcoEstate IoT Hardware Sender (LAN & WiFi)",
+            font=("Segoe UI", 13, "bold"), bg="#0d111f", fg="#38bdf8"
         )
-        title_label.pack(anchor="w", padx=15, pady=(8, 2))
+        title_label.pack(side="left")
+
+        self.conn_status_label = tk.Label(
+            banner_top, text="🔍 Auto-Connecting to Server on WiFi...",
+            font=("Segoe UI", 8, "bold"), bg="#1e293b", fg="#facc15", padx=8, pady=2
+        )
+        self.conn_status_label.pack(side="right")
 
         subtitle = tk.Label(
             banner,
@@ -664,25 +695,39 @@ class IoTSenderGui:
             )
             scale.grid(row=row*2+1, column=col, sticky="w", padx=6, pady=(0, 4))
 
+    def _auto_connect_server_on_startup(self):
+        """Silently auto-connects to the server on app launch in a background thread."""
+        def _runner():
+            found_url, desc = discover_server_url(self.detected_ip)
+            self.root.after(0, lambda: self._on_discover_result(found_url, desc))
+        threading.Thread(target=_runner, daemon=True).start()
+
     def _discover_server(self):
         """Auto-discover the Django backend server on the local network."""
-        self._log("🔍 Scanning network for EcoEstate Django backend server...", "INFO")
+        self._log("🔍 Auto-Scanning WiFi & UDP Beacon for EcoEstate Server...", "INFO")
+        self.conn_status_label.config(text="🔍 Searching Server on WiFi...", fg="#facc15")
         
         def _scan():
-            found_url = discover_server_url(self.detected_ip)
-            self.root.after(0, lambda: self._on_discover_result(found_url))
+            found_url, desc = discover_server_url(self.detected_ip)
+            self.root.after(0, lambda: self._on_discover_result(found_url, desc))
         
         threading.Thread(target=_scan, daemon=True).start()
 
-    def _on_discover_result(self, url: str):
+    def _on_discover_result(self, url: str, desc: str = ""):
         self.wifi_url_var.set(url)
         # Also update LAN host based on discovered URL
         try:
             host_part = url.split("//")[1].split(":")[0]
             self.lan_host_var.set(host_part)
         except Exception:
-            pass
-        self._log(f"✅ Server discovered! URL set to: {url}", "SUCCESS")
+            host_part = url
+
+        if "Render" in desc or "Cloud" in desc:
+            self.conn_status_label.config(text=f"🌐 Cloud Production Ingest", fg="#60a5fa", bg="#1e293b")
+            self._log(f"🌐 Connected to Cloud Production Ingest: {url} ({desc})", "INFO")
+        else:
+            self.conn_status_label.config(text=f"🟢 Auto-Connected: {host_part}", fg="#34d399", bg="#064e3b")
+            self._log(f"✅ Auto-Connected to Host: {url} [{desc}]", "SUCCESS")
 
     def _set_healthy_preset(self):
         key = self._get_selected_key()
@@ -756,6 +801,14 @@ class IoTSenderGui:
             self.wifi_url_var.set(url)
             self._log(f"Dispatching [WiFi HTTP POST] to {url} (RSSI: {payload['signal_dbm']} dBm)...", "INFO")
             ok, msg = send_packet_wifi_http(url, payload)
+            if not ok:
+                # Automatic Dual-Channel Failover to UDP Broadcast on port 5005
+                self._log(f"⚠️ WiFi HTTP POST unreachable ({msg}). Instant failover to LAN UDP broadcast...", "WARN")
+                udp_ok, udp_msg = send_packet_lan_udp("255.255.255.255", 5005, payload)
+                if udp_ok:
+                    ok = True
+                    proto = "UDP-Failover"
+                    msg = f"Delivered via UDP Broadcast (255.255.255.255:5005) -> {udp_msg}"
 
         self.packet_count += 1
         self.stat_tx_label.config(text=f"Packets Sent: {self.packet_count}")
