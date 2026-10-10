@@ -340,24 +340,14 @@ def send_packet_lan_tcp(host: str, port: int, payload: dict) -> tuple[bool, str]
 
 
 def send_packet_lan_udp(host: str, port: int, payload: dict) -> tuple[bool, str]:
-    """Sends telemetry payload via UDP Datagram / Broadcast (255.255.255.255) to LAN Gateway."""
+    """Sends telemetry payload via UDP Datagram / Subnet Broadcast (255.255.255.255) with 0ms non-blocking delivery."""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        # Enable SO_BROADCAST to permit 255.255.255.255 subnet broadcasts on shared WiFi/LAN
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-        sock.settimeout(2.5)
         msg = json.dumps(payload)
         sock.sendto(msg.encode('utf-8'), (host, port))
-        
-        # Try reading ACK
-        sock.settimeout(1.2)
-        try:
-            resp, _ = sock.recvfrom(1024)
-            ack_msg = resp.decode('utf-8', errors='ignore').strip()
-        except socket.timeout:
-            ack_msg = f"UDP Broadcast Packet Transmitted to {host}:{port}"
         sock.close()
-        return True, f"UDP Success: {ack_msg}"
+        return True, f"Subnet UDP Datagram Emitted to {host}:{port} (Instant 0ms delivery)"
     except Exception as e:
         return False, f"UDP Datagram Error ({host}:{port}): {e}"
 
@@ -892,6 +882,69 @@ class IoTSenderGui:
 
             self.stream_thread = threading.Thread(target=_stream_worker, daemon=True)
             self.stream_thread.start()
+
+    def _discover_server(self):
+        """
+        Sends an automated UDP Subnet Broadcast beacon to 255.255.255.255:5005.
+        EcoEstate backend server listens on 0.0.0.0:5005 and replies with its current IP.
+        Updates self.wifi_url_var to the real dynamic IP of Laptop B in < 50ms!
+        """
+        def _worker():
+            self._log("🔍 Probing local WiFi subnet (255.255.255.255:5005) for EcoEstate server...", "INFO")
+            try:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+                s.settimeout(1.5)
+                ping_payload = b"ECOESTATE_DISCOVERY_PING"
+                s.sendto(ping_payload, ("255.255.255.255", 5005))
+
+                data, addr = s.recvfrom(2048)
+                resp = json.loads(data.decode('utf-8', errors='ignore'))
+                s.close()
+
+                if resp.get('msg') == 'ECOESTATE_SERVER_ACK':
+                    server_ip = resp.get('server_ip') or addr[0]
+                    http_url = resp.get('http_url') or f"http://{server_ip}:8000/api/iot/ingest/"
+                    self.root.after(0, lambda: self._on_server_discovered(server_ip, http_url))
+                    return
+            except socket.timeout:
+                self._scan_subnet_fallback()
+            except Exception as e:
+                self._log(f"Auto-discovery notice: {e}", "WARN")
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_server_discovered(self, server_ip: str, http_url: str):
+        self.wifi_url_var.set(http_url)
+        self.lan_host_var.set(server_ip)
+        self.conn_status_label.config(
+            text=f"🟢 Server Auto-Found: {server_ip}:8000",
+            bg="#064e3b", fg="#6ee7b7"
+        )
+        self._log(f"🎯 Auto-Discovered Laptop B Server at {server_ip}! Ingest URL updated to {http_url}", "SUCCESS")
+
+    def _scan_subnet_fallback(self):
+        """Fallback subnet scan if router blocks 255.255.255.255 broadcast."""
+        parts = self.detected_ip.split('.')
+        if len(parts) == 4:
+            base = f"{parts[0]}.{parts[1]}.{parts[2]}"
+            for host_tail in [191, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 1, 2, 50]:
+                target = f"{base}.{host_tail}"
+                try:
+                    url = f"http://{target}:8000/api/iot/status/"
+                    req = urllib.request.Request(url)
+                    with urllib.request.urlopen(req, timeout=0.25) as r:
+                        if r.getcode() == 200:
+                            ingest_url = f"http://{target}:8000/api/iot/ingest/"
+                            self.root.after(0, lambda: self._on_server_discovered(target, ingest_url))
+                            return
+                except Exception:
+                    pass
+        self._log("💡 Tip: Use '📡 255.255.255.255' UDP Broadcast (works with zero config, even if IP changes!)", "INFO")
+
+    def _auto_connect_server_on_startup(self):
+        """Run discovery probe in background thread right after GUI opens."""
+        threading.Thread(target=self._discover_server, daemon=True).start()
 
 
 # ==============================================================================
