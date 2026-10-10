@@ -64,21 +64,34 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
   const currentCategory = activeStream?.category || null;
   const isAqiActive = currentCategory === 'AQI';
 
-  // Strict stream isolation:
+  // Strict stream isolation with direct streaming fallback:
   // - If no stream sent yet: null (shows '--')
-  // - If AQI stream is active: shows live packet metrics
+  // - If AQI stream is active: shows live packet metrics (from activeStream.metrics or dbAqi)
   // - If ANOTHER stream is active: strictly shows 0
-  const hasData = isAqiActive && Boolean(dbAqi && (dbAqi.overall_aqi !== undefined || dbAqi.pm25 !== undefined));
+  const streamMetrics = isAqiActive ? (activeStream?.metrics || {}) : {};
 
-  const baseAqi = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.overall_aqi || 0) : 0);
-  const basePm25 = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.pm25 || 0) : 0);
-  const basePm10 = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.pm10 || 0) : 0);
-  const baseCo2 = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.co2 || 0) : 0);
-  const baseVoc = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.voc || 0) : 0);
-  const baseTemp = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.temperature || 0) : 0);
-  const baseHum = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.humidity || 0) : 0);
-  const baseNoise = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.noise || 0) : 0);
-  const hotspotLoc = currentCategory === null ? '--' : (isAqiActive ? (dbAqi?.hotspot_location || `${activeOrg?.name || 'Campus'} Sensor Node`) : 'Idle Node (0)');
+  const streamPm25 = streamMetrics.pm25 !== undefined ? Number(streamMetrics.pm25) : (streamMetrics.pm25_ug_m3 !== undefined ? Number(streamMetrics.pm25_ug_m3) : undefined);
+  const streamPm10 = streamMetrics.pm10 !== undefined ? Number(streamMetrics.pm10) : (streamMetrics.pm10_ug_m3 !== undefined ? Number(streamMetrics.pm10_ug_m3) : undefined);
+  const streamCo2 = streamMetrics.co2 !== undefined ? Number(streamMetrics.co2) : (streamMetrics.co2_ppm !== undefined ? Number(streamMetrics.co2_ppm) : undefined);
+  const streamVoc = streamMetrics.voc !== undefined ? Number(streamMetrics.voc) : (streamMetrics.voc_ppb !== undefined ? Number(streamMetrics.voc_ppb) : undefined);
+  const streamTemp = streamMetrics.temperature !== undefined ? Number(streamMetrics.temperature) : (streamMetrics.operating_temp_c !== undefined ? Number(streamMetrics.operating_temp_c) : (streamMetrics.temp_c !== undefined ? Number(streamMetrics.temp_c) : undefined));
+  const streamHum = streamMetrics.humidity !== undefined ? Number(streamMetrics.humidity) : (streamMetrics.humidity_pct !== undefined ? Number(streamMetrics.humidity_pct) : undefined);
+  const streamNoise = streamMetrics.noise !== undefined ? Number(streamMetrics.noise) : (streamMetrics.noise_db !== undefined ? Number(streamMetrics.noise_db) : (streamMetrics.acoustic_noise_db !== undefined ? Number(streamMetrics.acoustic_noise_db) : undefined));
+
+  const hasStreamData = isAqiActive && (streamPm25 !== undefined || streamPm10 !== undefined || Boolean(activeStream));
+  const hasData = isAqiActive && (hasStreamData || Boolean(dbAqi && (dbAqi.overall_aqi !== undefined || dbAqi.pm25 !== undefined)));
+
+  const computedAqi = streamPm25 !== undefined ? Math.round(streamPm25 * 2.5) : (streamPm10 !== undefined ? Math.round(streamPm10) : 55);
+
+  const baseAqi = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.overall_aqi ?? computedAqi) : 0);
+  const basePm25 = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.pm25 ?? (streamPm25 ?? 0)) : 0);
+  const basePm10 = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.pm10 ?? (streamPm10 ?? 0)) : 0);
+  const baseCo2 = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.co2 ?? (streamCo2 ?? 0)) : 0);
+  const baseVoc = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.voc ?? (streamVoc ?? 0)) : 0);
+  const baseTemp = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.temperature ?? (streamTemp ?? 0)) : 0);
+  const baseHum = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.humidity ?? (streamHum ?? 0)) : 0);
+  const baseNoise = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.noise ?? (streamNoise ?? 0)) : 0);
+  const hotspotLoc = currentCategory === null ? '--' : (isAqiActive ? (activeStream?.location || dbAqi?.hotspot_location || `${activeOrg?.name || 'Campus'} Sensor Node`) : 'Idle Node (0)');
 
   const liveTrend24h = (isAqiActive && baseAqi !== null && basePm25 !== null && baseAqi > 0)
     ? [

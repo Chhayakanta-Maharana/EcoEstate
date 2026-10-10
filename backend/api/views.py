@@ -521,7 +521,7 @@ def sync_packet_to_models(packet):
                     daily_total_kwh=0, power_factor=0, carbon_emissions_kg=0, peak_load_kw=0
                 )
                 ParkingTelemetry.objects.filter(organization=target_org).update(
-                    occupied_spots=0, ev_spots_occupied=0, occupancy_rate_pct=0
+                    occupied_slots=0, ev_charging_occupied=0, occupancy_rate_pct=0
                 )
                 Dustbin.objects.filter(organization=target_org).update(
                     fill_percentage=0, battery_pct=0, status='Idle'
@@ -569,7 +569,7 @@ def sync_packet_to_models(packet):
                     overall_aqi=0, status='Idle', pm25=0, pm10=0, co2=0, voc=0, temperature=0, humidity=0, noise=0
                 )
                 ParkingTelemetry.objects.filter(organization=target_org).update(
-                    occupied_spots=0, ev_spots_occupied=0, occupancy_rate_pct=0
+                    occupied_slots=0, ev_charging_occupied=0, occupancy_rate_pct=0
                 )
                 Dustbin.objects.filter(organization=target_org).update(
                     fill_percentage=0, battery_pct=0, status='Idle'
@@ -601,7 +601,7 @@ def sync_packet_to_models(packet):
                     overall_aqi=0, status='Idle', pm25=0, pm10=0, co2=0, voc=0, temperature=0, humidity=0, noise=0
                 )
                 ParkingTelemetry.objects.filter(organization=target_org).update(
-                    occupied_spots=0, ev_spots_occupied=0, occupancy_rate_pct=0
+                    occupied_slots=0, ev_charging_occupied=0, occupancy_rate_pct=0
                 )
                 Dustbin.objects.filter(organization=target_org).update(
                     fill_percentage=0, battery_pct=0, status='Idle'
@@ -616,11 +616,11 @@ def sync_packet_to_models(packet):
 
                 ParkingTelemetry.objects.create(
                     organization=target_org,
-                    total_spots=total_val,
-                    occupied_spots=occ_val,
-                    available_spots=max(0, total_val - occ_val),
-                    ev_charging_stations=12,
-                    ev_spots_occupied=ev_val,
+                    total_slots=total_val,
+                    occupied_slots=occ_val,
+                    available_slots=max(0, total_val - occ_val),
+                    ev_charging_total=12,
+                    ev_charging_occupied=ev_val,
                     occupancy_rate_pct=rate_pct,
                     entry_flow_rate=flow_rate
                 )
@@ -667,7 +667,7 @@ def sync_packet_to_models(packet):
                     overall_aqi=0, status='Idle', pm25=0, pm10=0, co2=0, voc=0, temperature=0, humidity=0, noise=0
                 )
                 ParkingTelemetry.objects.filter(organization=target_org).update(
-                    occupied_spots=0, ev_spots_occupied=0, occupancy_rate_pct=0
+                    occupied_slots=0, ev_charging_occupied=0, occupancy_rate_pct=0
                 )
 
             elif category in ['EQUIPMENT']:

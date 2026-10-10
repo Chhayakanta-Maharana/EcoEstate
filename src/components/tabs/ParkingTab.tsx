@@ -64,10 +64,16 @@ export const ParkingTab: React.FC<ParkingTabProps> = ({ org }) => {
   const isParkingActive = currentCategory === 'PARKING';
   const isInactive = currentCategory !== null && !isParkingActive;
 
-  const total = dbParking?.total_slots || 80;
-  const occ = isInactive ? 0 : (dbParking?.occupied_slots ?? (currentCategory === null ? 0 : 0));
-  const evOcc = isInactive ? 0 : (dbParking?.ev_charging_occupied ?? (currentCategory === null ? 0 : 0));
-  const flowRate = isInactive ? 0 : (dbParking?.entry_flow_rate ?? (currentCategory === null ? 0 : 0));
+  const streamMetrics = isParkingActive ? (activeStream?.metrics || {}) : {};
+  const streamTotal = streamMetrics.total_slots !== undefined ? Number(streamMetrics.total_slots) : undefined;
+  const streamOcc = streamMetrics.occupied_slots !== undefined ? Number(streamMetrics.occupied_slots) : undefined;
+  const streamEvOcc = streamMetrics.ev_charging_occupied !== undefined ? Number(streamMetrics.ev_charging_occupied) : undefined;
+  const streamFlow = streamMetrics.entry_flow_rate !== undefined ? Number(streamMetrics.entry_flow_rate) : undefined;
+
+  const total = isInactive ? (dbParking?.total_slots || 80) : (dbParking?.total_slots ?? (streamTotal ?? 80));
+  const occ = isInactive ? 0 : (dbParking?.occupied_slots ?? (streamOcc ?? (currentCategory === null ? 0 : 0)));
+  const evOcc = isInactive ? 0 : (dbParking?.ev_charging_occupied ?? (streamEvOcc ?? (currentCategory === null ? 0 : 0)));
+  const flowRate = isInactive ? 0 : (dbParking?.entry_flow_rate ?? (streamFlow ?? (currentCategory === null ? 0 : 0)));
   const ratePct = isInactive ? 0 : (dbParking?.occupancy_rate_pct ?? (total > 0 ? Math.round((occ / total) * 100) : 0));
 
   const liveHourlyOccupancy = [

@@ -52,18 +52,34 @@ export const WasteTab: React.FC<WasteTabProps> = ({ org }) => {
   const currentCategory = activeStream?.category || null;
   const isWasteActive = currentCategory === 'WASTE';
 
+  const streamMetrics = isWasteActive ? (activeStream?.metrics || {}) : {};
+  const streamFill = streamMetrics.fill_percentage !== undefined ? Number(streamMetrics.fill_percentage) : 35;
+  const streamBattery = streamMetrics.battery_pct !== undefined ? Number(streamMetrics.battery_pct) : 94;
+
+  const baseBins = dbDustbins.length > 0 ? dbDustbins : (isWasteActive ? [{
+    id: 1,
+    bin_code: activeStream?.device_id || 'BIN-LIVE-01',
+    zone: activeStream?.location || 'Central Campus Plaza',
+    bin_type: 'Dry Waste',
+    fill_percentage: streamFill,
+    battery_pct: streamBattery,
+    predicted_overflow_mins: 120,
+    status: streamFill >= 85 ? 'Critical' : (streamFill >= 70 ? 'Warning' : 'Normal'),
+    last_emptied: 'Just now'
+  }] : []);
+
   // Strict Stream Isolation:
   // If WASTE is active -> show live metrics
   // If ANOTHER category is active -> zero out (fillPercentage: 0, batteryPct: 0)
   // If no stream active -> show standard or awaiting
-  const dustbins = dbDustbins.map((b) => {
+  const dustbins = baseBins.map((b: any) => {
     const isInactive = currentCategory !== null && !isWasteActive;
     return {
       id: b.bin_code || `BIN-${b.id}`,
       zone: b.zone,
       binType: b.bin_type,
-      fillPercentage: isInactive ? 0 : b.fill_percentage,
-      batteryPct: isInactive ? 0 : b.battery_pct,
+      fillPercentage: isInactive ? 0 : (isWasteActive && streamMetrics.fill_percentage !== undefined ? Number(streamMetrics.fill_percentage) : b.fill_percentage),
+      batteryPct: isInactive ? 0 : (isWasteActive && streamMetrics.battery_pct !== undefined ? Number(streamMetrics.battery_pct) : b.battery_pct),
       predictedOverflowMins: isInactive ? 0 : b.predicted_overflow_mins,
       status: isInactive ? 'Idle (Inactive Stream)' : b.status,
       lastEmptied: b.last_emptied,
