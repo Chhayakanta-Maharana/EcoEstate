@@ -17,6 +17,19 @@ and twin updates on the website.
 
 import sys
 import os
+
+# Safe standard stream handling for Windows GUI / PyInstaller executables
+if sys.stdout is not None and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+if sys.stderr is not None and hasattr(sys.stderr, 'reconfigure'):
+    try:
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 import json
 import time
 import socket
@@ -847,7 +860,7 @@ class IoTSenderGui:
 # ==============================================================================
 def run_cli_mode():
     print("=" * 70)
-    print("EcoEstate India • IoT Telemetry CLI Sender")
+    print("EcoEstate India - IoT Telemetry CLI Sender")
     print("Options: 1=LAN TCP, 2=LAN UDP, 3=WiFi HTTP, 4=Inject Anomaly, q=Quit")
     print("=" * 70)
 

@@ -56,3 +56,4 @@ lerna-debug.log*
 Thumbs.db
 build_desktop/
 *.spec
+*.exe

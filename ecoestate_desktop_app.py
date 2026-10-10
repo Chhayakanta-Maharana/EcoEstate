@@ -20,6 +20,19 @@ Includes:
 
 import sys
 import os
+
+# Safe standard stream handling for Windows GUI / PyInstaller executables
+if sys.stdout is not None and hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+if sys.stderr is not None and hasattr(sys.stderr, 'reconfigure'):
+    try:
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+    except Exception:
+        pass
+
 import time
 import socket
 import urllib.request
@@ -34,7 +47,7 @@ PROD_FRONTEND_URL = "https://eco-estate-delta.vercel.app"
 LOCAL_BACKEND_URL = "http://127.0.0.1:8000/api/iot/status/"
 PROD_BACKEND_URL = "https://ecoestate.onrender.com/api/iot/status/"
 
-APP_TITLE = "EcoEstate India • Sustainable Smart Facility Management"
+APP_TITLE = "EcoEstate India - Sustainable Smart Facility Management"
 APP_BG_COLOR = "#070913"
 
 # Subprocess tracker
@@ -215,7 +228,7 @@ def launch_edge_app_mode(url: str) -> bool:
 
 def main():
     print("=" * 68)
-    print("⚡ EcoEstate India • Enterprise Desktop Application")
+    print("[EcoEstate India] Enterprise Desktop Application")
     print("=" * 68)
 
     try:
