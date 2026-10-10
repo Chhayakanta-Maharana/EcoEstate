@@ -434,7 +434,7 @@ def sync_packet_to_models(packet):
     """
     global CURRENT_ACTIVE_STREAM
     try:
-        from .models import Organization, AqiTelemetry, WaterTelemetry, EnergyTelemetry, Equipment, Dustbin
+        from .models import Organization, AqiTelemetry, WaterTelemetry, EnergyTelemetry, Equipment, Dustbin, ParkingTelemetry
         metrics = packet.get('metrics', {})
         raw_sensor_type = (packet.get('sensor_type') or '').upper()
         device_id = packet.get('device_id', '')
@@ -447,8 +447,10 @@ def sync_packet_to_models(packet):
             category = 'ENERGY'
         elif raw_sensor_type in ['AQI', 'AIR', 'AIR_QUALITY_STATION'] or 'AQI' in device_id:
             category = 'AQI'
+        elif raw_sensor_type in ['PARKING'] or 'PARK' in device_id:
+            category = 'PARKING'
         elif raw_sensor_type in ['DUSTBIN', 'WASTE'] or 'BIN' in device_id:
-            category = 'DUSTBIN'
+            category = 'WASTE'
         elif raw_sensor_type in ['EQUIPMENT', 'VIBRATION', 'CHILLER']:
             category = 'EQUIPMENT'
         else:
@@ -509,7 +511,7 @@ def sync_packet_to_models(packet):
                     hotspot_location=packet.get('location', f"{target_org.name} IoT Node"),
                     anomaly_detected=(computed_aqi > 150 or pm25_val > 60)
                 )
-                # Respective Stream Isolation: Zero out Water and Energy
+                # Respective Stream Isolation: Zero out Water, Energy, Parking, Waste
                 WaterTelemetry.objects.filter(organization=target_org).update(
                     flow_rate_lps=0, underground_tank_level_pct=0, overhead_tank_level_pct=0,
                     daily_consumption_kl=0, ph_level=0, turbidity_ntu=0, stp_treated_water_kl=0, stp_recycle_rate_pct=0
@@ -517,6 +519,12 @@ def sync_packet_to_models(packet):
                 EnergyTelemetry.objects.filter(organization=target_org).update(
                     current_load_kw=0, solar_rooftop_kw=0, grid_power_kw=0,
                     daily_total_kwh=0, power_factor=0, carbon_emissions_kg=0, peak_load_kw=0
+                )
+                ParkingTelemetry.objects.filter(organization=target_org).update(
+                    occupied_spots=0, ev_spots_occupied=0, occupancy_rate_pct=0
+                )
+                Dustbin.objects.filter(organization=target_org).update(
+                    fill_percentage=0, battery_pct=0, status='Idle'
                 )
 
             elif category == 'WATER':
@@ -552,13 +560,19 @@ def sync_packet_to_models(packet):
                         'data_source': f"Live {packet.get('source', 'IoT')}"
                     }
                 )
-                # Respective Stream Isolation: Zero out Energy and AQI
+                # Respective Stream Isolation: Zero out Energy, AQI, Parking, Waste
                 EnergyTelemetry.objects.filter(organization=target_org).update(
                     current_load_kw=0, solar_rooftop_kw=0, grid_power_kw=0,
                     daily_total_kwh=0, power_factor=0, carbon_emissions_kg=0, peak_load_kw=0
                 )
                 AqiTelemetry.objects.filter(organization=target_org).update(
                     overall_aqi=0, status='Idle', pm25=0, pm10=0, co2=0, voc=0, temperature=0, humidity=0, noise=0
+                )
+                ParkingTelemetry.objects.filter(organization=target_org).update(
+                    occupied_spots=0, ev_spots_occupied=0, occupancy_rate_pct=0
+                )
+                Dustbin.objects.filter(organization=target_org).update(
+                    fill_percentage=0, battery_pct=0, status='Idle'
                 )
 
             elif category == 'ENERGY':
@@ -578,13 +592,82 @@ def sync_packet_to_models(packet):
                     peak_load_kw=round(load_val * 1.15, 1),
                     carbon_emissions_kg=round(load_val * 0.82 * 14, 1) if load_val > 0 else 8500.0
                 )
-                # Respective Stream Isolation: Zero out Water and AQI
+                # Respective Stream Isolation: Zero out Water, AQI, Parking, Waste
                 WaterTelemetry.objects.filter(organization=target_org).update(
                     flow_rate_lps=0, underground_tank_level_pct=0, overhead_tank_level_pct=0,
                     daily_consumption_kl=0, ph_level=0, turbidity_ntu=0, stp_treated_water_kl=0, stp_recycle_rate_pct=0
                 )
                 AqiTelemetry.objects.filter(organization=target_org).update(
                     overall_aqi=0, status='Idle', pm25=0, pm10=0, co2=0, voc=0, temperature=0, humidity=0, noise=0
+                )
+                ParkingTelemetry.objects.filter(organization=target_org).update(
+                    occupied_spots=0, ev_spots_occupied=0, occupancy_rate_pct=0
+                )
+                Dustbin.objects.filter(organization=target_org).update(
+                    fill_percentage=0, battery_pct=0, status='Idle'
+                )
+
+            elif category == 'PARKING':
+                occ_val = int(metrics.get('occupied_slots', metrics.get('occupied_bays', 42)))
+                total_val = int(metrics.get('total_slots', metrics.get('total_bays', 80)))
+                ev_val = int(metrics.get('ev_charging_occupied', metrics.get('ev_charging_active', 6)))
+                flow_rate = int(metrics.get('entry_flow_rate', 24))
+                rate_pct = round((occ_val / max(1, total_val)) * 100)
+
+                ParkingTelemetry.objects.create(
+                    organization=target_org,
+                    total_spots=total_val,
+                    occupied_spots=occ_val,
+                    available_spots=max(0, total_val - occ_val),
+                    ev_charging_stations=12,
+                    ev_spots_occupied=ev_val,
+                    occupancy_rate_pct=rate_pct,
+                    entry_flow_rate=flow_rate
+                )
+                # Respective Stream Isolation: Zero out Water, Energy, AQI, Waste
+                WaterTelemetry.objects.filter(organization=target_org).update(
+                    flow_rate_lps=0, underground_tank_level_pct=0, overhead_tank_level_pct=0,
+                    daily_consumption_kl=0, ph_level=0, turbidity_ntu=0, stp_treated_water_kl=0, stp_recycle_rate_pct=0
+                )
+                EnergyTelemetry.objects.filter(organization=target_org).update(
+                    current_load_kw=0, solar_rooftop_kw=0, grid_power_kw=0,
+                    daily_total_kwh=0, power_factor=0, carbon_emissions_kg=0, peak_load_kw=0
+                )
+                AqiTelemetry.objects.filter(organization=target_org).update(
+                    overall_aqi=0, status='Idle', pm25=0, pm10=0, co2=0, voc=0, temperature=0, humidity=0, noise=0
+                )
+                Dustbin.objects.filter(organization=target_org).update(
+                    fill_percentage=0, battery_pct=0, status='Idle'
+                )
+
+            elif category in ['WASTE', 'DUSTBIN']:
+                fill_val = int(metrics.get('fill_percentage', 35))
+                battery_val = int(metrics.get('battery_pct', 94))
+                Dustbin.objects.update_or_create(
+                    organization=target_org,
+                    bin_code=device_id or f"BIN-{target_org.id}-LIVE",
+                    defaults={
+                        'zone': location or f"{target_org.name} Plaza",
+                        'bin_type': 'Smart Bin',
+                        'fill_percentage': fill_val,
+                        'battery_pct': battery_val,
+                        'status': 'Critical' if fill_val >= 85 else ('Warning' if fill_val >= 70 else 'Normal')
+                    }
+                )
+                # Respective Stream Isolation: Zero out Water, Energy, AQI, Parking
+                WaterTelemetry.objects.filter(organization=target_org).update(
+                    flow_rate_lps=0, underground_tank_level_pct=0, overhead_tank_level_pct=0,
+                    daily_consumption_kl=0, ph_level=0, turbidity_ntu=0, stp_treated_water_kl=0, stp_recycle_rate_pct=0
+                )
+                EnergyTelemetry.objects.filter(organization=target_org).update(
+                    current_load_kw=0, solar_rooftop_kw=0, grid_power_kw=0,
+                    daily_total_kwh=0, power_factor=0, carbon_emissions_kg=0, peak_load_kw=0
+                )
+                AqiTelemetry.objects.filter(organization=target_org).update(
+                    overall_aqi=0, status='Idle', pm25=0, pm10=0, co2=0, voc=0, temperature=0, humidity=0, noise=0
+                )
+                ParkingTelemetry.objects.filter(organization=target_org).update(
+                    occupied_spots=0, ev_spots_occupied=0, occupancy_rate_pct=0
                 )
 
             elif category in ['EQUIPMENT']:
@@ -602,21 +685,6 @@ def sync_packet_to_models(packet):
                         'status': 'Warning' if (vib_val > 3.0 or temp_val > 70) else 'Operational',
                         'health_score': max(30, int(100 - vib_val * 15)),
                         'data_source': f"Live {packet.get('source', 'IoT')}"
-                    }
-                )
-
-            elif sensor_type == 'DUSTBIN':
-                fill_val = int(metrics.get('fill_percentage', 0))
-                battery_val = int(metrics.get('battery_pct', 90))
-                Dustbin.objects.update_or_create(
-                    organization=target_org,
-                    bin_code=packet.get('device_id', f"BIN-{target_org.id}-LIVE"),
-                    defaults={
-                        'zone': packet.get('location', f"{target_org.name} Plaza"),
-                        'bin_type': 'Smart Bin',
-                        'fill_percentage': fill_val,
-                        'battery_pct': battery_val,
-                        'status': 'Critical' if fill_val >= 85 else ('Warning' if fill_val >= 70 else 'Normal')
                     }
                 )
     except Exception as e:

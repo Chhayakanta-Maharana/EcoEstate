@@ -33,37 +33,61 @@ export const ParkingTab: React.FC<ParkingTabProps> = ({ org }) => {
   const { activeOrg: contextOrg } = useAuth();
   const activeOrg = org || contextOrg;
   const [dbParking, setDbParking] = useState<any>(null);
+  const [activeStream, setActiveStream] = useState<any>(null);
 
   useEffect(() => {
     if (!activeOrg?.id) return;
-    DjangoApi.getParkingTelemetry(activeOrg.id).then((data) => {
-      if (data) setDbParking(data);
-    });
+    let isMounted = true;
+
+    const fetchParking = () => {
+      Promise.all([
+        DjangoApi.getParkingTelemetry(activeOrg.id),
+        DjangoApi.getIoTStatus(),
+      ]).then(([data, status]) => {
+        if (isMounted) {
+          if (data) setDbParking(data);
+          if (status?.active_stream) setActiveStream(status.active_stream);
+        }
+      });
+    };
+
+    fetchParking();
+    const interval = setInterval(fetchParking, 1200);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, [activeOrg?.id]);
 
-  const fallback = getParkingData(activeOrg?.type || 'HOSPITAL');
-  const total = dbParking?.total_slots ?? fallback.totalSlots;
-  const occ = dbParking?.occupied_slots ?? fallback.occupiedSlots;
-  const evOcc = dbParking?.ev_charging_occupied ?? fallback.evChargingSlotsOccupied;
+  const currentCategory = activeStream?.category || null;
+  const isParkingActive = currentCategory === 'PARKING';
+  const isInactive = currentCategory !== null && !isParkingActive;
+
+  const total = dbParking?.total_slots || 80;
+  const occ = isInactive ? 0 : (dbParking?.occupied_slots ?? (currentCategory === null ? 0 : 0));
+  const evOcc = isInactive ? 0 : (dbParking?.ev_charging_occupied ?? (currentCategory === null ? 0 : 0));
+  const flowRate = isInactive ? 0 : (dbParking?.entry_flow_rate ?? (currentCategory === null ? 0 : 0));
+  const ratePct = isInactive ? 0 : (dbParking?.occupancy_rate_pct ?? (total > 0 ? Math.round((occ / total) * 100) : 0));
 
   const liveHourlyOccupancy = [
-    { time: '08:00', standard: Math.round(total * 0.32), ev: Math.max(2, Math.round(evOcc * 0.35)) },
-    { time: '10:00', standard: Math.round(total * 0.78), ev: Math.round(evOcc * 0.9) },
-    { time: '12:00', standard: Math.round(occ * 0.95), ev: evOcc },
-    { time: '14:00', standard: Math.round(occ * 0.88), ev: Math.max(2, evOcc - 4) },
+    { time: '08:00', standard: Math.round(total * (isInactive ? 0 : 0.32)), ev: isInactive ? 0 : Math.round(evOcc * 0.35) },
+    { time: '10:00', standard: Math.round(total * (isInactive ? 0 : 0.78)), ev: isInactive ? 0 : Math.round(evOcc * 0.9) },
+    { time: '12:00', standard: Math.round(occ * (isInactive ? 0 : 0.95)), ev: evOcc },
+    { time: '14:00', standard: Math.round(occ * (isInactive ? 0 : 0.88)), ev: isInactive ? 0 : Math.max(0, evOcc - 4) },
     { time: '16:00', standard: occ, ev: evOcc },
-    { time: '18:00', standard: Math.round(total * 0.52), ev: Math.max(2, Math.round(evOcc * 0.5)) },
+    { time: '18:00', standard: Math.round(total * (isInactive ? 0 : 0.52)), ev: isInactive ? 0 : Math.round(evOcc * 0.5) },
   ];
 
   const parking = {
     totalSlots: total,
     occupiedSlots: occ,
-    availableSlots: dbParking?.available_slots ?? (total - occ),
-    evChargingSlotsTotal: dbParking?.ev_charging_total ?? fallback.evChargingSlotsTotal,
+    availableSlots: isInactive ? total : (dbParking?.available_slots ?? (total - occ)),
+    evChargingSlotsTotal: dbParking?.ev_charging_total ?? 12,
     evChargingSlotsOccupied: evOcc,
-    occupancyRatePct: dbParking?.occupancy_rate_pct ?? Math.round((occ / (total || 1)) * 100),
-    peakCongestionZone: dbParking?.peak_congestion_zone ?? fallback.peakCongestionZone,
-    entryFlowRatePerHour: dbParking?.entry_flow_rate ?? fallback.entryFlowRatePerHour,
+    occupancyRatePct: ratePct,
+    peakCongestionZone: isInactive ? 'Inactive Stream (0)' : (dbParking?.peak_congestion_zone || 'Basement B1 - Lane 4'),
+    entryFlowRatePerHour: flowRate,
     hourlyOccupancy: liveHourlyOccupancy,
   };
 
@@ -74,6 +98,19 @@ export const ParkingTab: React.FC<ParkingTabProps> = ({ org }) => {
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold text-blue-400 mb-1">
             <Car className="w-4 h-4" /> Automated Ultrasonic Bay Sensors & EV Fast Charging Network
+            {isParkingActive ? (
+              <span className="flex items-center gap-1 text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded-full border border-blue-500/30 font-bold">
+                <span className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" /> LIVE STREAM ACTIVE (PARKING)
+              </span>
+            ) : currentCategory !== null ? (
+              <span className="flex items-center gap-1 text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/30 font-bold">
+                <span className="w-2 h-2 rounded-full bg-amber-400" /> INACTIVE STREAM ({currentCategory} ACTIVE) • SENSORS SET TO 0
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-[10px] bg-stone-500/20 text-stone-300 px-2 py-0.5 rounded-full border border-stone-500/30">
+                <span className="w-2 h-2 rounded-full bg-stone-400 animate-pulse" /> AWAITING SENSOR FEED...
+              </span>
+            )}
           </div>
           <h1 className="text-2xl font-extrabold">Smart Parking & Traffic Intelligence</h1>
         </div>

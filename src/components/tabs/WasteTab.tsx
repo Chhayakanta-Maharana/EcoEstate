@@ -22,19 +22,26 @@ export const WasteTab: React.FC<WasteTabProps> = ({ org }) => {
   const { activeOrg: contextOrg } = useAuth();
   const activeOrg = org || contextOrg;
   const [dbDustbins, setDbDustbins] = useState<any[]>([]);
+  const [activeStream, setActiveStream] = useState<any>(null);
 
   useEffect(() => {
     if (!activeOrg?.id) return;
     let isMounted = true;
 
     const fetchBins = () => {
-      DjangoApi.getDustbins(activeOrg.id).then((data) => {
-        if (isMounted && Array.isArray(data)) setDbDustbins(data);
+      Promise.all([
+        DjangoApi.getDustbins(activeOrg.id),
+        DjangoApi.getIoTStatus(),
+      ]).then(([data, status]) => {
+        if (isMounted) {
+          if (Array.isArray(data)) setDbDustbins(data);
+          if (status?.active_stream) setActiveStream(status.active_stream);
+        }
       });
     };
 
     fetchBins();
-    const interval = setInterval(fetchBins, 1500);
+    const interval = setInterval(fetchBins, 1200);
 
     return () => {
       isMounted = false;
@@ -42,16 +49,26 @@ export const WasteTab: React.FC<WasteTabProps> = ({ org }) => {
     };
   }, [activeOrg?.id]);
 
-  const dustbins = dbDustbins.map((b) => ({
-    id: b.bin_code || `BIN-${b.id}`,
-    zone: b.zone,
-    binType: b.bin_type,
-    fillPercentage: b.fill_percentage,
-    batteryPct: b.battery_pct,
-    predictedOverflowMins: b.predicted_overflow_mins,
-    status: b.status,
-    lastEmptied: b.last_emptied,
-  }));
+  const currentCategory = activeStream?.category || null;
+  const isWasteActive = currentCategory === 'WASTE';
+
+  // Strict Stream Isolation:
+  // If WASTE is active -> show live metrics
+  // If ANOTHER category is active -> zero out (fillPercentage: 0, batteryPct: 0)
+  // If no stream active -> show standard or awaiting
+  const dustbins = dbDustbins.map((b) => {
+    const isInactive = currentCategory !== null && !isWasteActive;
+    return {
+      id: b.bin_code || `BIN-${b.id}`,
+      zone: b.zone,
+      binType: b.bin_type,
+      fillPercentage: isInactive ? 0 : b.fill_percentage,
+      batteryPct: isInactive ? 0 : b.battery_pct,
+      predictedOverflowMins: isInactive ? 0 : b.predicted_overflow_mins,
+      status: isInactive ? 'Idle (Inactive Stream)' : b.status,
+      lastEmptied: b.last_emptied,
+    };
+  });
 
   const getBadgeColor = (type: string) => {
     switch (type) {
@@ -75,9 +92,17 @@ export const WasteTab: React.FC<WasteTabProps> = ({ org }) => {
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold text-purple-400 mb-1">
             <Trash2 className="w-4 h-4" /> Ultrasonic Level Sensors & AI Overflow Prediction
-            {dustbins.length > 0 ? (
+            {isWasteActive ? (
+              <span className="flex items-center gap-1 text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/30 font-bold">
+                <Activity className="w-3 h-3 animate-pulse text-purple-400" /> LIVE STREAM ACTIVE (WASTE)
+              </span>
+            ) : currentCategory !== null ? (
+              <span className="flex items-center gap-1 text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/30 font-bold">
+                <Activity className="w-3 h-3" /> INACTIVE STREAM ({currentCategory} ACTIVE) • SENSORS SET TO 0
+              </span>
+            ) : dustbins.length > 0 ? (
               <span className="flex items-center gap-1 text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/30">
-                <Activity className="w-3 h-3 animate-pulse" /> LIVE STREAM ACTIVE
+                <Activity className="w-3 h-3 animate-pulse" /> SENSORS READY
               </span>
             ) : (
               <span className="flex items-center gap-1 text-[10px] bg-stone-500/20 text-stone-300 px-2 py-0.5 rounded-full border border-stone-500/30">

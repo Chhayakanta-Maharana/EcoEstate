@@ -280,19 +280,42 @@ SENSOR_TEMPLATES = {
     },
     "DUSTBIN": {
         "name": "Smart Campus Ultrasonic Waste Bin #2",
-        "category": "IOT_GATEWAY_NODE",
-        "sensor_type": "DUSTBIN",
+        "category": "WASTE",
+        "sensor_type": "WASTE",
         "device_id": "WIFI-ESP32-BIN-02",
         "location": "Student Food Court & Canteen Plaza",
         "healthy": {
             "fill_percentage": 35.0,
             "battery_pct": 94.0,
-            "distance_cm": 65.0
+            "distance_cm": 65.0,
+            "waste_weight_kg": 28.0
         },
         "anomaly": {
             "fill_percentage": 92.0,
             "battery_pct": 18.0,
-            "distance_cm": 8.0
+            "distance_cm": 8.0,
+            "waste_weight_kg": 95.0
+        }
+    },
+    "PARKING_GATEWAY": {
+        "name": "Campus Smart EV Parking RFID & Bay Gateway #1",
+        "category": "PARKING",
+        "sensor_type": "PARKING",
+        "device_id": "WIFI-ESP32-PARK-01",
+        "location": "Main Campus Gate & Visitor EV Bay Zone",
+        "healthy": {
+            "occupied_slots": 42.0,
+            "total_slots": 80.0,
+            "ev_charging_occupied": 6.0,
+            "entry_flow_rate": 24.0,
+            "occupancy_rate_pct": 52.5
+        },
+        "anomaly": {
+            "occupied_slots": 79.0,
+            "total_slots": 80.0,
+            "ev_charging_occupied": 12.0,
+            "entry_flow_rate": 68.0,
+            "occupancy_rate_pct": 98.8
         }
     }
 }
@@ -566,7 +589,8 @@ class IoTSenderGui:
                 "AIR_QUALITY_STATION (CPCB Laser AQI Quad)",
                 "CHILLER_HVAC (Basement Chiller Compressor)",
                 "SOLAR_ARRAY (500 kW Rooftop Solar Inverter)",
-                "DUSTBIN (Smart Campus Ultrasonic Bin)"
+                "DUSTBIN (Smart Campus Ultrasonic Bin)",
+                "PARKING_GATEWAY (Smart EV RFID Bay Gateway)"
             ]
         )
         self.sensor_combo.pack(side="left", padx=10)
