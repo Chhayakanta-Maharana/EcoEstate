@@ -167,6 +167,20 @@ export const EstateWorkspace: React.FC<EstateWorkspaceProps> = ({
   const [isOrgDropdownOpen, setIsOrgDropdownOpen] = useState(false);
   const [isIotModalOpen, setIsIotModalOpen] = useState(false);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [activeStream, setActiveStream] = useState<any>(null);
+
+  useEffect(() => {
+    const checkIoT = () => {
+      DjangoApi.getIoTStatus()
+        .then((s) => {
+          if (s?.active_stream) setActiveStream(s.active_stream);
+        })
+        .catch(() => {});
+    };
+    checkIoT();
+    const interval = setInterval(checkIoT, 1200);
+    return () => clearInterval(interval);
+  }, []);
 
   const cleanParam = (orgId || '').replace('org-', '');
   const displayOrg =
@@ -492,19 +506,34 @@ export const EstateWorkspace: React.FC<EstateWorkspaceProps> = ({
             {/* Real-time Dual-Channel Hardware Gateway Status (Clickable) */}
             <button
               onClick={() => setIsIotModalOpen(true)}
-              className="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-700 dark:text-emerald-400 font-bold transition-all cursor-pointer shadow-sm text-xs"
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border font-bold transition-all cursor-pointer shadow-sm text-xs ${
+                activeStream?.category
+                  ? 'bg-cyan-500/15 hover:bg-cyan-500/25 border-cyan-500/40 text-cyan-800 dark:text-cyan-300'
+                  : 'hidden sm:flex bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-700 dark:text-emerald-400'
+              }`}
               title="Click to inspect Dual Hardware Ingestion (LAN & WiFi)"
             >
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping flex-shrink-0" />
-              <div className="flex items-center gap-1.5 font-mono text-[11px]">
-                <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                  <Network className="w-3.5 h-3.5" /> LAN
-                </span>
-                <span className="opacity-40 text-stone-400">•</span>
-                <span className="flex items-center gap-1 text-cyan-600 dark:text-cyan-400">
-                  <Wifi className="w-3.5 h-3.5" /> WiFi
-                </span>
-              </div>
+              {activeStream?.category ? (
+                <div className="flex items-center gap-1.5 font-mono text-[11px]">
+                  <span className="font-extrabold uppercase text-cyan-700 dark:text-cyan-300">
+                    LIVE: {activeStream.category}
+                  </span>
+                  <span className="text-[10px] text-stone-400 dark:text-slate-400 font-sans hidden md:inline">
+                    • Inactive set to 0
+                  </span>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 font-mono text-[11px]">
+                  <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
+                    <Network className="w-3.5 h-3.5" /> LAN
+                  </span>
+                  <span className="opacity-40 text-stone-400">•</span>
+                  <span className="flex items-center gap-1 text-cyan-600 dark:text-cyan-400">
+                    <Wifi className="w-3.5 h-3.5" /> WiFi
+                  </span>
+                </div>
+              )}
             </button>
 
             {/* Live Interactive Notification Center */}

@@ -34,21 +34,26 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
   const { activeOrg: contextOrg } = useAuth();
   const activeOrg = org || contextOrg;
   const [dbAqi, setDbAqi] = useState<any>(null);
+  const [activeStream, setActiveStream] = useState<any>(null);
 
   useEffect(() => {
     if (!activeOrg?.id) return;
     let isMounted = true;
 
     const fetchTelemetry = () => {
-      DjangoApi.getAqiTelemetry(activeOrg.id).then((data) => {
-        if (isMounted && data) {
-          setDbAqi(data);
+      Promise.all([
+        DjangoApi.getAqiTelemetry(activeOrg.id),
+        DjangoApi.getIoTStatus(),
+      ]).then(([data, status]) => {
+        if (isMounted) {
+          if (data) setDbAqi(data);
+          if (status?.active_stream) setActiveStream(status.active_stream);
         }
       });
     };
 
     fetchTelemetry();
-    const interval = setInterval(fetchTelemetry, 1500);
+    const interval = setInterval(fetchTelemetry, 1200);
 
     return () => {
       isMounted = false;
@@ -56,19 +61,26 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
     };
   }, [activeOrg?.id]);
 
-  const hasData = Boolean(dbAqi && (dbAqi.overall_aqi !== undefined || dbAqi.pm25 !== undefined));
+  const currentCategory = activeStream?.category || null;
+  const isAqiActive = currentCategory === 'AQI';
 
-  const baseAqi = hasData ? Number(dbAqi.overall_aqi || 0) : null;
-  const basePm25 = hasData ? Number(dbAqi.pm25 || 0) : null;
-  const basePm10 = hasData ? Number(dbAqi.pm10 || 0) : null;
-  const baseCo2 = hasData ? Number(dbAqi.co2 || 0) : null;
-  const baseVoc = hasData ? Number(dbAqi.voc || 0) : null;
-  const baseTemp = hasData ? Number(dbAqi.temperature || 0) : null;
-  const baseHum = hasData ? Number(dbAqi.humidity || 0) : null;
-  const baseNoise = hasData ? Number(dbAqi.noise || 0) : null;
-  const hotspotLoc = hasData ? (dbAqi.hotspot_location || `${activeOrg?.name || 'Campus'} Sensor Node`) : '--';
+  // Strict stream isolation:
+  // - If no stream sent yet: null (shows '--')
+  // - If AQI stream is active: shows live packet metrics
+  // - If ANOTHER stream is active: strictly shows 0
+  const hasData = isAqiActive && Boolean(dbAqi && (dbAqi.overall_aqi !== undefined || dbAqi.pm25 !== undefined));
 
-  const liveTrend24h = hasData && baseAqi !== null && basePm25 !== null
+  const baseAqi = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.overall_aqi || 0) : 0);
+  const basePm25 = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.pm25 || 0) : 0);
+  const basePm10 = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.pm10 || 0) : 0);
+  const baseCo2 = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.co2 || 0) : 0);
+  const baseVoc = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.voc || 0) : 0);
+  const baseTemp = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.temperature || 0) : 0);
+  const baseHum = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.humidity || 0) : 0);
+  const baseNoise = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.noise || 0) : 0);
+  const hotspotLoc = currentCategory === null ? '--' : (isAqiActive ? (dbAqi?.hotspot_location || `${activeOrg?.name || 'Campus'} Sensor Node`) : 'Idle Node (0)');
+
+  const liveTrend24h = (isAqiActive && baseAqi !== null && basePm25 !== null && baseAqi > 0)
     ? [
         { time: '00:00', aqi: Math.max(10, Math.round(baseAqi * 0.78)), pm25: Math.round(basePm25 * 0.72) },
         { time: '03:00', aqi: Math.max(10, Math.round(baseAqi * 0.72)), pm25: Math.round(basePm25 * 0.68) },

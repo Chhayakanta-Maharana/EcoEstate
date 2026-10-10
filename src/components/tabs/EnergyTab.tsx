@@ -30,19 +30,26 @@ export const EnergyTab: React.FC<EnergyTabProps> = ({ org }) => {
   const { activeOrg: contextOrg } = useAuth();
   const activeOrg = org || contextOrg;
   const [dbEnergy, setDbEnergy] = useState<any>(null);
+  const [activeStream, setActiveStream] = useState<any>(null);
 
   useEffect(() => {
     if (!activeOrg?.id) return;
     let isMounted = true;
 
     const fetchEnergy = () => {
-      DjangoApi.getEnergyTelemetry(activeOrg.id).then((data) => {
-        if (isMounted && data) setDbEnergy(data);
+      Promise.all([
+        DjangoApi.getEnergyTelemetry(activeOrg.id),
+        DjangoApi.getIoTStatus(),
+      ]).then(([data, status]) => {
+        if (isMounted) {
+          if (data) setDbEnergy(data);
+          if (status?.active_stream) setActiveStream(status.active_stream);
+        }
       });
     };
 
     fetchEnergy();
-    const interval = setInterval(fetchEnergy, 1500);
+    const interval = setInterval(fetchEnergy, 1200);
 
     return () => {
       isMounted = false;
@@ -50,21 +57,28 @@ export const EnergyTab: React.FC<EnergyTabProps> = ({ org }) => {
     };
   }, [activeOrg?.id]);
 
-  const hasData = Boolean(dbEnergy && (dbEnergy.current_load_kw !== undefined || dbEnergy.solar_rooftop_kw !== undefined));
+  const currentCategory = activeStream?.category || null;
+  const isEnergyActive = currentCategory === 'ENERGY';
 
-  const loadKw = hasData ? Number(dbEnergy.current_load_kw || 0) : null;
-  const solarKw = hasData ? Number(dbEnergy.solar_rooftop_kw || 0) : null;
-  const dailyTotalKwh = hasData ? Number(dbEnergy.daily_total_kwh || 0) : null;
-  const gridPowerKw = hasData ? Number(dbEnergy.grid_power_kw || 0) : null;
-  const powerFactor = hasData ? Number(dbEnergy.power_factor || 0) : null;
-  const carbonKg = hasData ? Number(dbEnergy.carbon_emissions_kg || 0) : null;
-  const savingsToday = hasData ? Number(dbEnergy.savings_inr_today || 0) : null;
+  // Strict stream isolation:
+  // - If no stream sent yet: null (shows '--')
+  // - If ENERGY stream is active: shows live packet metrics
+  // - If ANOTHER stream is active: strictly shows 0
+  const hasData = isEnergyActive && Boolean(dbEnergy && (dbEnergy.current_load_kw !== undefined || dbEnergy.solar_rooftop_kw !== undefined));
 
-  const solarPct = (hasData && loadKw && loadKw > 0 && solarKw !== null)
+  const loadKw = currentCategory === null ? null : (isEnergyActive ? Number(dbEnergy?.current_load_kw || 0) : 0);
+  const solarKw = currentCategory === null ? null : (isEnergyActive ? Number(dbEnergy?.solar_rooftop_kw || 0) : 0);
+  const dailyTotalKwh = currentCategory === null ? null : (isEnergyActive ? Number(dbEnergy?.daily_total_kwh || 0) : 0);
+  const gridPowerKw = currentCategory === null ? null : (isEnergyActive ? Number(dbEnergy?.grid_power_kw || 0) : 0);
+  const powerFactor = currentCategory === null ? null : (isEnergyActive ? Number(dbEnergy?.power_factor || 0) : 0);
+  const carbonKg = currentCategory === null ? null : (isEnergyActive ? Number(dbEnergy?.carbon_emissions_kg || 0) : 0);
+  const savingsToday = currentCategory === null ? null : (isEnergyActive ? Number(dbEnergy?.savings_inr_today || 0) : 0);
+
+  const solarPct = (isEnergyActive && loadKw && loadKw > 0 && solarKw !== null)
     ? Math.round((solarKw / loadKw) * 100)
-    : null;
+    : 0;
 
-  const liveTrend24h = (hasData && loadKw !== null && solarKw !== null)
+  const liveTrend24h = (isEnergyActive && loadKw !== null && solarKw !== null && loadKw > 0)
     ? [
         { time: '02:00', grid: Math.round(loadKw * 0.45), solar: 0, load: Math.round(loadKw * 0.45) },
         { time: '06:00', grid: Math.round(loadKw * 0.52), solar: Math.round(solarKw * 0.12), load: Math.round(loadKw * 0.58) },

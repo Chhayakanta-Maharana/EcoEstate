@@ -414,18 +414,56 @@ from datetime import datetime
 # In-memory circular buffer for live ingested sensor packets (starts empty until live hardware packets arrive)
 IOT_PACKET_STREAM = []
 
+CURRENT_ACTIVE_STREAM = {
+    'category': None,
+    'sensor_type': None,
+    'device_id': None,
+    'location': None,
+    'timestamp': None,
+    'metrics': {}
+}
+
 def sync_packet_to_models(packet):
     """
     Persists incoming live IoT packet metrics directly into NeonDB models:
     AqiTelemetry, WaterTelemetry, EnergyTelemetry, Equipment, Dustbin.
-    Broadcasts across registered organizations if no specific organization is pinned.
+    Enforces strict stream isolation:
+      - When WATER is sent, only Water displays live metrics; Energy & AQI reset to 0.
+      - When ENERGY is sent, only Energy displays live metrics; Water & AQI reset to 0.
+      - When AQI is sent, only AQI displays live metrics; Water & Energy reset to 0.
     """
+    global CURRENT_ACTIVE_STREAM
     try:
         from .models import Organization, AqiTelemetry, WaterTelemetry, EnergyTelemetry, Equipment, Dustbin
         metrics = packet.get('metrics', {})
-        sensor_type = (packet.get('sensor_type') or '').upper()
+        raw_sensor_type = (packet.get('sensor_type') or '').upper()
+        device_id = packet.get('device_id', '')
+        location = packet.get('location', '')
+
+        # Categorize active stream
+        if raw_sensor_type in ['WATER', 'WATER_PUMP', 'PUMP'] or 'PUMP' in device_id or 'WATER' in device_id:
+            category = 'WATER'
+        elif raw_sensor_type in ['ENERGY', 'ENERGY_TRANSFORMER', 'SOLAR', 'GRID'] or 'XFR' in device_id or 'SOLAR' in device_id:
+            category = 'ENERGY'
+        elif raw_sensor_type in ['AQI', 'AIR', 'AIR_QUALITY_STATION'] or 'AQI' in device_id:
+            category = 'AQI'
+        elif raw_sensor_type in ['DUSTBIN', 'WASTE'] or 'BIN' in device_id:
+            category = 'DUSTBIN'
+        elif raw_sensor_type in ['EQUIPMENT', 'VIBRATION', 'CHILLER']:
+            category = 'EQUIPMENT'
+        else:
+            category = raw_sensor_type or 'TELEMETRY'
+
+        CURRENT_ACTIVE_STREAM = {
+            'category': category,
+            'sensor_type': raw_sensor_type,
+            'device_id': device_id,
+            'location': location,
+            'timestamp': packet.get('timestamp') or datetime.now().strftime('%H:%M:%S'),
+            'metrics': metrics
+        }
+
         org_identifier = packet.get('org_id') or packet.get('organization_id') or packet.get('organization')
-        
         target_orgs = []
         if org_identifier:
             clean_id = str(org_identifier).replace('org-', '')
@@ -445,7 +483,7 @@ def sync_packet_to_models(packet):
             return
 
         for target_org in target_orgs:
-            if sensor_type == 'AQI':
+            if category == 'AQI':
                 pm25_val = float(metrics.get('pm25', metrics.get('pm25_ug_m3', 0)))
                 pm10_val = float(metrics.get('pm10', metrics.get('pm10_ug_m3', 0)))
                 co2_val = float(metrics.get('co2', metrics.get('co2_ppm', 0)))
@@ -471,28 +509,64 @@ def sync_packet_to_models(packet):
                     hotspot_location=packet.get('location', f"{target_org.name} IoT Node"),
                     anomaly_detected=(computed_aqi > 150 or pm25_val > 60)
                 )
+                # Respective Stream Isolation: Zero out Water and Energy
+                WaterTelemetry.objects.filter(organization=target_org).update(
+                    flow_rate_lps=0, underground_tank_level_pct=0, overhead_tank_level_pct=0,
+                    daily_consumption_kl=0, ph_level=0, turbidity_ntu=0, stp_treated_water_kl=0, stp_recycle_rate_pct=0
+                )
+                EnergyTelemetry.objects.filter(organization=target_org).update(
+                    current_load_kw=0, solar_rooftop_kw=0, grid_power_kw=0,
+                    daily_total_kwh=0, power_factor=0, carbon_emissions_kg=0, peak_load_kw=0
+                )
 
-            elif sensor_type == 'WATER':
+            elif category == 'WATER':
                 flow_val = float(metrics.get('flow_rate_lps', 0))
-                tank_val = int(metrics.get('tank_level_pct', metrics.get('underground_tank_pct', 0)))
+                tank_val = int(metrics.get('tank_level_pct', metrics.get('underground_tank_pct', 75)))
                 ph_val = float(metrics.get('ph_level', 7.2))
                 turb_val = float(metrics.get('turbidity_ntu', 1.5))
+                daily_cons = float(metrics.get('daily_consumption_kl', round(flow_val * 3.6 * 8, 1) if flow_val > 0 else 320.0))
 
                 WaterTelemetry.objects.create(
                     organization=target_org,
                     flow_rate_lps=flow_val,
-                    underground_tank_level_pct=tank_val if tank_val > 0 else 75,
-                    overhead_tank_level_pct=tank_val if tank_val > 0 else 70,
+                    underground_tank_level_pct=tank_val,
+                    overhead_tank_level_pct=tank_val,
                     ph_level=ph_val,
                     turbidity_ntu=turb_val,
-                    daily_consumption_kl=round(flow_val * 3.6 * 8, 1) if flow_val > 0 else 320.0
+                    daily_consumption_kl=daily_cons,
+                    stp_treated_water_kl=round(daily_cons * 0.72, 1),
+                    stp_recycle_rate_pct=72
+                )
+                # Also update pump equipment status
+                Equipment.objects.update_or_create(
+                    organization=target_org,
+                    equipment_code=device_id or f"EQ-{target_org.id}-PUMP",
+                    defaults={
+                        'name': packet.get('name', 'STP Raw Sewage Lift Pump #4'),
+                        'category': 'Water Treatment & Pumps',
+                        'location': location or f"{target_org.name} Pump Yard",
+                        'vibration_mm_per_sec': float(metrics.get('vibration_mm_s', 1.15)),
+                        'operating_temp_c': float(metrics.get('operating_temp_c', 42.0)),
+                        'status': 'Operational' if float(metrics.get('vibration_mm_s', 1.15)) < 3.0 else 'Warning',
+                        'health_score': max(30, int(100 - float(metrics.get('vibration_mm_s', 1.15)) * 15)),
+                        'data_source': f"Live {packet.get('source', 'IoT')}"
+                    }
+                )
+                # Respective Stream Isolation: Zero out Energy and AQI
+                EnergyTelemetry.objects.filter(organization=target_org).update(
+                    current_load_kw=0, solar_rooftop_kw=0, grid_power_kw=0,
+                    daily_total_kwh=0, power_factor=0, carbon_emissions_kg=0, peak_load_kw=0
+                )
+                AqiTelemetry.objects.filter(organization=target_org).update(
+                    overall_aqi=0, status='Idle', pm25=0, pm10=0, co2=0, voc=0, temperature=0, humidity=0, noise=0
                 )
 
-            elif sensor_type == 'ENERGY':
-                load_val = float(metrics.get('current_load_kw', 0))
+            elif category == 'ENERGY':
+                load_val = float(metrics.get('current_load_kw', metrics.get('active_load_kw', 0)))
                 pf_val = float(metrics.get('power_factor', 0.95))
-                solar_val = float(metrics.get('solar_kw', 0))
+                solar_val = float(metrics.get('solar_kw', metrics.get('solar_rooftop_kw', 0)))
                 grid_val = float(metrics.get('grid_power_kw', max(0, load_val - solar_val)))
+                daily_kwh = round(load_val * 14, 1) if load_val > 0 else 12000.0
 
                 EnergyTelemetry.objects.create(
                     organization=target_org,
@@ -500,20 +574,29 @@ def sync_packet_to_models(packet):
                     power_factor=pf_val,
                     solar_rooftop_kw=solar_val,
                     grid_power_kw=grid_val,
-                    daily_total_kwh=round(load_val * 14, 1) if load_val > 0 else 12000.0,
+                    daily_total_kwh=daily_kwh,
+                    peak_load_kw=round(load_val * 1.15, 1),
                     carbon_emissions_kg=round(load_val * 0.82 * 14, 1) if load_val > 0 else 8500.0
                 )
+                # Respective Stream Isolation: Zero out Water and AQI
+                WaterTelemetry.objects.filter(organization=target_org).update(
+                    flow_rate_lps=0, underground_tank_level_pct=0, overhead_tank_level_pct=0,
+                    daily_consumption_kl=0, ph_level=0, turbidity_ntu=0, stp_treated_water_kl=0, stp_recycle_rate_pct=0
+                )
+                AqiTelemetry.objects.filter(organization=target_org).update(
+                    overall_aqi=0, status='Idle', pm25=0, pm10=0, co2=0, voc=0, temperature=0, humidity=0, noise=0
+                )
 
-            elif sensor_type in ['EQUIPMENT', 'VIBRATION']:
+            elif category in ['EQUIPMENT']:
                 vib_val = float(metrics.get('vibration_mm_s', 0))
                 temp_val = float(metrics.get('operating_temp_c', 0))
                 Equipment.objects.update_or_create(
                     organization=target_org,
-                    equipment_code=packet.get('device_id', f"EQ-{target_org.id}-LIVE"),
+                    equipment_code=device_id or f"EQ-{target_org.id}-LIVE",
                     defaults={
-                        'name': packet.get('device_id', 'Live IoT Sensor Equipment'),
+                        'name': device_id or 'Live IoT Sensor Equipment',
                         'category': 'Pumps & Motors',
-                        'location': packet.get('location', f"{target_org.name} Plant Yard"),
+                        'location': location or f"{target_org.name} Plant Yard",
                         'vibration_mm_per_sec': vib_val,
                         'operating_temp_c': temp_val,
                         'status': 'Warning' if (vib_val > 3.0 or temp_val > 70) else 'Operational',
@@ -665,6 +748,8 @@ def iot_status_view(request):
             'recent_packet_count': len(wifi_packets)
         },
         'gateway_config': gw_cfg,
+        'active_stream': CURRENT_ACTIVE_STREAM,
+        'last_packet': IOT_PACKET_STREAM[0] if IOT_PACKET_STREAM else None,
         'system_summary': {
             'dual_mode_active': True,
             'total_nodes_online': 40,

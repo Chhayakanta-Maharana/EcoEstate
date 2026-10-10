@@ -340,7 +340,7 @@ def send_packet_lan_udp(host: str, port: int, payload: dict) -> tuple[bool, str]
 
 
 def send_packet_wifi_http(url: str, payload: dict) -> tuple[bool, str]:
-    """Sends telemetry payload via HTTP REST API simulating WiFi ESP32 node."""
+    """Sends telemetry payload via HTTP REST API simulating WiFi ESP32 node with fast 0.8s timeout."""
     try:
         data_bytes = json.dumps(payload).encode('utf-8')
         req = urllib.request.Request(
@@ -348,7 +348,7 @@ def send_packet_wifi_http(url: str, payload: dict) -> tuple[bool, str]:
             data=data_bytes,
             headers={'Content-Type': 'application/json', 'User-Agent': 'ESP32-WiFi-Node/1.0'}
         )
-        with urllib.request.urlopen(req, timeout=4.0) as resp:
+        with urllib.request.urlopen(req, timeout=0.8) as resp:
             status_code = resp.getcode()
             body = resp.read().decode('utf-8', errors='ignore')
             return True, f"HTTP {status_code} Created: Synced with Twin Buffer"
@@ -812,16 +812,31 @@ class IoTSenderGui:
             raw_url = self.wifi_url_var.get().strip() or DEFAULT_HTTP_URL
             url = normalize_ingest_url(raw_url)
             self.wifi_url_var.set(url)
-            self._log(f"Dispatching [WiFi HTTP POST] to {url} (RSSI: {payload['signal_dbm']} dBm)...", "INFO")
-            ok, msg = send_packet_wifi_http(url, payload)
-            if not ok:
-                # Automatic Dual-Channel Failover to UDP Broadcast on port 5005
-                self._log(f"⚠️ WiFi HTTP POST unreachable ({msg}). Instant failover to LAN UDP broadcast...", "WARN")
-                udp_ok, udp_msg = send_packet_lan_udp("255.255.255.255", 5005, payload)
-                if udp_ok:
-                    ok = True
-                    proto = "UDP-Failover"
-                    msg = f"Delivered via UDP Broadcast (255.255.255.255:5005) -> {udp_msg}"
+
+            # Instant Zero-Latency Dual-Delivery:
+            # 1. Fire non-blocking UDP Broadcast on port 5005 (0ms latency across WiFi & LAN)
+            udp_ok, udp_msg = send_packet_lan_udp("255.255.255.255", 5005, payload)
+
+            # 2. Concurrently attempt HTTP POST with 0.8s fast timeout
+            http_ok, http_msg = send_packet_wifi_http(url, payload)
+
+            if http_ok:
+                ok = True
+                proto = "WiFi-HTTP"
+                msg = f"Delivered via WiFi HTTP -> {url} (UDP Broadcast synced in 0ms)"
+            elif udp_ok:
+                ok = True
+                proto = "UDP-Broadcast"
+                msg = f"Delivered via LAN/WiFi UDP Broadcast (255.255.255.255:5005) [0ms Instant Delivery]"
+            else:
+                ok = False
+                proto = "WiFi-Failed"
+                msg = f"WiFi HTTP failed ({http_msg}) & UDP failed ({udp_msg})"
+
+        # Summary of metrics for crystal-clear user awareness
+        sens_type = payload.get("sensor_type", "TELEMETRY")
+        m_str = ", ".join([f"{k}: {v}" for k, v in list(payload.get("metrics", {}).items())[:3]])
+        self._log(f"📡 Transmitted [{sens_type}] {payload.get('device_id')} -> {m_str}", "INFO")
 
         self.packet_count += 1
         self.stat_tx_label.config(text=f"Packets Sent: {self.packet_count}")

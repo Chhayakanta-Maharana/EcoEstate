@@ -29,19 +29,26 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
   const { activeOrg: contextOrg } = useAuth();
   const activeOrg = org || contextOrg;
   const [dbWater, setDbWater] = useState<any>(null);
+  const [activeStream, setActiveStream] = useState<any>(null);
 
   useEffect(() => {
     if (!activeOrg?.id) return;
     let isMounted = true;
 
     const fetchWater = () => {
-      DjangoApi.getWaterTelemetry(activeOrg.id).then((data) => {
-        if (isMounted && data) setDbWater(data);
+      Promise.all([
+        DjangoApi.getWaterTelemetry(activeOrg.id),
+        DjangoApi.getIoTStatus(),
+      ]).then(([data, status]) => {
+        if (isMounted) {
+          if (data) setDbWater(data);
+          if (status?.active_stream) setActiveStream(status.active_stream);
+        }
       });
     };
 
     fetchWater();
-    const interval = setInterval(fetchWater, 1500);
+    const interval = setInterval(fetchWater, 1200);
 
     return () => {
       isMounted = false;
@@ -49,19 +56,26 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
     };
   }, [activeOrg?.id]);
 
-  const hasData = Boolean(dbWater && (dbWater.stp_recycle_rate_pct !== undefined || dbWater.daily_consumption_kl !== undefined || dbWater.flow_rate_lps !== undefined));
+  const currentCategory = activeStream?.category || null;
+  const isWaterActive = currentCategory === 'WATER';
 
-  const dailyKL = hasData ? Number(dbWater.daily_consumption_kl || 0) : null;
-  const stpKL = hasData ? Number(dbWater.stp_treated_water_kl || 0) : null;
-  const flowRate = hasData ? Number(dbWater.flow_rate_lps || 0) : null;
-  const undergroundTank = hasData ? Number(dbWater.underground_tank_level_pct || 0) : null;
-  const overheadTank = hasData ? Number(dbWater.overhead_tank_level_pct || 0) : null;
-  const recycleRate = hasData ? Number(dbWater.stp_recycle_rate_pct || 0) : null;
-  const phVal = hasData ? Number(dbWater.ph_level || 0) : null;
-  const turbVal = hasData ? Number(dbWater.turbidity_ntu || 0) : null;
-  const leakAlerts = hasData ? Number(dbWater.leak_alert_count || 0) : 0;
+  // Strict stream isolation:
+  // - If no stream sent yet: null (shows '--')
+  // - If WATER stream is active: shows live packet metrics
+  // - If ANOTHER stream is active: strictly shows 0
+  const hasData = isWaterActive && Boolean(dbWater && (dbWater.stp_recycle_rate_pct !== undefined || dbWater.daily_consumption_kl !== undefined || dbWater.flow_rate_lps !== undefined));
 
-  const liveTrend7Days = hasData && dailyKL !== null && stpKL !== null
+  const dailyKL = currentCategory === null ? null : (isWaterActive ? Number(dbWater?.daily_consumption_kl || 0) : 0);
+  const stpKL = currentCategory === null ? null : (isWaterActive ? Number(dbWater?.stp_treated_water_kl || 0) : 0);
+  const flowRate = currentCategory === null ? null : (isWaterActive ? Number(dbWater?.flow_rate_lps || 0) : 0);
+  const undergroundTank = currentCategory === null ? null : (isWaterActive ? Number(dbWater?.underground_tank_level_pct || 0) : 0);
+  const overheadTank = currentCategory === null ? null : (isWaterActive ? Number(dbWater?.overhead_tank_level_pct || 0) : 0);
+  const recycleRate = currentCategory === null ? null : (isWaterActive ? Number(dbWater?.stp_recycle_rate_pct || 0) : 0);
+  const phVal = currentCategory === null ? null : (isWaterActive ? Number(dbWater?.ph_level || 0) : 0);
+  const turbVal = currentCategory === null ? null : (isWaterActive ? Number(dbWater?.turbidity_ntu || 0) : 0);
+  const leakAlerts = currentCategory === null ? 0 : (isWaterActive ? Number(dbWater?.leak_alert_count || 0) : 0);
+
+  const liveTrend7Days = hasData && dailyKL !== null && stpKL !== null && dailyKL > 0
     ? [
         { day: 'Mon', freshWater: Math.round(dailyKL * 0.95), recycledWater: Math.round(stpKL * 0.92) },
         { day: 'Tue', freshWater: Math.round(dailyKL * 1.02), recycledWater: Math.round(stpKL * 0.98) },
