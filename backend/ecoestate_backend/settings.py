@@ -54,28 +54,26 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'ecoestate_backend.wsgi.application'
 
-# Database Configuration: High-Performance Local SQLite by default for zero-latency execution
-USE_LOCAL_SQLITE = os.environ.get('USE_LOCAL_SQLITE', 'True').lower() in ('true', '1', 'yes')
+NEON_DB_URL = os.environ.get(
+    'DATABASE_URL',
+    "postgresql://neondb_owner:npg_yIMNb4aKEZ8z@ep-weathered-fog-b5smac4m-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require"
+)
 
-if USE_LOCAL_SQLITE and not os.environ.get('FORCE_NEON_DB'):
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
+# Dual-Database Engine: 'default' (Local SQLite for zero-latency UI) + 'neondb' (National Cloud Hub)
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
+        'OPTIONS': {
+            'timeout': 20,
         }
-    }
-else:
-    NEON_DB_URL = os.environ.get(
-        'DATABASE_URL',
-        "postgresql://neondb_owner:npg_yIMNb4aKEZ8z@ep-weathered-fog-b5smac4m-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require"
+    },
+    'neondb': dj_database_url.config(
+        default=NEON_DB_URL,
+        conn_max_age=600,
+        ssl_require=True
     )
-    DATABASES = {
-        'default': dj_database_url.config(
-            default=NEON_DB_URL,
-            conn_max_age=600,
-            ssl_require=True
-        )
-    }
+}
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},

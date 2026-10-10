@@ -48,11 +48,11 @@ export const ScorecardTab: React.FC<ScorecardTabProps> = ({ org }) => {
     });
   }, [activeOrg?.id]);
 
-  const baseCard = getSustainabilityScorecard(activeOrg);
-  const renewableEnergySharePct = dbEnergy
-    ? Math.round((dbEnergy.solar_rooftop_kw / (dbEnergy.current_load_kw || 1)) * 100)
+  const baseCard = getSustainabilityScorecard(activeOrg || undefined);
+  const renewableEnergySharePct = dbEnergy && dbEnergy.current_load_kw !== undefined
+    ? Math.round(((dbEnergy.solar_rooftop_kw || 0) / (dbEnergy.current_load_kw || 1)) * 100)
     : baseCard.renewableEnergySharePct;
-  const waterNeutralityPct = dbWater
+  const waterNeutralityPct = dbWater && dbWater.stp_recycle_rate_pct !== undefined
     ? dbWater.stp_recycle_rate_pct
     : baseCard.waterNeutralityPct;
 
@@ -61,7 +61,7 @@ export const ScorecardTab: React.FC<ScorecardTabProps> = ({ org }) => {
   const card = {
     ...baseCard,
     grihaStars: starsCount,
-    overallScore: activeOrg.sustainabilityScore || baseCard.overallScore || 88,
+    overallScore: activeOrg?.sustainabilityScore || baseCard.overallScore || 88,
     renewableEnergySharePct,
     waterNeutralityPct,
     breakdown: [

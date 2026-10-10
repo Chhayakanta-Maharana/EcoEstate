@@ -152,7 +152,7 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
           </div>
           <div className="border-l border-[#ece3d6] dark:border-[#181a28] pl-3">
             <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${aqiInfo.bg}`}>
-              {hasData ? (dbAqi.status || aqiInfo.label) : '--'}
+              {hasData ? (dbAqi?.status || aqiInfo.label) : '--'}
             </span>
             <p className="text-[10px] text-stone-400 dark:text-slate-400 mt-1">CPCB Standard</p>
           </div>
