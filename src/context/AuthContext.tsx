@@ -407,7 +407,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         o.id.replace('org-', '') === cleanActive
     ) ||
     organizations[0] ||
-    INITIAL_ORGANIZATIONS[0];
+    null;
   const isSuperAdmin = currentUser?.role === 'SUPERADMIN';
 
   // Strict, Database-Backed Authentication
