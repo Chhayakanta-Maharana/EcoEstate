@@ -228,8 +228,8 @@ export const Campus3DTab: React.FC = () => {
         metric1Value: '550 kL',
         metric2Label: 'Tank Level',
         metric2Value: '84%',
-        metric3Label: 'Pressure',
-        metric3Value: '4.2 bar',
+        metric3Label: 'pH Level',
+        metric3Value: '7.2 pH',
         metric4Label: 'TDS Purity',
         metric4Value: '142 ppm',
         status: 'optimal',
@@ -335,6 +335,7 @@ export const Campus3DTab: React.FC = () => {
       }
 
       if (t === 'water') {
+        const isPressure = !n.metric3Label || n.metric3Label === 'Pressure' || n.metric3Label === 'Press';
         return {
           ...n,
           type: 'water',
@@ -342,8 +343,8 @@ export const Campus3DTab: React.FC = () => {
           metric1Value: n.metric1Value || n.secondaryValue || '550 kL',
           metric2Label: n.metric2Label || 'Tank Level',
           metric2Value: n.metric2Value || '84%',
-          metric3Label: n.metric3Label || 'Pressure',
-          metric3Value: n.metric3Value || '4.2 bar',
+          metric3Label: isPressure ? 'pH Level' : n.metric3Label,
+          metric3Value: isPressure ? '7.2 pH' : (n.metric3Value || '7.2 pH'),
           metric4Label: n.metric4Label || 'TDS Purity',
           metric4Value: n.metric4Value || '142 ppm',
         };
@@ -503,11 +504,29 @@ export const Campus3DTab: React.FC = () => {
         DjangoApi.getWaterTelemetry(activeOrg.id).catch(() => null),
         DjangoApi.getEnergyTelemetry(activeOrg.id).catch(() => null),
         DjangoApi.getIoTStatus().catch(() => null),
-      ]).then(([aqiRes, waterRes, energyRes, iotStatus]) => {
+        DjangoApi.getLiveIoTNodes(activeOrg.id).catch(() => null),
+      ]).then(([aqiRes, waterRes, energyRes, iotStatus, liveNodesData]) => {
         if (aqiRes) setAqiList(Array.isArray(aqiRes) ? aqiRes : [aqiRes]);
         if (waterRes) setWaterList(Array.isArray(waterRes) ? waterRes : [waterRes]);
         if (energyRes) setEnergyList(Array.isArray(energyRes) ? energyRes : [energyRes]);
         if (iotStatus?.active_stream) setActiveStream(iotStatus.active_stream);
+
+        // Dynamic 3D Pin Generation: Match live hardware nodes streaming from IoT sender
+        if (liveNodesData && Array.isArray(liveNodesData.nodes) && liveNodesData.nodes.length > 0) {
+          setNodes((prevNodes) => {
+            const posMap = new Map<string, { xPct: number; yPct: number }>();
+            prevNodes.forEach((pn) => posMap.set(pn.id, { xPct: pn.xPct, yPct: pn.yPct }));
+
+            return liveNodesData.nodes.map((ln: any) => {
+              const saved = posMap.get(ln.id);
+              return {
+                ...ln,
+                xPct: saved ? saved.xPct : ln.xPct,
+                yPct: saved ? saved.yPct : ln.yPct,
+              };
+            });
+          });
+        }
       });
     };
     fetchLiveStreams();
@@ -662,33 +681,10 @@ export const Campus3DTab: React.FC = () => {
     };
   }, [handleMouseUp]);
 
-  // Click on Canvas to add or calibrate a point (only in Edit mode)
+  // Click on Canvas to add pin is disabled: pins strictly represent live IoT hardware
   const handleCanvasDoubleClick = (e: React.MouseEvent) => {
-    if (!isCalibrateMode || !canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top;
-
-    const xPct = Math.round(((clickX / rect.width) * 100) * 10) / 10;
-    const yPct = Math.round(((clickY / rect.height) * 100) * 10) / 10;
-
-    const newNode: Partial<CampusNode> = {
-      id: `node-${Date.now()}`,
-      name: `Sensor Anchor #${nodes.length + 1}`,
-      locationLabel: `Zone ${nodes.length + 1}`,
-      type: 'aqi',
-      xPct: Math.max(4, Math.min(96, xPct)),
-      yPct: Math.max(8, Math.min(94, yPct)),
-      stemHeightPx: 65,
-      pm25: Math.floor(Math.random() * 25) + 18,
-      pm10: Math.floor(Math.random() * 35) + 30,
-      temp: Math.floor(Math.random() * 10) + 26,
-      humidity: Math.floor(Math.random() * 30) + 50,
-      status: 'optimal',
-    };
-
-    setEditingNode(newNode);
-    setShowNodeModal(true);
+    // Disabled: Pins strictly mirror live physical IoT hardware sensors
+    return;
   };
 
   // AI Auto-Detection Simulation
@@ -944,7 +940,7 @@ export const Campus3DTab: React.FC = () => {
           {activeFilter === 'water' && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-600 dark:text-cyan-400 text-[11px] font-bold animate-in fade-in duration-200">
               <Droplets className="w-3.5 h-3.5" />
-              <span>STP Flow • Tank Level • Pressure • TDS</span>
+              <span>STP Flow • Tank Level • pH Level • TDS</span>
             </div>
           )}
           {activeFilter === 'energy' && (
@@ -1005,27 +1001,52 @@ export const Campus3DTab: React.FC = () => {
       {/* 1.5 CAMPUS REAL-TIME AVERAGE AGGREGATE STRIP */}
       <div className="px-4 py-2.5 rounded-2xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-sm flex flex-wrap items-center justify-between gap-3 text-xs">
         <div className="flex items-center gap-2">
-          <span className={`w-2.5 h-2.5 rounded-full ${hasAqiData || hasWaterData || hasEnergyData ? 'bg-emerald-400 animate-pulse' : 'bg-stone-500'}`} />
+          <span className={`w-2.5 h-2.5 rounded-full ${nodes.length > 0 ? 'bg-emerald-400 animate-pulse' : 'bg-stone-500'}`} />
           <span className="font-extrabold uppercase tracking-wider text-[11px] text-stone-700 dark:text-stone-300">
-            {hasAqiData || hasWaterData || hasEnergyData ? 'Live Campus Spatial Averages' : 'Awaiting Sensor Telemetry (Spatial Mesh Standby)'}
+            {nodes.length > 0 ? `Live Twin Active • ${nodes.length} Physical Sensors Online` : 'Awaiting Sensor Telemetry (Spatial Mesh Standby)'}
           </span>
+          {nodes.length > 0 && (
+            <div className="hidden sm:flex items-center gap-1.5 ml-2 text-[10px] text-stone-400">
+              <span className="bg-amber-500/10 text-amber-500 px-1.5 py-0.5 rounded-md font-bold">{nodes.filter(n => n.type === 'aqi').length} Air</span>
+              <span className="bg-cyan-500/10 text-cyan-400 px-1.5 py-0.5 rounded-md font-bold">{nodes.filter(n => n.type === 'water').length} Water</span>
+              <span className="bg-amber-400/10 text-amber-400 px-1.5 py-0.5 rounded-md font-bold">{nodes.filter(n => n.type === 'energy').length} Energy</span>
+              <span className="bg-purple-500/10 text-purple-400 px-1.5 py-0.5 rounded-md font-bold">{nodes.filter(n => n.type === 'waste').length} Bins</span>
+              <span className="bg-emerald-500/10 text-emerald-400 px-1.5 py-0.5 rounded-md font-bold">{nodes.filter(n => n.type === 'parking').length} Gates</span>
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-3 text-[11px] font-mono">
           <div className="flex items-center gap-1 text-amber-500">
             <span>Avg PM2.5:</span>
-            <span className="font-bold">{hasAqiData ? `${avgPm25} µg/m³` : '--'}</span>
+            <span className="font-bold">
+              {nodes.filter(n => n.type === 'aqi').length > 0 
+                ? `${Math.round((nodes.filter(n => n.type === 'aqi').reduce((acc, n) => acc + (n.pm25 || 0), 0) / nodes.filter(n => n.type === 'aqi').length) * 10) / 10} µg/m³` 
+                : (hasAqiData ? `${avgPm25} µg/m³` : '--')}
+            </span>
           </div>
           <div className="flex items-center gap-1 text-cyan-500">
             <span>Avg PM10:</span>
-            <span className="font-bold">{hasAqiData ? `${avgPm10} µg/m³` : '--'}</span>
+            <span className="font-bold">
+              {nodes.filter(n => n.type === 'aqi').length > 0 
+                ? `${Math.round((nodes.filter(n => n.type === 'aqi').reduce((acc, n) => acc + (n.pm10 || 0), 0) / nodes.filter(n => n.type === 'aqi').length) * 10) / 10} µg/m³` 
+                : (hasAqiData ? `${avgPm10} µg/m³` : '--')}
+            </span>
           </div>
           <div className="flex items-center gap-1 text-emerald-500">
             <span>Avg Temp:</span>
-            <span className="font-bold">{hasAqiData ? `${avgTemp} °C` : '--'}</span>
+            <span className="font-bold">
+              {nodes.filter(n => n.type === 'aqi').length > 0 
+                ? `${Math.round((nodes.filter(n => n.type === 'aqi').reduce((acc, n) => acc + (n.temp || 0), 0) / nodes.filter(n => n.type === 'aqi').length) * 10) / 10} °C` 
+                : (hasAqiData ? `${avgTemp} °C` : '--')}
+            </span>
           </div>
           <div className="flex items-center gap-1 text-blue-500">
             <span>Avg Humid:</span>
-            <span className="font-bold">{hasAqiData ? `${avgHumidity}%` : '--'}</span>
+            <span className="font-bold">
+              {nodes.filter(n => n.type === 'aqi').length > 0 
+                ? `${Math.round(nodes.filter(n => n.type === 'aqi').reduce((acc, n) => acc + (n.humidity || 0), 0) / nodes.filter(n => n.type === 'aqi').length)}%` 
+                : (hasAqiData ? `${avgHumidity}%` : '--')}
+            </span>
           </div>
           <div className="flex items-center gap-1 text-cyan-400">
             <span>Avg Flow:</span>
@@ -1049,52 +1070,16 @@ export const Campus3DTab: React.FC = () => {
         {/* Subtle Ambient Vignette */}
         <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/40 pointer-events-none z-10" />
 
-        {/* Floating Edit Pins & Add Pin Controls on Top-Right Corner of Image */}
+        {/* Reposition Pins Mode Helper Banner */}
+        {isCalibrateMode && (
+          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-3.5 py-1.5 rounded-full bg-amber-500/95 text-slate-950 font-extrabold text-[11px] shadow-2xl flex items-center gap-2 border border-amber-300 backdrop-blur-md">
+            <Move className="w-3.5 h-3.5 animate-bounce" />
+            <span>Reposition Mode Active • Drag pins over campus buildings (Manual Add/Delete disabled)</span>
+          </div>
+        )}
+
+        {/* Floating Reposition Pins Control on Top-Right Corner */}
         <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
-          {/* Quick Add Pin button appears when Edit Mode is active */}
-          {isCalibrateMode && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                const defaultType = activeFilter === 'ALL' ? 'aqi' : activeFilter;
-                let metricsDefaults = {};
-                if (defaultType === 'water') {
-                  metricsDefaults = { metric1Label: 'STP Flow', metric1Value: '550 kL', metric2Label: 'Tank Level', metric2Value: '84%', metric3Label: 'Pressure', metric3Value: '4.2 bar', metric4Label: 'TDS Purity', metric4Value: '142 ppm' };
-                } else if (defaultType === 'energy') {
-                  metricsDefaults = { metric1Label: 'Solar Gen', metric1Value: '185 kW', metric2Label: 'Grid Load', metric2Value: '280 kVA', metric3Label: 'Daily Yield', metric3Value: '910 kWh', metric4Label: 'Power Factor', metric4Value: '0.99 PF' };
-                } else if (defaultType === 'parking') {
-                  metricsDefaults = { metric1Label: 'Slots Avail', metric1Value: '18 / 28', metric2Label: 'EV Fast', metric2Value: '4 Active', metric3Label: 'Occupancy', metric3Value: '64%', metric4Label: 'Gate Status', metric4Value: 'OPEN' };
-                } else if (defaultType === 'waste') {
-                  metricsDefaults = { metric1Label: 'Fill Level', metric1Value: '38%', metric2Label: 'Bin Weight', metric2Value: '14 kg', metric3Label: 'Odor / VOC', metric3Value: 'Clean', metric4Label: 'Pickup', metric4Value: 'Scheduled' };
-                }
-
-                const newNode: Partial<CampusNode> = {
-                  id: `node-${Date.now()}`,
-                  name: `New ${defaultType.toUpperCase()} Node #${nodes.length + 1}`,
-                  locationLabel: `Zone ${nodes.length + 1}`,
-                  type: defaultType as any,
-                  interfaceType: 'WIFI',
-                  xPct: 50,
-                  yPct: 50,
-                  stemHeightPx: 65,
-                  pm25: 25,
-                  pm10: 45,
-                  temp: 30,
-                  humidity: 55,
-                  status: 'optimal',
-                  ...metricsDefaults,
-                };
-                setEditingNode(newNode);
-                setShowNodeModal(true);
-              }}
-              className="p-2 sm:px-3 sm:py-2 rounded-2xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold text-xs shadow-xl flex items-center gap-1.5 cursor-pointer animate-in fade-in transition-all"
-              title="Add a new sensor pin"
-            >
-              <PlusCircle className="w-4 h-4" />
-              <span>+ Add Pin</span>
-            </button>
-          )}
-
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -1104,6 +1089,7 @@ export const Campus3DTab: React.FC = () => {
                   DjangoApi.updateCampusTwin(activeOrg.id, {
                     campus_nodes_json: JSON.stringify(nodes),
                   });
+                  DjangoApi.updateNodePositions(nodes, activeOrg.id);
                 }
                 if (typeof window !== 'undefined') {
                   localStorage.setItem(`ecoestate-campus-nodes-${orgKey}`, JSON.stringify(nodes));
@@ -1111,7 +1097,7 @@ export const Campus3DTab: React.FC = () => {
               }
               setIsCalibrateMode(!isCalibrateMode);
             }}
-            title={isCalibrateMode ? 'Exit Pin Calibration (Done)' : 'Move & Edit Sensor Pins'}
+            title={isCalibrateMode ? 'Save Pin Locations (Done)' : 'Click to Drag & Reposition Sensor Pins'}
             className={`p-2.5 sm:px-3.5 sm:py-2 rounded-2xl backdrop-blur-md border shadow-2xl flex items-center gap-2 text-xs font-extrabold transition-all cursor-pointer ${
               isCalibrateMode
                 ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.55)] ring-2 ring-amber-300'
@@ -1121,12 +1107,12 @@ export const Campus3DTab: React.FC = () => {
             {isCalibrateMode ? (
               <>
                 <Check className="w-4 h-4 text-slate-950 stroke-[3]" />
-                <span className="hidden sm:inline">Done Editing</span>
+                <span className="hidden sm:inline">Save Positions</span>
               </>
             ) : (
               <>
-                <Edit3 className="w-4 h-4 text-cyan-400" />
-                <span className="hidden sm:inline">Edit Pins</span>
+                <Move className="w-4 h-4 text-amber-400" />
+                <span className="hidden sm:inline">Reposition Pins</span>
               </>
             )}
           </button>
@@ -1256,8 +1242,8 @@ export const Campus3DTab: React.FC = () => {
                           <span>{hasWaterData ? `${avgTreated} kL` : '-- %'} <span className="text-[9px] text-blue-500/70 font-sans">{node.metric2Label || 'Tank'}</span></span>
                         </div>
                         <div className="flex items-center gap-1 text-emerald-400">
-                          <Gauge className="w-3 h-3 flex-shrink-0" />
-                          <span>{hasWaterData ? '4.2 bar' : '-- bar'} <span className="text-[9px] text-emerald-500/70 font-sans">{node.metric3Label || 'Press'}</span></span>
+                          <Droplets className="w-3 h-3 flex-shrink-0" />
+                          <span>{hasWaterData ? '7.2 pH' : '-- pH'} <span className="text-[9px] text-emerald-500/70 font-sans">{node.metric3Label || 'pH'}</span></span>
                         </div>
                         <div className="flex items-center gap-1 text-indigo-400">
                           <Activity className="w-3 h-3 flex-shrink-0" />
@@ -1401,30 +1387,11 @@ export const Campus3DTab: React.FC = () => {
                     {node.locationLabel}
                   </div>
 
-                  {/* Quick Edit/Delete buttons (Only visible during Edit Mode) */}
+                  {/* Reposition drag badge when in Edit Mode (Adding/Removing pins prohibited) */}
                   {isCalibrateMode && (
-                    <div className="mt-1 flex items-center gap-1 bg-black/80 p-1 rounded-xl shadow-lg">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingNode(node);
-                          setShowNodeModal(true);
-                        }}
-                        className="p-1 rounded bg-amber-500 text-slate-950 hover:bg-amber-400 text-[10px]"
-                        title="Edit this sensor"
-                      >
-                        <Edit3 className="w-3 h-3" />
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDeleteNode(node.id);
-                        }}
-                        className="p-1 rounded bg-rose-500 text-white hover:bg-rose-400 text-[10px]"
-                        title="Delete this sensor"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                    <div className="mt-1 flex items-center gap-1 bg-amber-500/90 text-slate-950 px-2 py-0.5 rounded-full shadow-lg font-bold text-[9px] animate-pulse pointer-events-none">
+                      <Move className="w-2.5 h-2.5" />
+                      <span>Drag Pin</span>
                     </div>
                   )}
                 </div>
@@ -1650,7 +1617,7 @@ export const Campus3DTab: React.FC = () => {
                       const newType = e.target.value as any;
                       let updates: Partial<CampusNode> = { type: newType };
                       if (newType === 'water' && !editingNode.metric1Value) {
-                        updates = { ...updates, metric1Label: 'STP Flow', metric1Value: '550 kL', metric2Label: 'Tank Level', metric2Value: '84%', metric3Label: 'Pressure', metric3Value: '4.2 bar', metric4Label: 'TDS Purity', metric4Value: '142 ppm' };
+                        updates = { ...updates, metric1Label: 'STP Flow', metric1Value: '550 kL', metric2Label: 'Tank Level', metric2Value: '84%', metric3Label: 'pH Level', metric3Value: '7.2 pH', metric4Label: 'TDS Purity', metric4Value: '142 ppm' };
                       } else if (newType === 'energy' && !editingNode.metric1Value) {
                         updates = { ...updates, metric1Label: 'Solar Gen', metric1Value: '185 kW', metric2Label: 'Grid Load', metric2Value: '280 kVA', metric3Label: 'Daily Yield', metric3Value: '910 kWh', metric4Label: 'Power Factor', metric4Value: '0.99 PF' };
                       } else if (newType === 'parking' && !editingNode.metric1Value) {
@@ -1744,12 +1711,12 @@ export const Campus3DTab: React.FC = () => {
                       />
                     </div>
                     <div className="space-y-1">
-                      <label className="text-stone-500 font-bold">Metric 3 (Pressure):</label>
+                      <label className="text-stone-500 font-bold">{editingNode.type === 'water' ? 'Metric 3 (pH Level):' : 'Metric 3 (Indicator):'}</label>
                       <input
                         type="text"
-                        value={editingNode.metric3Value ?? '4.2 bar'}
+                        value={editingNode.metric3Value ?? (editingNode.type === 'water' ? '7.2 pH' : '4.2 bar')}
                         onChange={(e) => setEditingNode({ ...editingNode, metric3Value: e.target.value })}
-                        placeholder="e.g. 4.2 bar"
+                        placeholder={editingNode.type === 'water' ? 'e.g. 7.2 pH' : 'e.g. 4.2 bar'}
                         className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
                       />
                     </div>

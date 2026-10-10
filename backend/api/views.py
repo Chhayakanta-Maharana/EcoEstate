@@ -41,17 +41,20 @@ from .email_service import (
 )
 
 def ensure_org_telemetry(org):
-    """Ensures base staff credentials exist for an organization in NeonDB without injecting dummy telemetry data."""
+    """Ensures base staff credentials exist for an organization safely without creating duplicate staff."""
     try:
-        if org.assigned_admin_email and not StaffMember.objects.filter(email=org.assigned_admin_email).exists():
-            StaffMember.objects.create(
+        if org.assigned_admin_email and org.assigned_admin_email.strip():
+            clean_email = org.assigned_admin_email.strip().lower()
+            StaffMember.objects.update_or_create(
                 organization=org,
-                name=org.assigned_admin_name or f"Admin of {org.name}",
-                email=org.assigned_admin_email,
-                role='ORG_ADMIN',
-                title=f"Estate Administrator - {org.name}",
-                status='Active',
-                password=org.assigned_password or 'estate@2026'
+                email=clean_email,
+                defaults={
+                    'name': org.assigned_admin_name or f"Admin of {org.name}",
+                    'role': 'ORG_ADMIN',
+                    'title': f"Estate Administrator - {org.name}",
+                    'status': 'Active',
+                    'password': org.assigned_password or 'estate@2026'
+                }
             )
     except Exception as e:
         print(f"[ENSURE_ORG_ERROR] {e}")
@@ -180,6 +183,7 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
 class EquipmentViewSet(viewsets.ModelViewSet):
     queryset = Equipment.objects.all().order_by('id')
     serializer_class = EquipmentSerializer
+    lookup_value_regex = r'[^/]+'
 
     def get_queryset(self):
         org_id = self.request.query_params.get('org_id')
@@ -189,6 +193,44 @@ class EquipmentViewSet(viewsets.ModelViewSet):
                 ensure_org_telemetry(org)
                 return Equipment.objects.filter(organization=org).order_by('id')
         return super().get_queryset().order_by('id')
+
+    def destroy(self, request, *args, **kwargs):
+        raw_id = kwargs.get('pk')
+        if not raw_id:
+            return Response({'detail': 'Equipment ID required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        lookup_val = str(raw_id).strip()
+        deleted_count = 0
+
+        # 1. Direct match by integer primary key
+        if lookup_val.isdigit():
+            cnt, _ = Equipment.objects.filter(pk=int(lookup_val)).delete()
+            deleted_count += cnt
+
+        # 2. Match exact equipment_code
+        cnt, _ = Equipment.objects.filter(equipment_code__iexact=lookup_val).delete()
+        deleted_count += cnt
+
+        # 3. Match with or without EQ- prefix
+        if lookup_val.upper().startswith('EQ-'):
+            without_prefix = lookup_val[3:]
+            cnt, _ = Equipment.objects.filter(equipment_code__iexact=without_prefix).delete()
+            deleted_count += cnt
+        else:
+            with_prefix = f"EQ-{lookup_val}"
+            cnt, _ = Equipment.objects.filter(equipment_code__iexact=with_prefix).delete()
+            deleted_count += cnt
+
+        # 4. Fallback match by name
+        if deleted_count == 0:
+            cnt, _ = Equipment.objects.filter(name__iexact=lookup_val).delete()
+            deleted_count += cnt
+
+        return Response({
+            'success': True,
+            'deleted_count': deleted_count,
+            'id': lookup_val
+        }, status=status.HTTP_200_OK if deleted_count > 0 else status.HTTP_204_NO_CONTENT)
 
 class DustbinViewSet(viewsets.ModelViewSet):
     queryset = Dustbin.objects.all().order_by('id')
@@ -456,7 +498,7 @@ import time
 import random
 from datetime import datetime
 
-# In-memory circular buffer for live ingested sensor packets (starts empty until live hardware packets arrive)
+# In-memory circular buffer for live ingested sensor packets
 IOT_PACKET_STREAM = []
 
 CURRENT_ACTIVE_STREAM = {
@@ -468,38 +510,93 @@ CURRENT_ACTIVE_STREAM = {
     'metrics': {}
 }
 
+# Live Hardware Sensor Registry: Keyed by device_id to track every active hardware sensor independently
+LIVE_HARDWARE_REGISTRY = {}
+SAVED_NODE_POSITIONS = {}
+
+def get_node_coordinates(device_id, category='aqi'):
+    """
+    Returns (xPct, yPct) for a sensor node.
+    Prioritizes user-dragged saved positions; otherwise generates deterministic spread coordinates
+    across the campus map so nodes do not cluster or overlap at (0, 0).
+    """
+    if device_id in SAVED_NODE_POSITIONS:
+        return SAVED_NODE_POSITIONS[device_id]
+
+    # Check Organization.campus_nodes_json if present in DB
+    try:
+        from .models import Organization
+        org = Organization.objects.first()
+        if org and org.campus_nodes_json:
+            saved = json.loads(org.campus_nodes_json)
+            for n in saved:
+                if n.get('id') == device_id or n.get('name') == device_id or n.get('device_id') == device_id:
+                    SAVED_NODE_POSITIONS[device_id] = {'xPct': float(n.get('xPct', 50.0)), 'yPct': float(n.get('yPct', 50.0))}
+                    return SAVED_NODE_POSITIONS[device_id]
+    except Exception:
+        pass
+
+    # Deterministic spatial hash distribution based on device_id string
+    import hashlib
+    h = int(hashlib.md5(device_id.encode('utf-8')).hexdigest()[:8], 16)
+    
+    # Category offset to cluster initial placements logically across campus quadrants
+    cat_offsets = {
+        'aqi': (15.0, 20.0),
+        'water': (45.0, 55.0),
+        'energy': (60.0, 25.0),
+        'parking': (20.0, 68.0),
+        'waste': (35.0, 35.0)
+    }
+    base_x, base_y = cat_offsets.get(category.lower(), (25.0, 30.0))
+    spread_x = (h % 35)
+    spread_y = ((h // 37) % 35)
+
+    x = min(92.0, max(8.0, base_x + spread_x))
+    y = min(90.0, max(12.0, base_y + spread_y))
+    coords = {'xPct': round(x, 1), 'yPct': round(y, 1)}
+    SAVED_NODE_POSITIONS[device_id] = coords
+    return coords
+
+
 def sync_packet_to_models(packet):
     """
-    Persists incoming live IoT packet metrics directly into NeonDB models:
-    AqiTelemetry, WaterTelemetry, EnergyTelemetry, Equipment, Dustbin.
-    Enforces strict stream isolation:
-      - When WATER is sent, only Water displays live metrics; Energy & AQI reset to 0.
-      - When ENERGY is sent, only Energy displays live metrics; Water & AQI reset to 0.
-      - When AQI is sent, only AQI displays live metrics; Water & Energy reset to 0.
+    Persists incoming live IoT packet metrics:
+    1. Updates individual sensor node record in LIVE_HARDWARE_REGISTRY for 3D Campus Twin.
+    2. Calculates true mathematical average (M_bar = (1/N) * sum(M_i)) across all active sensors of that category.
+    3. Saves category averages into NeonDB models for Main Analytics Dashboards (AQI, Water, Energy, Parking, Waste).
     """
-    global CURRENT_ACTIVE_STREAM
+    global CURRENT_ACTIVE_STREAM, LIVE_HARDWARE_REGISTRY
     try:
         from .models import Organization, AqiTelemetry, WaterTelemetry, EnergyTelemetry, Equipment, Dustbin, ParkingTelemetry
         metrics = packet.get('metrics', {})
         raw_sensor_type = (packet.get('sensor_type') or '').upper()
-        device_id = packet.get('device_id', '')
-        location = packet.get('location', '')
+        device_id = packet.get('device_id', '') or f"DEV-{int(time.time()*1000)%10000}"
+        location = packet.get('location', '') or 'Campus Node'
+        node_name = packet.get('name', '') or f"{raw_sensor_type} Node ({device_id})"
 
-        # Categorize active stream
+        # Determine category
         if raw_sensor_type in ['WATER', 'WATER_PUMP', 'PUMP'] or 'PUMP' in device_id or 'WATER' in device_id:
             category = 'WATER'
+            cat_type = 'water'
         elif raw_sensor_type in ['ENERGY', 'ENERGY_TRANSFORMER', 'SOLAR', 'GRID'] or 'XFR' in device_id or 'SOLAR' in device_id:
             category = 'ENERGY'
+            cat_type = 'energy'
         elif raw_sensor_type in ['AQI', 'AIR', 'AIR_QUALITY_STATION'] or 'AQI' in device_id:
             category = 'AQI'
+            cat_type = 'aqi'
         elif raw_sensor_type in ['PARKING'] or 'PARK' in device_id:
             category = 'PARKING'
+            cat_type = 'parking'
         elif raw_sensor_type in ['DUSTBIN', 'WASTE'] or 'BIN' in device_id:
             category = 'WASTE'
+            cat_type = 'waste'
         elif raw_sensor_type in ['EQUIPMENT', 'VIBRATION', 'CHILLER']:
             category = 'EQUIPMENT'
+            cat_type = 'equipment'
         else:
             category = raw_sensor_type or 'TELEMETRY'
+            cat_type = 'general'
 
         CURRENT_ACTIVE_STREAM = {
             'category': category,
@@ -511,6 +608,111 @@ def sync_packet_to_models(packet):
             'metrics': metrics
         }
 
+        # Spatial Coordinates (user dragged or deterministic spread)
+        coords = get_node_coordinates(device_id, category=cat_type)
+
+        # Map to CampusNode schema for 3D Twin
+        pm25_val = float(metrics.get('pm25', metrics.get('pm25_ug_m3', 0)))
+        pm10_val = float(metrics.get('pm10', metrics.get('pm10_ug_m3', 0)))
+        temp_val = float(metrics.get('temp_c', metrics.get('temperature', metrics.get('operating_temp_c', 28.0))))
+        hum_val = float(metrics.get('humidity', metrics.get('humidity_pct', 55.0)))
+
+        # Domain secondary and metric values for cards
+        sec_val = ''
+        m1_lbl, m1_val = '', ''
+        m2_lbl, m2_val = '', ''
+        m3_lbl, m3_val = '', ''
+        m4_lbl, m4_val = '', ''
+
+        if cat_type == 'aqi':
+            computed_aqi = int(pm25_val * 2.5) if pm25_val > 0 else (int(pm10_val) if pm10_val > 0 else 50)
+            sec_val = f"AQI {computed_aqi}"
+            m1_lbl, m1_val = 'PM2.5', f"{pm25_val} µg/m³"
+            m2_lbl, m2_val = 'PM10', f"{pm10_val} µg/m³"
+            m3_lbl, m3_val = 'Temp', f"{round(temp_val,1)} °C"
+            m4_lbl, m4_val = 'Humidity', f"{int(hum_val)}%"
+            node_status = 'warning' if computed_aqi > 150 else ('moderate' if computed_aqi > 100 else 'optimal')
+        elif cat_type == 'water':
+            flow = float(metrics.get('flow_rate_lps', 18.2))
+            tank = int(metrics.get('tank_level_pct', metrics.get('underground_tank_pct', 78)))
+            ph = float(metrics.get('ph_level', 7.2))
+            tds = int(metrics.get('tds_ppm', 142))
+            sec_val = f"{flow} L/s"
+            m1_lbl, m1_val = 'Flow Rate', f"{flow} L/s"
+            m2_lbl, m2_val = 'Tank Level', f"{tank}%"
+            m3_lbl, m3_val = 'pH Level', f"{ph} pH"
+            m4_lbl, m4_val = 'TDS Purity', f"{tds} ppm"
+            node_status = 'warning' if flow < 5 else 'optimal'
+        elif cat_type == 'energy':
+            load = float(metrics.get('current_load_kw', metrics.get('active_load_kw', 420.0)))
+            solar = float(metrics.get('solar_kw', metrics.get('solar_rooftop_kw', 185.0)))
+            pf = float(metrics.get('power_factor', 0.98))
+            sec_val = f"{load} kW"
+            m1_lbl, m1_val = 'Active Load', f"{load} kW"
+            m2_lbl, m2_val = 'Solar Gen', f"{solar} kW"
+            m3_lbl, m3_val = 'Power Factor', f"{pf} PF"
+            m4_lbl, m4_val = 'Grid Feed', f"{max(0.0, round(load - solar, 1))} kW"
+            node_status = 'warning' if pf < 0.85 else 'optimal'
+        elif cat_type == 'waste':
+            fill = int(metrics.get('fill_percentage', 42))
+            weight = float(metrics.get('waste_weight_kg', 24.0))
+            sec_val = f"{fill}% Full"
+            m1_lbl, m1_val = 'Fill Level', f"{fill}%"
+            m2_lbl, m2_val = 'Bin Weight', f"{weight} kg"
+            m3_lbl, m3_val = 'Battery', f"{metrics.get('battery_pct', 94)}%"
+            m4_lbl, m4_val = 'Status', 'Critical' if fill >= 85 else ('Warning' if fill >= 70 else 'Normal')
+            node_status = 'warning' if fill >= 85 else ('moderate' if fill >= 70 else 'optimal')
+        elif cat_type == 'parking':
+            occ = int(metrics.get('occupied_slots', 35))
+            tot = int(metrics.get('total_slots', 80))
+            ev = int(metrics.get('ev_charging_occupied', 5))
+            sec_val = f"{occ}/{tot} Bays"
+            m1_lbl, m1_val = 'Occupied', f"{occ} / {tot}"
+            m2_lbl, m2_val = 'Available', f"{max(0, tot - occ)}"
+            m3_lbl, m3_val = 'EV Active', f"{ev} Charging"
+            m4_lbl, m4_val = 'Occupancy', f"{round((occ/max(1, tot))*100)}%"
+            node_status = 'warning' if occ >= tot else 'optimal'
+        else:
+            vib = float(metrics.get('vibration_mm_s', 1.2))
+            sec_val = f"{vib} mm/s"
+            m1_lbl, m1_val = 'Vibration', f"{vib} mm/s"
+            m2_lbl, m2_val = 'Temp', f"{round(temp_val, 1)} °C"
+            m3_lbl, m3_val = 'Current', f"{metrics.get('current_draw_a', 28.0)} A"
+            m4_lbl, m4_val = 'Head Press', f"{metrics.get('head_pressure_bar', 4.1)} bar"
+            node_status = 'warning' if vib > 3.0 else 'optimal'
+
+        # Register or update in individual hardware node store
+        LIVE_HARDWARE_REGISTRY[device_id] = {
+            'id': device_id,
+            'device_id': device_id,
+            'name': node_name,
+            'locationLabel': location,
+            'type': cat_type,
+            'interfaceType': packet.get('source', 'WIFI'),
+            'xPct': coords['xPct'],
+            'yPct': coords['yPct'],
+            'stemHeightPx': 55 + (abs(hash(device_id)) % 25),
+            'pm25': pm25_val,
+            'pm10': pm10_val,
+            'temp': round(temp_val, 1),
+            'humidity': int(hum_val),
+            'secondaryLabel': f"{category} Value",
+            'secondaryValue': sec_val,
+            'metric1Label': m1_lbl,
+            'metric1Value': m1_val,
+            'metric2Label': m2_lbl,
+            'metric2Value': m2_val,
+            'metric3Label': m3_lbl,
+            'metric3Value': m3_val,
+            'metric4Label': m4_lbl,
+            'metric4Value': m4_val,
+            'status': node_status,
+            'metrics': metrics,
+            'last_seen': time.time(),
+            'timestamp': datetime.now().strftime('%H:%M:%S')
+        }
+
+        # Resolve organization
         org_identifier = packet.get('org_id') or packet.get('organization_id') or packet.get('organization')
         target_orgs = []
         if org_identifier:
@@ -530,73 +732,77 @@ def sync_packet_to_models(packet):
         if not target_orgs:
             return
 
+        # -------------------------------------------------------------
+        # MATHEMATICAL CATEGORY AVERAGING ACROSS ALL ACTIVE SENSOR NODES
+        # M_bar = (1 / N) * sum(M_i)
+        # -------------------------------------------------------------
+        now_time = time.time()
+        # Consider nodes seen within the last 5 minutes as active
+        active_window_secs = 300
+
         for target_org in target_orgs:
             if category == 'AQI':
-                pm25_val = float(metrics.get('pm25', metrics.get('pm25_ug_m3', 0)))
-                pm10_val = float(metrics.get('pm10', metrics.get('pm10_ug_m3', 0)))
-                co2_val = float(metrics.get('co2', metrics.get('co2_ppm', 0)))
-                voc_val = float(metrics.get('voc', metrics.get('voc_ppb', 0)))
-                temp_val = float(metrics.get('temp_c', metrics.get('temperature', 0)))
-                hum_val = float(metrics.get('humidity', metrics.get('humidity_pct', 0)))
-                noise_val = float(metrics.get('noise', metrics.get('noise_db', 0)))
-                
-                computed_aqi = int(pm25_val * 2.5) if pm25_val > 0 else (int(pm10_val) if pm10_val > 0 else 50)
-                status_str = 'Good' if computed_aqi <= 50 else ('Moderate' if computed_aqi <= 100 else 'Unhealthy')
+                aqi_nodes = [n for n in LIVE_HARDWARE_REGISTRY.values() if n['type'] == 'aqi' and (now_time - n.get('last_seen', 0)) <= active_window_secs]
+                if not aqi_nodes:
+                    aqi_nodes = [LIVE_HARDWARE_REGISTRY[device_id]]
+
+                n_count = len(aqi_nodes)
+                avg_pm25 = round(sum(float(n['metrics'].get('pm25', n['metrics'].get('pm25_ug_m3', 0))) for n in aqi_nodes) / n_count, 1)
+                avg_pm10 = round(sum(float(n['metrics'].get('pm10', n['metrics'].get('pm10_ug_m3', 0))) for n in aqi_nodes) / n_count, 1)
+                avg_co2 = round(sum(float(n['metrics'].get('co2', n['metrics'].get('co2_ppm', 430))) for n in aqi_nodes) / n_count, 1)
+                avg_voc = round(sum(float(n['metrics'].get('voc', n['metrics'].get('voc_ppb', 85))) for n in aqi_nodes) / n_count, 1)
+                avg_temp = round(sum(float(n['metrics'].get('temp_c', n['metrics'].get('temperature', n['metrics'].get('operating_temp_c', 28)))) for n in aqi_nodes) / n_count, 1)
+                avg_hum = round(sum(float(n['metrics'].get('humidity', n['metrics'].get('humidity_pct', 55))) for n in aqi_nodes) / n_count, 1)
+                avg_noise = round(sum(float(n['metrics'].get('noise', n['metrics'].get('noise_db', 50))) for n in aqi_nodes) / n_count, 1)
+
+                computed_avg_aqi = int(avg_pm25 * 2.5) if avg_pm25 > 0 else (int(avg_pm10) if avg_pm10 > 0 else 50)
+                status_str = 'Good' if computed_avg_aqi <= 50 else ('Moderate' if computed_avg_aqi <= 100 else 'Unhealthy')
 
                 AqiTelemetry.objects.create(
                     organization=target_org,
-                    overall_aqi=computed_aqi,
+                    overall_aqi=computed_avg_aqi,
                     status=status_str,
-                    pm25=pm25_val,
-                    pm10=pm10_val,
-                    co2=co2_val,
-                    voc=voc_val,
-                    temperature=temp_val,
-                    humidity=hum_val,
-                    noise=noise_val,
-                    hotspot_location=packet.get('location', f"{target_org.name} IoT Node"),
-                    anomaly_detected=(computed_aqi > 150 or pm25_val > 60)
-                )
-                # Respective Stream Isolation: Zero out Water, Energy, Parking, Waste
-                WaterTelemetry.objects.filter(organization=target_org).update(
-                    flow_rate_lps=0, underground_tank_level_pct=0, overhead_tank_level_pct=0,
-                    daily_consumption_kl=0, ph_level=0, turbidity_ntu=0, stp_treated_water_kl=0, stp_recycle_rate_pct=0
-                )
-                EnergyTelemetry.objects.filter(organization=target_org).update(
-                    current_load_kw=0, solar_rooftop_kw=0, grid_power_kw=0,
-                    daily_total_kwh=0, power_factor=0, carbon_emissions_kg=0, peak_load_kw=0
-                )
-                ParkingTelemetry.objects.filter(organization=target_org).update(
-                    occupied_slots=0, ev_charging_occupied=0, occupancy_rate_pct=0
-                )
-                Dustbin.objects.filter(organization=target_org).update(
-                    fill_percentage=0, battery_pct=0, status='Idle'
+                    pm25=avg_pm25,
+                    pm10=avg_pm10,
+                    co2=avg_co2,
+                    voc=avg_voc,
+                    temperature=avg_temp,
+                    humidity=avg_hum,
+                    noise=avg_noise,
+                    hotspot_location=f"Campus Average across {n_count} sensors",
+                    anomaly_detected=(computed_avg_aqi > 150 or avg_pm25 > 60)
                 )
 
             elif category == 'WATER':
-                flow_val = float(metrics.get('flow_rate_lps', 0))
-                tank_val = int(metrics.get('tank_level_pct', metrics.get('underground_tank_pct', 75)))
-                ph_val = float(metrics.get('ph_level', 7.2))
-                turb_val = float(metrics.get('turbidity_ntu', 1.5))
-                daily_cons = float(metrics.get('daily_consumption_kl', round(flow_val * 3.6 * 8, 1) if flow_val > 0 else 320.0))
+                water_nodes = [n for n in LIVE_HARDWARE_REGISTRY.values() if n['type'] == 'water' and (now_time - n.get('last_seen', 0)) <= active_window_secs]
+                if not water_nodes:
+                    water_nodes = [LIVE_HARDWARE_REGISTRY[device_id]]
+
+                n_count = len(water_nodes)
+                avg_flow = round(sum(float(n['metrics'].get('flow_rate_lps', 18.2)) for n in water_nodes) / n_count, 1)
+                avg_tank = int(sum(int(n['metrics'].get('tank_level_pct', n['metrics'].get('underground_tank_pct', 75))) for n in water_nodes) / n_count)
+                avg_ph = round(sum(float(n['metrics'].get('ph_level', 7.2)) for n in water_nodes) / n_count, 2)
+                avg_turb = round(sum(float(n['metrics'].get('turbidity_ntu', 1.5)) for n in water_nodes) / n_count, 2)
+                total_daily_cons = round(sum(float(n['metrics'].get('daily_consumption_kl', round(float(n['metrics'].get('flow_rate_lps', 18.2)) * 3.6 * 8, 1))) for n in water_nodes), 1)
 
                 WaterTelemetry.objects.create(
                     organization=target_org,
-                    flow_rate_lps=flow_val,
-                    underground_tank_level_pct=tank_val,
-                    overhead_tank_level_pct=tank_val,
-                    ph_level=ph_val,
-                    turbidity_ntu=turb_val,
-                    daily_consumption_kl=daily_cons,
-                    stp_treated_water_kl=round(daily_cons * 0.72, 1),
+                    flow_rate_lps=avg_flow,
+                    underground_tank_level_pct=avg_tank,
+                    overhead_tank_level_pct=avg_tank,
+                    ph_level=avg_ph,
+                    turbidity_ntu=avg_turb,
+                    daily_consumption_kl=total_daily_cons,
+                    stp_treated_water_kl=round(total_daily_cons * 0.72, 1),
                     stp_recycle_rate_pct=72
                 )
-                # Also update pump equipment status
+
+                # Individual equipment record
                 Equipment.objects.update_or_create(
                     organization=target_org,
-                    equipment_code=device_id or f"EQ-{target_org.id}-PUMP",
+                    equipment_code=device_id,
                     defaults={
-                        'name': packet.get('name', 'STP Raw Sewage Lift Pump #4'),
+                        'name': node_name,
                         'category': 'Water Treatment & Pumps',
                         'location': location or f"{target_org.name} Pump Yard",
                         'vibration_mm_per_sec': float(metrics.get('vibration_mm_s', 1.15)),
@@ -606,84 +812,52 @@ def sync_packet_to_models(packet):
                         'data_source': f"Live {packet.get('source', 'IoT')}"
                     }
                 )
-                # Respective Stream Isolation: Zero out Energy, AQI, Parking, Waste
-                EnergyTelemetry.objects.filter(organization=target_org).update(
-                    current_load_kw=0, solar_rooftop_kw=0, grid_power_kw=0,
-                    daily_total_kwh=0, power_factor=0, carbon_emissions_kg=0, peak_load_kw=0
-                )
-                AqiTelemetry.objects.filter(organization=target_org).update(
-                    overall_aqi=0, status='Idle', pm25=0, pm10=0, co2=0, voc=0, temperature=0, humidity=0, noise=0
-                )
-                ParkingTelemetry.objects.filter(organization=target_org).update(
-                    occupied_slots=0, ev_charging_occupied=0, occupancy_rate_pct=0
-                )
-                Dustbin.objects.filter(organization=target_org).update(
-                    fill_percentage=0, battery_pct=0, status='Idle'
-                )
 
             elif category == 'ENERGY':
-                load_val = float(metrics.get('current_load_kw', metrics.get('active_load_kw', 0)))
-                pf_val = float(metrics.get('power_factor', 0.95))
-                solar_val = float(metrics.get('solar_kw', metrics.get('solar_rooftop_kw', 0)))
-                grid_val = float(metrics.get('grid_power_kw', max(0, load_val - solar_val)))
-                daily_kwh = round(load_val * 14, 1) if load_val > 0 else 12000.0
+                energy_nodes = [n for n in LIVE_HARDWARE_REGISTRY.values() if n['type'] == 'energy' and (now_time - n.get('last_seen', 0)) <= active_window_secs]
+                if not energy_nodes:
+                    energy_nodes = [LIVE_HARDWARE_REGISTRY[device_id]]
+
+                n_count = len(energy_nodes)
+                total_load = round(sum(float(n['metrics'].get('current_load_kw', n['metrics'].get('active_load_kw', 420.0))) for n in energy_nodes), 1)
+                total_solar = round(sum(float(n['metrics'].get('solar_kw', n['metrics'].get('solar_rooftop_kw', 185.0))) for n in energy_nodes), 1)
+                avg_pf = round(sum(float(n['metrics'].get('power_factor', 0.98)) for n in energy_nodes) / n_count, 2)
+                grid_val = max(0.0, round(total_load - total_solar, 1))
+                daily_kwh = round(total_load * 14, 1)
 
                 EnergyTelemetry.objects.create(
                     organization=target_org,
-                    current_load_kw=load_val,
-                    power_factor=pf_val,
-                    solar_rooftop_kw=solar_val,
+                    current_load_kw=total_load,
+                    power_factor=avg_pf,
+                    solar_rooftop_kw=total_solar,
                     grid_power_kw=grid_val,
                     daily_total_kwh=daily_kwh,
-                    peak_load_kw=round(load_val * 1.15, 1),
-                    carbon_emissions_kg=round(load_val * 0.82 * 14, 1) if load_val > 0 else 8500.0
-                )
-                # Respective Stream Isolation: Zero out Water, AQI, Parking, Waste
-                WaterTelemetry.objects.filter(organization=target_org).update(
-                    flow_rate_lps=0, underground_tank_level_pct=0, overhead_tank_level_pct=0,
-                    daily_consumption_kl=0, ph_level=0, turbidity_ntu=0, stp_treated_water_kl=0, stp_recycle_rate_pct=0
-                )
-                AqiTelemetry.objects.filter(organization=target_org).update(
-                    overall_aqi=0, status='Idle', pm25=0, pm10=0, co2=0, voc=0, temperature=0, humidity=0, noise=0
-                )
-                ParkingTelemetry.objects.filter(organization=target_org).update(
-                    occupied_slots=0, ev_charging_occupied=0, occupancy_rate_pct=0
-                )
-                Dustbin.objects.filter(organization=target_org).update(
-                    fill_percentage=0, battery_pct=0, status='Idle'
+                    peak_load_kw=round(total_load * 1.15, 1),
+                    carbon_emissions_kg=round(total_load * 0.82 * 14, 1)
                 )
 
             elif category == 'PARKING':
-                occ_val = int(metrics.get('occupied_slots', metrics.get('occupied_bays', 42)))
-                total_val = int(metrics.get('total_slots', metrics.get('total_bays', 80)))
-                ev_val = int(metrics.get('ev_charging_occupied', metrics.get('ev_charging_active', 6)))
-                flow_rate = int(metrics.get('entry_flow_rate', 24))
-                rate_pct = round((occ_val / max(1, total_val)) * 100)
+                parking_nodes = [n for n in LIVE_HARDWARE_REGISTRY.values() if n['type'] == 'parking' and (now_time - n.get('last_seen', 0)) <= active_window_secs]
+                if not parking_nodes:
+                    parking_nodes = [LIVE_HARDWARE_REGISTRY[device_id]]
+
+                n_count = len(parking_nodes)
+                total_occ = sum(int(n['metrics'].get('occupied_slots', n['metrics'].get('occupied_bays', 35))) for n in parking_nodes)
+                total_bays = sum(int(n['metrics'].get('total_slots', n['metrics'].get('total_bays', 80))) for n in parking_nodes)
+                total_ev = sum(int(n['metrics'].get('ev_charging_occupied', n['metrics'].get('ev_charging_active', 5))) for n in parking_nodes)
+                total_ev_bays = sum(int(n['metrics'].get('ev_charging_total', 12)) for n in parking_nodes)
+                rate_pct = round((total_occ / max(1, total_bays)) * 100)
 
                 ParkingTelemetry.objects.create(
                     organization=target_org,
-                    total_slots=total_val,
-                    occupied_slots=occ_val,
-                    available_slots=max(0, total_val - occ_val),
-                    ev_charging_total=12,
-                    ev_charging_occupied=ev_val,
+                    total_slots=total_bays,
+                    occupied_slots=total_occ,
+                    available_slots=max(0, total_bays - total_occ),
+                    ev_charging_total=total_ev_bays,
+                    ev_charging_occupied=total_ev,
                     occupancy_rate_pct=rate_pct,
-                    entry_flow_rate=flow_rate
-                )
-                # Respective Stream Isolation: Zero out Water, Energy, AQI, Waste
-                WaterTelemetry.objects.filter(organization=target_org).update(
-                    flow_rate_lps=0, underground_tank_level_pct=0, overhead_tank_level_pct=0,
-                    daily_consumption_kl=0, ph_level=0, turbidity_ntu=0, stp_treated_water_kl=0, stp_recycle_rate_pct=0
-                )
-                EnergyTelemetry.objects.filter(organization=target_org).update(
-                    current_load_kw=0, solar_rooftop_kw=0, grid_power_kw=0,
-                    daily_total_kwh=0, power_factor=0, carbon_emissions_kg=0, peak_load_kw=0
-                )
-                AqiTelemetry.objects.filter(organization=target_org).update(
-                    overall_aqi=0, status='Idle', pm25=0, pm10=0, co2=0, voc=0, temperature=0, humidity=0, noise=0
-                )
-                Dustbin.objects.filter(organization=target_org).update(
-                    fill_percentage=0, battery_pct=0, status='Idle'
+                    peak_congestion_zone=location or f"Gateway ({n_count} Gates)",
+                    entry_flow_rate=int(metrics.get('entry_flow_rate', 24))
                 )
 
             elif category in ['WASTE', 'DUSTBIN']:
@@ -691,7 +865,7 @@ def sync_packet_to_models(packet):
                 battery_val = int(metrics.get('battery_pct', 94))
                 Dustbin.objects.update_or_create(
                     organization=target_org,
-                    bin_code=device_id or f"BIN-{target_org.id}-LIVE",
+                    bin_code=device_id,
                     defaults={
                         'zone': location or f"{target_org.name} Plaza",
                         'bin_type': 'Smart Bin',
@@ -700,30 +874,15 @@ def sync_packet_to_models(packet):
                         'status': 'Critical' if fill_val >= 85 else ('Warning' if fill_val >= 70 else 'Normal')
                     }
                 )
-                # Respective Stream Isolation: Zero out Water, Energy, AQI, Parking
-                WaterTelemetry.objects.filter(organization=target_org).update(
-                    flow_rate_lps=0, underground_tank_level_pct=0, overhead_tank_level_pct=0,
-                    daily_consumption_kl=0, ph_level=0, turbidity_ntu=0, stp_treated_water_kl=0, stp_recycle_rate_pct=0
-                )
-                EnergyTelemetry.objects.filter(organization=target_org).update(
-                    current_load_kw=0, solar_rooftop_kw=0, grid_power_kw=0,
-                    daily_total_kwh=0, power_factor=0, carbon_emissions_kg=0, peak_load_kw=0
-                )
-                AqiTelemetry.objects.filter(organization=target_org).update(
-                    overall_aqi=0, status='Idle', pm25=0, pm10=0, co2=0, voc=0, temperature=0, humidity=0, noise=0
-                )
-                ParkingTelemetry.objects.filter(organization=target_org).update(
-                    occupied_slots=0, ev_charging_occupied=0, occupancy_rate_pct=0
-                )
 
             elif category in ['EQUIPMENT']:
                 vib_val = float(metrics.get('vibration_mm_s', 0))
                 temp_val = float(metrics.get('operating_temp_c', 0))
                 Equipment.objects.update_or_create(
                     organization=target_org,
-                    equipment_code=device_id or f"EQ-{target_org.id}-LIVE",
+                    equipment_code=device_id,
                     defaults={
-                        'name': device_id or 'Live IoT Sensor Equipment',
+                        'name': node_name,
                         'category': 'Pumps & Motors',
                         'location': location or f"{target_org.name} Plant Yard",
                         'vibration_mm_per_sec': vib_val,
@@ -801,6 +960,60 @@ def iot_ingest_view(request):
         'packet': new_packet,
         'gateway_sync': 'SYNCHRONIZED_WITH_TWIN'
     }, status=status.HTTP_201_CREATED)
+
+@api_view(['POST'])
+def configure_parking_capacity_view(request):
+    """
+    Manually configures authorized parking space capacity (total_slots)
+    for an institution/organization.
+    """
+    org_id = request.data.get('org_id')
+    raw_slots = request.data.get('total_slots')
+    if not raw_slots:
+        return Response({'error': 'total_slots is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        total_slots = int(raw_slots)
+        if total_slots <= 0:
+            return Response({'error': 'total_slots must be greater than 0'}, status=status.HTTP_400_BAD_REQUEST)
+    except (ValueError, TypeError):
+        return Response({'error': 'Invalid integer for total_slots'}, status=status.HTTP_400_BAD_REQUEST)
+
+    target_org = resolve_org_from_param(org_id) if org_id else Organization.objects.first()
+    if not target_org:
+        return Response({'error': 'Organization not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    latest = ParkingTelemetry.objects.filter(organization=target_org).order_by('-recorded_at').first()
+    occ = latest.occupied_slots if latest else 0
+    ev_occ = latest.ev_charging_occupied if latest else 0
+    ev_total = int(request.data.get('ev_charging_total', latest.ev_charging_total if latest else 12))
+    camera_id = request.data.get('camera_id', latest.peak_congestion_zone if latest else 'CAM-GATE-RTSP')
+
+    available = max(0, total_slots - occ)
+    rate_pct = round((occ / max(1, total_slots)) * 100)
+
+    new_record = ParkingTelemetry.objects.create(
+        organization=target_org,
+        total_slots=total_slots,
+        occupied_slots=occ,
+        available_slots=available,
+        ev_charging_total=ev_total,
+        ev_charging_occupied=ev_occ,
+        occupancy_rate_pct=rate_pct,
+        peak_congestion_zone=camera_id,
+        entry_flow_rate=latest.entry_flow_rate if latest else 24
+    )
+
+    return Response({
+        'success': True,
+        'message': f'Parking capacity configured to {total_slots} bays for {target_org.name}',
+        'total_slots': total_slots,
+        'occupied_slots': occ,
+        'available_slots': available,
+        'ev_charging_total': ev_total,
+        'occupancy_rate_pct': rate_pct,
+        'organization_id': target_org.id
+    }, status=status.HTTP_200_OK)
 
 @api_view(['GET', 'POST'])
 def iot_gateway_config_view(request):
@@ -904,6 +1117,96 @@ def iot_packets_stream_view(request):
     return Response({
         'count': len(stream[:limit]),
         'packets': stream[:limit]
+    }, status=status.HTTP_200_OK)
+
+@api_view(['GET'])
+def iot_live_nodes_view(request):
+    """
+    Returns all active live hardware nodes currently streaming telemetry,
+    formatted as CampusNode specifications for the 3D Campus Twin,
+    along with mathematical category averages for the main dashboard.
+    """
+    now_time = time.time()
+    org_id = request.query_params.get('org_id')
+    
+    # All nodes registered from live hardware
+    all_nodes = list(LIVE_HARDWARE_REGISTRY.values())
+    
+    def get_cat_avg(cat):
+        cat_nodes = [n for n in all_nodes if n.get('type') == cat]
+        if not cat_nodes:
+            return {'count': 0, 'active': False}
+        return {
+            'count': len(cat_nodes),
+            'active': True,
+            'nodes': [n.get('id') for n in cat_nodes]
+        }
+        
+    return Response({
+        'status': 'success',
+        'count': len(all_nodes),
+        'nodes': all_nodes,
+        'summary': {
+            'aqi': get_cat_avg('aqi'),
+            'water': get_cat_avg('water'),
+            'energy': get_cat_avg('energy'),
+            'parking': get_cat_avg('parking'),
+            'waste': get_cat_avg('waste'),
+        }
+    }, status=status.HTTP_200_OK)
+
+@api_view(['POST'])
+def iot_update_node_positions_view(request):
+    """
+    Persists updated (xPct, yPct) spatial coordinates dragged by the user in Edit Mode.
+    Saves in memory cache and into Organization.campus_nodes_json.
+    """
+    global SAVED_NODE_POSITIONS, LIVE_HARDWARE_REGISTRY
+    positions = request.data.get('positions', [])
+    org_id = request.data.get('org_id')
+    
+    if isinstance(positions, list):
+        for pos in positions:
+            d_id = pos.get('id') or pos.get('device_id')
+            if d_id and 'xPct' in pos and 'yPct' in pos:
+                x = round(float(pos['xPct']), 1)
+                y = round(float(pos['yPct']), 1)
+                SAVED_NODE_POSITIONS[d_id] = {'xPct': x, 'yPct': y}
+                if d_id in LIVE_HARDWARE_REGISTRY:
+                    LIVE_HARDWARE_REGISTRY[d_id]['xPct'] = x
+                    LIVE_HARDWARE_REGISTRY[d_id]['yPct'] = y
+    elif isinstance(positions, dict):
+        for d_id, coords in positions.items():
+            if 'xPct' in coords and 'yPct' in coords:
+                x = round(float(coords['xPct']), 1)
+                y = round(float(coords['yPct']), 1)
+                SAVED_NODE_POSITIONS[d_id] = {'xPct': x, 'yPct': y}
+                if d_id in LIVE_HARDWARE_REGISTRY:
+                    LIVE_HARDWARE_REGISTRY[d_id]['xPct'] = x
+                    LIVE_HARDWARE_REGISTRY[d_id]['yPct'] = y
+
+    # Also persist to Organization model
+    try:
+        from .models import Organization
+        target_org = None
+        if org_id:
+            clean_id = str(org_id).replace('org-', '')
+            if clean_id.isdigit():
+                target_org = Organization.objects.filter(id=int(clean_id)).first()
+        if not target_org:
+            target_org = Organization.objects.first()
+            
+        if target_org:
+            all_nodes_list = list(LIVE_HARDWARE_REGISTRY.values())
+            target_org.campus_nodes_json = json.dumps(all_nodes_list)
+            target_org.save(update_fields=['campus_nodes_json'])
+    except Exception as e:
+        print(f"[SAVE_POSITIONS_ERR] {e}")
+
+    return Response({
+        'status': 'success',
+        'message': f"Saved coordinates for {len(positions)} sensor nodes",
+        'saved_positions': SAVED_NODE_POSITIONS
     }, status=status.HTTP_200_OK)
 
 @api_view(['POST'])
@@ -1693,6 +1996,99 @@ def list_sensor_anomalies_shap_view(request):
     Returns live explainable SHAP analyses across all estate & campus sensors:
     Locations, Problem Diagnostics, Required Maintenance, and Actionable Solutions.
     """
+    org_id = request.query_params.get('org_id')
+    target_org = resolve_org_from_param(org_id) if org_id else None
+
+    real_scenarios = []
+
+    # 1. First, check if there is an active live hardware stream from LAN/WiFi IoT Gateway
+    active_stream = CURRENT_ACTIVE_STREAM
+    if active_stream and active_stream.get('metrics'):
+        m = active_stream.get('metrics', {})
+        cat = str(active_stream.get('category', 'WATER')).upper()
+        mapped_cat = 'WATER_PUMP' if cat in ['WATER', 'EQUIPMENT'] else 'ENERGY_TRANSFORMER' if cat == 'ENERGY' else 'AIR_QUALITY_STATION' if cat == 'AQI' else 'WATER_PUMP'
+        dev_id = active_stream.get('device_id') or 'LIVE-HARDWARE-01'
+        is_live_fault = any(float(v) > 3.0 for k, v in m.items() if 'vibr' in k)
+        real_scenarios.append({
+            'category': mapped_cat,
+            'sensor_id': dev_id,
+            'sensor_name': f"Live Ingest Feed ({dev_id})",
+            'location': f"{active_stream.get('source', 'LAN/WiFi')} Ingestion Gateway",
+            'system_subsystem': 'Live Hardware Telemetry Stream',
+            'kahan_kharab_hua': f"Live Ingest Channel - {active_stream.get('source', 'LAN')} Interface",
+            'problem_title': 'Mechanical Vibration Elevation (ISO 10816 Zone Exceedance)' if is_live_fault else 'Nominal Operation • All Telemetry in Tolerance Margins',
+            'kya_maintenance_chahiye': 'Inspect equipment bearing and coupling alignment.' if is_live_fault else 'Routine scheduled lubrication on next maintenance window.',
+            'kya_solution_hai': 'Lockout/Tagout (LOTO) protocol. Replace bearing.' if is_live_fault else 'Live hardware stream active. Continuous condition-based monitoring engaged.',
+            'spare_parts_needed': 'SKF-6205 Ball Bearing, Replacement Drive Seal' if is_live_fault else 'High-Temp Synthetic Lithium Grease, Routine Seal Kit',
+            'urgency': 'CRITICAL (Immediate Maintenance)' if is_live_fault else 'NORMAL (Live Nominal Stream)',
+            'assigned_tech': 'Duty IoT & Reliability Specialist',
+            'telemetry': {
+                'vibration_mm_s': float(m.get('vibration_mm_s', 1.15)),
+                'operating_temp_c': float(m.get('operating_temp_c', 42.0)),
+                'flow_rate_lps': float(m.get('flow_rate_lps', 18.5)),
+                'current_draw_a': float(m.get('current_draw_a', 28.0)),
+                'acoustic_noise_db': float(m.get('acoustic_noise_db', 55.0)),
+            }
+        })
+
+    # 2. Real equipment in database
+    equip_qs = Equipment.objects.filter(organization=target_org) if target_org else Equipment.objects.all()
+    seen_codes = set()
+    for eq in equip_qs.order_by('-id'):
+        code = eq.equipment_code or f"EQ-{eq.id}"
+        if code in seen_codes:
+            continue
+        seen_codes.add(code)
+
+        cat_str = (str(eq.category or '') + ' ' + str(eq.name or '')).lower()
+        if 'transformer' in cat_str or 'energy' in cat_str or 'solar' in cat_str or 'substation' in cat_str:
+            mapped_cat = 'ENERGY_TRANSFORMER'
+            telemetry = {
+                'oil_temp_c': float(eq.operating_temp_c or 48.0),
+                'harmonic_thd_pct': 3.2,
+                'power_factor': 0.98,
+                'active_load_kw': float(eq.power_rating_kw * 10 if eq.power_rating_kw else 250.0),
+                'neutral_current_a': 12.0,
+            }
+        elif 'air' in cat_str or 'aqi' in cat_str or 'particulate' in cat_str or 'laser' in cat_str:
+            mapped_cat = 'AIR_QUALITY_STATION'
+            telemetry = {
+                'pm25_ug_m3': 28.0,
+                'pm10_ug_m3': 52.0,
+                'co2_ppm': 460.0,
+                'voc_ppb': 45.0,
+                'humidity_pct': 58.0,
+            }
+        else:
+            mapped_cat = 'WATER_PUMP'
+            vib = float(eq.vibration_mm_per_sec or 1.15)
+            temp = float(eq.operating_temp_c or 42.0)
+            telemetry = {
+                'vibration_mm_s': vib,
+                'operating_temp_c': temp,
+                'flow_rate_lps': 18.5,
+                'current_draw_a': float(eq.power_rating_kw * 1.2 if eq.power_rating_kw else 28.0),
+                'acoustic_noise_db': 58.0,
+            }
+
+        is_elevated = (telemetry.get('vibration_mm_s', 0) > 3.0) or (telemetry.get('operating_temp_c', 0) > 65.0)
+
+        real_scenarios.append({
+            'category': mapped_cat,
+            'sensor_id': code,
+            'sensor_name': eq.name,
+            'location': eq.location,
+            'system_subsystem': eq.category or 'Campus Facility Infrastructure',
+            'kahan_kharab_hua': f"{eq.location} - Primary Drive Assembly" if is_elevated else f"{eq.location} (Operational Zone)",
+            'problem_title': 'Mechanical Vibration Elevation (ISO 10816 Zone Exceedance)' if is_elevated else 'Nominal Operation • All Telemetry in Tolerance Margins',
+            'kya_maintenance_chahiye': 'Isolate machine and inspect drive-end bearings and alignment.' if is_elevated else 'Routine scheduled lubrication on next maintenance window.',
+            'kya_solution_hai': 'Lockout/Tagout (LOTO) protocol. Replace bearing and verify dynamic balance.' if is_elevated else 'Asset performing at rated efficiency. No unscheduled servicing required.',
+            'spare_parts_needed': 'SKF-6205 Ball Bearing, Replacement Drive Seal' if is_elevated else 'High-Temp Synthetic Lithium Grease, Routine Seal Kit',
+            'urgency': 'CRITICAL (Immediate Maintenance)' if is_elevated else 'NORMAL (Nominal Health)',
+            'assigned_tech': 'Duty Mechanical Specialist',
+            'telemetry': telemetry
+        })
+
     scenarios = [
         {
             'category': 'WATER_PUMP',
@@ -1908,6 +2304,9 @@ def list_sensor_anomalies_shap_view(request):
         },
     ]
 
+    if real_scenarios:
+        scenarios = real_scenarios
+
     results = []
     for sc in scenarios:
         shap_res = compute_exact_shap_values(
@@ -1932,6 +2331,31 @@ def list_sensor_anomalies_shap_view(request):
         'sensors_analyzed': len(results),
         'results': results,
     }, status=status.HTTP_200_OK)
+
+
+from .groq_ai_service import query_groq_copilot
+
+@api_view(['POST'])
+def org_copilot_ai_view(request):
+    """
+    Multi-Behavior Organization-Adaptive AI Copilot & Sensor Diagnostic View.
+    Powered by Groq Llama-3.3-70B Engine with localized SHAP fallback.
+    """
+    data = request.data or {}
+    org_type = data.get('org_type', 'COLLEGE')
+    cluster = data.get('cluster', 'WATER_PUMP')
+    telemetry = data.get('sensor_telemetry', {})
+    user_query = data.get('user_query', '')
+    org_name = data.get('org_name', '')
+
+    result = query_groq_copilot(
+        org_type=org_type,
+        cluster=cluster,
+        sensor_telemetry=telemetry,
+        user_query=user_query,
+        org_name=org_name
+    )
+    return Response(result, status=status.HTTP_200_OK)
 
 
 

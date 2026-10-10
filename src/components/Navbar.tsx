@@ -6,6 +6,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import Logo from '@/components/Logo';
 import ModelGovernanceModal from '@/components/ModelGovernanceModal';
+import { OrgCopilotModal } from '@/components/OrgCopilotModal';
 import {
   Sun,
   Moon,
@@ -61,6 +62,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   const [isOrgDropdownOpen, setIsOrgDropdownOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isGovernanceModalOpen, setIsGovernanceModalOpen] = useState(false);
+  const [isCopilotModalOpen, setIsCopilotModalOpen] = useState(false);
 
   const getOrgIcon = (type?: string) => {
     switch (type) {
@@ -195,6 +197,20 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Right: Controls & User Profile */}
         <div className="flex items-center gap-1.5 sm:gap-3">
+          {/* Multi-Behavior Groq AI Copilot Button */}
+          <button
+            onClick={() => setIsCopilotModalOpen(true)}
+            title="EcoCopilot • Multi-Behavior AI Sensor Diagnostic Engine (Groq LPU Powered)"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500/15 via-blue-500/15 to-purple-500/15 hover:from-cyan-500/25 hover:to-purple-500/25 border border-cyan-500/40 text-cyan-600 dark:text-cyan-300 font-extrabold text-xs transition-all shadow-sm cursor-pointer"
+          >
+            <BrainCircuit className="w-3.5 h-3.5 text-cyan-500 flex-shrink-0 animate-pulse" />
+            <span className="hidden sm:inline">EcoCopilot</span>
+            <span className="sm:hidden">EcoCopilot</span>
+            <span className="px-1 py-0.2 text-[9px] rounded bg-cyan-500/20 text-cyan-400 font-mono font-bold border border-cyan-500/30">
+              GROQ
+            </span>
+          </button>
+
           {/* System Architecture, Assumptions & Model Governance Button */}
           <button
             onClick={() => setIsGovernanceModalOpen(true)}
@@ -316,6 +332,13 @@ export const Navbar: React.FC<NavbarProps> = ({
         isOpen={isGovernanceModalOpen}
         onClose={() => setIsGovernanceModalOpen(false)}
         onNavigateToSimulator={() => setCurrentView('simulator')}
+      />
+
+      {/* Multi-Behavior Organization-Adaptive Groq AI Copilot Modal */}
+      <OrgCopilotModal
+        isOpen={isCopilotModalOpen}
+        onClose={() => setIsCopilotModalOpen(false)}
+        initialOrgType={(activeOrg?.type as any) || 'HOSPITAL'}
       />
     </header>
   );

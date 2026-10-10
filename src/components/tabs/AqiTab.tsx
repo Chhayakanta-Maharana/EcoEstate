@@ -35,6 +35,7 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
   const activeOrg = org || contextOrg;
   const [dbAqi, setDbAqi] = useState<any>(null);
   const [activeStream, setActiveStream] = useState<any>(null);
+  const [liveAqiNodes, setLiveAqiNodes] = useState<any[]>([]);
 
   useEffect(() => {
     if (!activeOrg?.id) return;
@@ -42,12 +43,17 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
 
     const fetchTelemetry = () => {
       Promise.all([
-        DjangoApi.getAqiTelemetry(activeOrg.id),
-        DjangoApi.getIoTStatus(),
-      ]).then(([data, status]) => {
+        DjangoApi.getAqiTelemetry(activeOrg.id).catch(() => null),
+        DjangoApi.getIoTStatus().catch(() => null),
+        DjangoApi.getLiveIoTNodes(activeOrg.id).catch(() => null),
+      ]).then(([data, status, nodesData]) => {
         if (isMounted) {
           if (data) setDbAqi(data);
           if (status?.active_stream) setActiveStream(status.active_stream);
+          if (nodesData && Array.isArray(nodesData.nodes)) {
+            const aqiNodes = nodesData.nodes.filter((n: any) => n.type === 'aqi');
+            setLiveAqiNodes(aqiNodes);
+          }
         }
       });
     };
@@ -61,38 +67,53 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
     };
   }, [activeOrg?.id]);
 
-  const isStreamLive = Boolean(activeStream?.is_active ?? (activeStream?.status === 'ACTIVE'));
-  const currentCategory = isStreamLive ? (activeStream?.category || null) : null;
+  const hasLiveNodes = liveAqiNodes.length > 0;
+  const isStreamLive = Boolean(activeStream?.is_active ?? (activeStream?.status === 'ACTIVE')) || hasLiveNodes;
+  const currentCategory = hasLiveNodes ? 'AQI' : (isStreamLive ? (activeStream?.category || null) : null);
   const isAqiActive = currentCategory === 'AQI';
 
-  // Strict stream isolation with direct streaming fallback:
-  // - If no stream sent yet: null (shows '--')
-  // - If AQI stream is active: shows live packet metrics (from activeStream.metrics or dbAqi)
-  // - If ANOTHER stream is active: strictly shows 0
+  // Multi-Node Mathematical Aggregation across N hardware sensors:
+  // M_bar = (1 / N) * sum(M_i)
+  const nodeCount = liveAqiNodes.length;
+  const multiNodeAvgPm25 = hasLiveNodes 
+    ? Math.round((liveAqiNodes.reduce((acc, n) => acc + (Number(n.pm25) || 0), 0) / nodeCount) * 10) / 10 
+    : undefined;
+  const multiNodeAvgPm10 = hasLiveNodes 
+    ? Math.round((liveAqiNodes.reduce((acc, n) => acc + (Number(n.pm10) || 0), 0) / nodeCount) * 10) / 10 
+    : undefined;
+  const multiNodeAvgTemp = hasLiveNodes 
+    ? Math.round((liveAqiNodes.reduce((acc, n) => acc + (Number(n.temp) || 0), 0) / nodeCount) * 10) / 10 
+    : undefined;
+  const multiNodeAvgHum = hasLiveNodes 
+    ? Math.round(liveAqiNodes.reduce((acc, n) => acc + (Number(n.humidity) || 0), 0) / nodeCount) 
+    : undefined;
+
   const streamMetrics = isAqiActive ? (activeStream?.metrics || {}) : {};
 
-  const streamPm25 = streamMetrics.pm25 !== undefined ? Number(streamMetrics.pm25) : (streamMetrics.pm25_ug_m3 !== undefined ? Number(streamMetrics.pm25_ug_m3) : undefined);
-  const streamPm10 = streamMetrics.pm10 !== undefined ? Number(streamMetrics.pm10) : (streamMetrics.pm10_ug_m3 !== undefined ? Number(streamMetrics.pm10_ug_m3) : undefined);
+  const streamPm25 = multiNodeAvgPm25 ?? (streamMetrics.pm25 !== undefined ? Number(streamMetrics.pm25) : (streamMetrics.pm25_ug_m3 !== undefined ? Number(streamMetrics.pm25_ug_m3) : undefined));
+  const streamPm10 = multiNodeAvgPm10 ?? (streamMetrics.pm10 !== undefined ? Number(streamMetrics.pm10) : (streamMetrics.pm10_ug_m3 !== undefined ? Number(streamMetrics.pm10_ug_m3) : undefined));
   const streamCo2 = streamMetrics.co2 !== undefined ? Number(streamMetrics.co2) : (streamMetrics.co2_ppm !== undefined ? Number(streamMetrics.co2_ppm) : undefined);
   const streamVoc = streamMetrics.voc !== undefined ? Number(streamMetrics.voc) : (streamMetrics.voc_ppb !== undefined ? Number(streamMetrics.voc_ppb) : undefined);
-  const streamTemp = streamMetrics.temperature !== undefined ? Number(streamMetrics.temperature) : (streamMetrics.operating_temp_c !== undefined ? Number(streamMetrics.operating_temp_c) : (streamMetrics.temp_c !== undefined ? Number(streamMetrics.temp_c) : undefined));
-  const streamHum = streamMetrics.humidity !== undefined ? Number(streamMetrics.humidity) : (streamMetrics.humidity_pct !== undefined ? Number(streamMetrics.humidity_pct) : undefined);
+  const streamTemp = multiNodeAvgTemp ?? (streamMetrics.temperature !== undefined ? Number(streamMetrics.temperature) : (streamMetrics.operating_temp_c !== undefined ? Number(streamMetrics.operating_temp_c) : (streamMetrics.temp_c !== undefined ? Number(streamMetrics.temp_c) : undefined)));
+  const streamHum = multiNodeAvgHum ?? (streamMetrics.humidity !== undefined ? Number(streamMetrics.humidity) : (streamMetrics.humidity_pct !== undefined ? Number(streamMetrics.humidity_pct) : undefined));
   const streamNoise = streamMetrics.noise !== undefined ? Number(streamMetrics.noise) : (streamMetrics.noise_db !== undefined ? Number(streamMetrics.noise_db) : (streamMetrics.acoustic_noise_db !== undefined ? Number(streamMetrics.acoustic_noise_db) : undefined));
 
-  const hasStreamData = isAqiActive && (streamPm25 !== undefined || streamPm10 !== undefined || Boolean(activeStream));
+  const hasStreamData = isAqiActive && (streamPm25 !== undefined || streamPm10 !== undefined || Boolean(activeStream) || hasLiveNodes);
   const hasData = isAqiActive && (hasStreamData || Boolean(dbAqi && (dbAqi.overall_aqi !== undefined || dbAqi.pm25 !== undefined)));
 
   const computedAqi = streamPm25 !== undefined ? Math.round(streamPm25 * 2.5) : (streamPm10 !== undefined ? Math.round(streamPm10) : 55);
 
   const baseAqi = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.overall_aqi ?? computedAqi) : 0);
-  const basePm25 = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.pm25 ?? (streamPm25 ?? 0)) : 0);
-  const basePm10 = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.pm10 ?? (streamPm10 ?? 0)) : 0);
+  const basePm25 = currentCategory === null ? null : (isAqiActive ? Number(streamPm25 ?? dbAqi?.pm25 ?? 0) : 0);
+  const basePm10 = currentCategory === null ? null : (isAqiActive ? Number(streamPm10 ?? dbAqi?.pm10 ?? 0) : 0);
   const baseCo2 = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.co2 ?? (streamCo2 ?? 0)) : 0);
   const baseVoc = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.voc ?? (streamVoc ?? 0)) : 0);
-  const baseTemp = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.temperature ?? (streamTemp ?? 0)) : 0);
-  const baseHum = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.humidity ?? (streamHum ?? 0)) : 0);
+  const baseTemp = currentCategory === null ? null : (isAqiActive ? Number(streamTemp ?? dbAqi?.temperature ?? 0) : 0);
+  const baseHum = currentCategory === null ? null : (isAqiActive ? Number(streamHum ?? dbAqi?.humidity ?? 0) : 0);
   const baseNoise = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.noise ?? (streamNoise ?? 0)) : 0);
-  const hotspotLoc = currentCategory === null ? '--' : (isAqiActive ? (activeStream?.location || dbAqi?.hotspot_location || `${activeOrg?.name || 'Campus'} Sensor Node`) : 'Idle Node (0)');
+  const hotspotLoc = hasLiveNodes 
+    ? `Campus Average across ${nodeCount} active sensors` 
+    : (currentCategory === null ? '--' : (isAqiActive ? (activeStream?.location || dbAqi?.hotspot_location || `${activeOrg?.name || 'Campus'} Sensor Node`) : 'Idle Node (0)'));
 
   const liveTrend24h = (isAqiActive && baseAqi !== null && basePm25 !== null && baseAqi > 0)
     ? [
@@ -124,11 +145,11 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
       {/* Header Banner */}
       <div className="p-6 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-emerald-500/30 text-stone-900 dark:text-white shadow-sm dark:shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-1">
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-1">
             <Wind className="w-4 h-4" /> Continuous Ambient Air Quality Monitoring System (CAAQMS)
             {isAqiActive && isStreamLive ? (
-              <span className="flex items-center gap-1 text-[10px] bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded-full border border-emerald-500/20">
-                <Activity className="w-3 h-3 animate-pulse" /> LIVE STREAM ACTIVE
+              <span className="flex items-center gap-1 text-[10px] bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded-full border border-emerald-500/20 font-bold">
+                <Activity className="w-3 h-3 animate-pulse" /> {hasLiveNodes ? `${nodeCount} HARDWARE SENSORS LIVE` : 'LIVE STREAM ACTIVE'}
               </span>
             ) : (
               <span className="flex items-center gap-1 text-[10px] bg-stone-500/10 text-stone-500 px-2 py-0.5 rounded-full border border-stone-500/20">
@@ -138,13 +159,25 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
           </div>
           <h1 className="text-2xl font-black text-stone-900 dark:text-white">Air Quality & Clean Air Intelligence</h1>
           <p className="text-xs text-stone-500 dark:text-slate-400 mt-1">
-            Real-time optical particulate and VOC sensors across {activeOrg?.name}
+            {hasLiveNodes ? `Mathematical average aggregated across ${nodeCount} active physical sensor nodes on campus` : `Real-time optical particulate and VOC sensors across ${activeOrg?.name}`}
           </p>
+
+          {/* Individual Live Node Badges Row */}
+          {hasLiveNodes && (
+            <div className="mt-3 flex flex-wrap items-center gap-1.5 animate-in fade-in">
+              <span className="text-[10px] font-bold text-stone-400 mr-1">Sensor Fleet Readings:</span>
+              {liveAqiNodes.map((n, i) => (
+                <span key={n.id || i} className="px-2 py-0.5 rounded-md bg-stone-100 dark:bg-stone-900 border border-stone-200 dark:border-stone-800 text-[10px] font-mono text-stone-700 dark:text-stone-300">
+                  <span className="text-emerald-500 font-bold">{n.device_id || `Node-${i+1}`}:</span> {n.pm25} µg/m³
+                </span>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center gap-4 bg-[#f8f4ed] dark:bg-[#0a0b12] p-3 rounded-2xl border border-[#ece3d6] dark:border-[#181a28]">
           <div className="text-center">
-            <span className="text-[10px] text-stone-500 dark:text-slate-400 uppercase font-semibold">Campus AQI</span>
+            <span className="text-[10px] text-stone-500 dark:text-slate-400 uppercase font-semibold">Campus Avg AQI</span>
             <div className="flex items-baseline justify-center gap-1">
               <span className={`text-3xl font-extrabold ${aqiInfo.text}`}>{baseAqi !== null ? baseAqi : '--'}</span>
               <span className="text-[11px] text-stone-400 dark:text-slate-400 font-mono">NAQI</span>
@@ -154,7 +187,7 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
             <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${aqiInfo.bg}`}>
               {hasData ? (dbAqi?.status || aqiInfo.label) : '--'}
             </span>
-            <p className="text-[10px] text-stone-400 dark:text-slate-400 mt-1">CPCB Standard</p>
+            <p className="text-[10px] text-stone-400 dark:text-slate-400 mt-1">{hasLiveNodes ? `${nodeCount} Sensors Averaged` : 'CPCB Standard'}</p>
           </div>
         </div>
       </div>

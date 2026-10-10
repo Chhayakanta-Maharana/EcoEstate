@@ -50,11 +50,13 @@ export const EquipmentTab: React.FC<EquipmentTabProps> = ({ org }) => {
     return () => clearInterval(interval);
   }, [activeOrg?.id]);
 
-  const handleDeleteEquipment = (id: string) => {
-    deleteEquipment(id);
+  const handleDeleteEquipment = async (id: string) => {
     setDbEquipment((prev) =>
       prev.filter((e) => (e.equipment_code || `EQ-${e.id}`) !== id && String(e.id) !== id)
     );
+    deleteEquipment(id);
+    await DjangoApi.deleteEquipment(id);
+    fetchEquipment();
   };
 
   const equipmentList: EquipmentItem[] = dbEquipment.map((eq) => ({

@@ -54,38 +54,57 @@ export const ExplainableAiShapModal: React.FC<ExplainableAiShapModalProps> = ({
   const [interactiveTelemetry, setInteractiveTelemetry] = useState<Record<string, number>>({});
   const [currentAnalysis, setCurrentAnalysis] = useState<any>(null);
 
-  // Fetch all sensors on open
+  // Fetch all sensors on open & periodic polling for live hardware updates
   useEffect(() => {
-    if (isOpen) {
-      setIsLoading(true);
+    if (!isOpen) return;
+
+    let isSubscribed = true;
+
+    const fetchSensors = (isInitial = false) => {
+      if (isInitial) setIsLoading(true);
       DjangoApi.getShapSensorAnomalies()
         .then((data) => {
+          if (!isSubscribed) return;
           if (data && data.results && data.results.length > 0) {
             setSensors(data.results);
             
-            // Choose initial selected sensor based on category or default to first fault
-            let initial = data.results[0];
-            if (defaultSensorCategory) {
-              const matched = data.results.find((s: any) => s.category === defaultSensorCategory);
-              if (matched) initial = matched;
-            } else {
-              const fault = data.results.find((s: any) => s.severity === 'CRITICAL_FAULT');
-              if (fault) initial = fault;
-            }
+            // Retain selected sensor or pick appropriate initial
+            setSelectedSensorId((prevId) => {
+              let targetId = prevId;
+              if (!targetId) {
+                if (defaultSensorCategory) {
+                  const matched = data.results.find((s: any) => s.category === defaultSensorCategory);
+                  targetId = matched ? matched.sensor_id : data.results[0].sensor_id;
+                } else {
+                  const fault = data.results.find((s: any) => s.severity === 'CRITICAL_FAULT');
+                  targetId = fault ? fault.sensor_id : data.results[0].sensor_id;
+                }
+              }
 
-            setSelectedSensorId(initial.sensor_id);
-            setCurrentAnalysis(initial);
-            initTelemetry(initial);
+              const targetObj = data.results.find((s: any) => s.sensor_id === targetId) || data.results[0];
+              setCurrentAnalysis(targetObj);
+              if (isInitial) initTelemetry(targetObj);
+              return targetId;
+            });
           }
         })
         .catch((err) => {
           console.error('Error fetching SHAP sensor anomalies:', err);
         })
         .finally(() => {
-          setIsLoading(false);
+          if (isSubscribed && isInitial) setIsLoading(false);
         });
-    }
+    };
+
+    fetchSensors(true);
+    const pollInterval = setInterval(() => fetchSensors(false), 3000);
+
+    return () => {
+      isSubscribed = false;
+      clearInterval(pollInterval);
+    };
   }, [isOpen, defaultSensorCategory]);
+
 
   const initTelemetry = (sensorObj: any) => {
     const tObj: Record<string, number> = {};
@@ -228,14 +247,15 @@ export const ExplainableAiShapModal: React.FC<ExplainableAiShapModalProps> = ({
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <h2 className="text-base sm:text-lg font-black tracking-tight text-stone-900 dark:text-white">
-                  Equipment Health &amp; Root Cause Diagnostic Center
+                  Machinery SCADA &amp; Condition-Based Monitoring (CBM)
                 </h2>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border border-cyan-500/30">
-                  Condition-Based Monitoring (CBM)
+                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Live Telemetry Ingestion
                 </span>
               </div>
               <p className="text-xs text-stone-500 dark:text-slate-400">
-                Continuous telemetry monitoring: Pinpoints exact <span className="font-bold text-stone-700 dark:text-slate-300">fault location</span>, <span className="font-bold text-stone-700 dark:text-slate-300">malfunction cause</span>, <span className="font-bold text-stone-700 dark:text-slate-300">maintenance spare parts</span>, and engineering <span className="font-bold text-stone-700 dark:text-slate-300">corrective action</span>.
+                SCADA telemetry streaming: Real-time telemetry monitoring for mechanical assets, diagnostic root cause attribution, and SLA maintenance workflows.
               </p>
             </div>
           </div>
@@ -456,11 +476,12 @@ export const ExplainableAiShapModal: React.FC<ExplainableAiShapModalProps> = ({
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   
                   {/* CARD 1: KAHAN SENSOR KHARAB HUA HAI (EXACT LOCATION & FAULT POINT) */}
+                  {/* CARD 1: EXACT LOCATION */}
                   <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-[#0b0c15] border border-cyan-500/30 shadow-sm space-y-2.5">
                     <div className="flex items-center gap-2 text-cyan-600 dark:text-cyan-400">
                       <MapPin className="w-4 h-4" />
                       <h3 className="font-extrabold text-xs uppercase tracking-wider">
-                        1. Kahan Sensor Kharab Hua Hai? (Exact Location)
+                        1. Physical Asset Location &amp; Node ID
                       </h3>
                     </div>
                     <div className="p-3 rounded-2xl bg-cyan-500/5 dark:bg-cyan-950/20 border border-cyan-500/20 space-y-1">
@@ -476,12 +497,12 @@ export const ExplainableAiShapModal: React.FC<ExplainableAiShapModalProps> = ({
                     </div>
                   </div>
 
-                  {/* CARD 2: KYA PROBLEM HAI (THE ROOT CAUSE PROBLEM) */}
+                  {/* CARD 2: ROOT CAUSE ANOMALY */}
                   <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-[#0b0c15] border border-rose-500/30 shadow-sm space-y-2.5">
                     <div className="flex items-center gap-2 text-rose-600 dark:text-rose-400">
                       <AlertTriangle className="w-4 h-4" />
                       <h3 className="font-extrabold text-xs uppercase tracking-wider">
-                        2. Kya Problem Hai? (Root Cause Malfunction)
+                        2. Root Cause Anomaly Diagnostic
                       </h3>
                     </div>
                     <div className="p-3 rounded-2xl bg-rose-500/5 dark:bg-rose-950/20 border border-rose-500/20 space-y-1">
@@ -494,12 +515,12 @@ export const ExplainableAiShapModal: React.FC<ExplainableAiShapModalProps> = ({
                     </div>
                   </div>
 
-                  {/* CARD 3: KYA MAINTENANCE CHAHIYE (MAINTENANCE CHECKLIST & SPARES) */}
+                  {/* CARD 3: MAINTENANCE CHECKLIST & SPARES */}
                   <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-[#0b0c15] border border-amber-500/30 shadow-sm space-y-2.5">
                     <div className="flex items-center gap-2 text-amber-600 dark:text-amber-400">
                       <Wrench className="w-4 h-4" />
                       <h3 className="font-extrabold text-xs uppercase tracking-wider">
-                        3. Kya Maintenance Chahiye? (Required Servicing &amp; Spares)
+                        3. Corrective Maintenance &amp; Spare Parts
                       </h3>
                     </div>
                     <div className="p-3 rounded-2xl bg-amber-500/5 dark:bg-amber-950/20 border border-amber-500/20 space-y-2">
@@ -518,12 +539,12 @@ export const ExplainableAiShapModal: React.FC<ExplainableAiShapModalProps> = ({
                     </div>
                   </div>
 
-                  {/* CARD 4: KYA SOLUTION HAI (ENGINEERING WORKFLOW & DISPATCH) */}
+                  {/* CARD 4: ENGINEERING WORKFLOW & DISPATCH */}
                   <div className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-[#0b0c15] border border-emerald-500/30 shadow-sm space-y-2.5">
                     <div className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
                       <CheckCircle2 className="w-4 h-4" />
                       <h3 className="font-extrabold text-xs uppercase tracking-wider">
-                        4. Kya Solution Hai? (Actionable Engineering Protocol &amp; SLA)
+                        4. Engineering Protocol &amp; SLA Resolution
                       </h3>
                     </div>
                     <div className="p-3 rounded-2xl bg-emerald-500/5 dark:bg-emerald-950/20 border border-emerald-500/20 space-y-2">

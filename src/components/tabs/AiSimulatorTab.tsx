@@ -25,6 +25,7 @@ import {
   Check,
   Info,
 } from 'lucide-react';
+import { OrgCopilotModal } from '@/components/OrgCopilotModal';
 
 interface AiSimulatorTabProps {
   org?: Organization;
@@ -45,6 +46,7 @@ export const AiSimulatorTab: React.FC<AiSimulatorTabProps> = ({ org }) => {
   // Live Backend Simulation Sync
   const [backendSimulation, setBackendSimulation] = useState<any>(null);
   const [isSimulating, setIsSimulating] = useState<boolean>(false);
+  const [isCopilotOpen, setIsCopilotOpen] = useState<boolean>(false);
 
   // Facility-specific baseline constants
   const facilityType = activeOrg?.type || 'COLLEGE';
@@ -157,12 +159,21 @@ export const AiSimulatorTab: React.FC<AiSimulatorTabProps> = ({ org }) => {
           </h1>
         </div>
 
-        <button
-          onClick={resetToBaseline}
-          className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer self-start md:self-auto"
-        >
-          <RefreshCw className="w-3.5 h-3.5" /> Reset Baseline
-        </button>
+        <div className="flex items-center gap-2 self-start md:self-auto">
+          <button
+            onClick={() => setIsCopilotOpen(true)}
+            className="px-4 py-2 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-2 shadow-lg shadow-cyan-500/25 transition-all cursor-pointer"
+          >
+            <BrainCircuit className="w-4 h-4 text-cyan-200 animate-pulse" />
+            <span>⚡ Multi-Behavior AI Copilot</span>
+          </button>
+          <button
+            onClick={resetToBaseline}
+            className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+          >
+            <RefreshCw className="w-3.5 h-3.5" /> Reset Baseline
+          </button>
+        </div>
       </div>
 
       {/* Quick Scenario Preset Buttons */}
@@ -517,6 +528,13 @@ export const AiSimulatorTab: React.FC<AiSimulatorTabProps> = ({ org }) => {
           <span className="text-emerald-500 font-mono font-semibold">Verified • Closed-Loop</span>
         </div>
       </div>
+
+      {/* Multi-Behavior Organization-Adaptive Groq AI Copilot Modal */}
+      <OrgCopilotModal
+        isOpen={isCopilotOpen}
+        onClose={() => setIsCopilotOpen(false)}
+        initialOrgType={(activeOrg?.type as any) || 'HOSPITAL'}
+      />
     </div>
   );
 };

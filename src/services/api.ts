@@ -242,6 +242,32 @@ export const DjangoApi = {
     }
   },
 
+  async getLiveIoTNodes(orgId?: string) {
+    try {
+      const url = new URL(`${API_BASE_URL}/iot/nodes/live/`);
+      if (orgId) url.searchParams.set('org_id', String(orgId));
+      const res = await fetch(url.toString(), { cache: 'no-store' });
+      if (!res.ok) throw new Error('Failed to fetch live IoT nodes');
+      return await res.json();
+    } catch (err) {
+      return { count: 0, nodes: [], summary: {} };
+    }
+  },
+
+  async updateNodePositions(positions: any, orgId?: string) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/iot/nodes/update-positions/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ positions, org_id: orgId }),
+      });
+      return await res.json();
+    } catch (err) {
+      console.warn('Update node positions error', err);
+      return null;
+    }
+  },
+
   async getIoTGatewayConfig() {
     try {
       const res = await fetch(`${API_BASE_URL}/iot/gateway-config/`, { cache: 'no-store' });
@@ -469,6 +495,26 @@ export const DjangoApi = {
     }
   },
 
+  async configureParkingCapacity(orgId: string, totalSlots: number, evTotal: number = 12): Promise<any> {
+    try {
+      const cleanId = String(orgId).replace('org-', '');
+      const res = await fetch(`${API_BASE_URL}/parking/configure-capacity/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          org_id: cleanId,
+          total_slots: totalSlots,
+          ev_charging_total: evTotal,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to configure parking capacity');
+      return await res.json();
+    } catch (err) {
+      console.warn('Configure parking error', err);
+      return null;
+    }
+  },
+
   async getDustbins(orgId?: string): Promise<any[]> {
     try {
       const url = new URL(`${API_BASE_URL}/dustbins/`);
@@ -514,8 +560,8 @@ export const DjangoApi = {
 
   async deleteEquipment(id: string | number): Promise<boolean> {
     try {
-      const cleanId = String(id).replace('EQ-', '').replace('eq-', '');
-      const res = await fetch(`${API_BASE_URL}/equipment/${cleanId}/`, {
+      const encodedId = encodeURIComponent(String(id).trim());
+      const res = await fetch(`${API_BASE_URL}/equipment/${encodedId}/`, {
         method: 'DELETE',
       });
       return res.ok;
@@ -769,6 +815,75 @@ export const DjangoApi = {
       return null;
     }
   },
+
+  // Multi-Behavior Organization-Adaptive Groq AI Copilot
+  async queryOrgCopilot(params: OrgCopilotRequest): Promise<OrgCopilotResponse> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/ai/org-copilot/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params),
+      });
+      if (!res.ok) {
+        throw new Error(`HTTP error ${res.status}`);
+      }
+      return await res.json();
+    } catch (err) {
+      console.warn('Org Copilot AI query failed, generating client fallback', err);
+      return {
+        persona_summary: `${params.org_type} Diagnostic Mode`,
+        urgency: params.org_type === 'HOSPITAL' ? 'EMERGENCY' : 'WARNING',
+        answer: `Telemetry analyzed for ${params.cluster} under ${params.org_type} operating conditions.`,
+        sensor_evaluations: [],
+        immediate_actions: [
+          params.org_type === 'HOSPITAL'
+            ? 'Execute emergency changeover to secondary redundant backup unit immediately.'
+            : 'Inspect primary circuit and execute safety verification.'
+        ],
+        maintenance_steps: [
+          'Verify sensor calibrations and telemetry baseline.',
+          'Inspect mechanical bearings and electrical terminal box.',
+          'Document diagnostic test result in Estate Maintenance Log.'
+        ],
+        required_tools: ['True-RMS Multimeter (Fluke 87V)', 'Optical Vibration Pen'],
+        spare_parts: ['OEM Gasket Set', 'C3 Clearance Ball Bearings'],
+        compliance_standards: ['ISO / Estate Operational Standard'],
+        source: 'CLIENT_FALLBACK'
+      };
+    }
+  },
 };
+
+export interface SensorEvaluation {
+  parameter: string;
+  measured_value: number;
+  threshold_value: number;
+  unit: string;
+  status: 'NORMAL' | 'ELEVATED' | 'CRITICAL';
+  deviation_pct: string;
+}
+
+export interface OrgCopilotResponse {
+  persona_summary: string;
+  urgency: 'EMERGENCY' | 'CRITICAL' | 'WARNING' | 'NORMAL';
+  answer: string;
+  sensor_evaluations: SensorEvaluation[];
+  immediate_actions: string[];
+  maintenance_steps: string[];
+  required_tools: string[];
+  spare_parts: string[];
+  compliance_standards: string[];
+  source?: string;
+  note?: string;
+  shap_contributions?: any[];
+}
+
+export interface OrgCopilotRequest {
+  org_type: 'HOSPITAL' | 'INDUSTRY' | 'COLLEGE' | 'PSU' | 'MUNICIPAL' | 'COMMERCIAL' | string;
+  cluster: 'WATER' | 'ENERGY' | 'AQI' | 'WASTE' | 'HVAC' | 'GATEWAY' | string;
+  sensor_telemetry: Record<string, any>;
+  user_query?: string;
+  org_name?: string;
+}
 
 

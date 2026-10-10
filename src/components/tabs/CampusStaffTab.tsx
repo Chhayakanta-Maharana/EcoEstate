@@ -93,15 +93,28 @@ export const CampusStaffTab: React.FC<CampusStaffTabProps> = ({ onSimulateRole, 
       }))
     : users;
 
-  // Filter users belonging to current organization (or national superadmin)
-  const campusUsers = rawList.filter((u) => {
-    if (u.organizationId && activeOrg?.id) {
-      const cleanU = u.organizationId.replace('org-', '');
-      const cleanO = activeOrg.id.replace('org-', '');
-      return cleanU === cleanO;
+  // Filter users belonging to current organization and deduplicate by email
+  const campusUsers = React.useMemo(() => {
+    const orgFiltered = rawList.filter((u) => {
+      if (u.organizationId && activeOrg?.id) {
+        const cleanU = u.organizationId.replace('org-', '');
+        const cleanO = activeOrg.id.replace('org-', '');
+        return cleanU === cleanO;
+      }
+      return u.role !== 'SUPERADMIN';
+    });
+
+    const seenEmails = new Set<string>();
+    const uniqueUsers: User[] = [];
+    for (const u of orgFiltered) {
+      const emailLower = (u.email || '').trim().toLowerCase();
+      if (emailLower && !seenEmails.has(emailLower)) {
+        seenEmails.add(emailLower);
+        uniqueUsers.push(u);
+      }
     }
-    return u.role !== 'SUPERADMIN';
-  });
+    return uniqueUsers;
+  }, [rawList, activeOrg?.id]);
 
   const filteredStaff = campusUsers.filter((u) => {
     const matchesSearch =

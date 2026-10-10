@@ -18,6 +18,8 @@ from .views import (
     iot_ingest_view,
     iot_status_view,
     iot_packets_stream_view,
+    iot_live_nodes_view,
+    iot_update_node_positions_view,
     iot_simulate_packet_view,
     iot_gateway_config_view,
     admin_realtime_analytics_view,
@@ -29,6 +31,8 @@ from .views import (
     shap_sensor_explain_view,
     list_sensor_anomalies_shap_view,
     superadmin_profile_update_view,
+    org_copilot_ai_view,
+    configure_parking_capacity_view,
 )
 
 router = DefaultRouter()
@@ -43,6 +47,9 @@ router.register(r'parking', ParkingTelemetryViewSet)
 router.register(r'recommendations', AiRecommendationViewSet)
 
 urlpatterns = [
+    # Manual Campus Parking Space Capacity Configuration
+    path('parking/configure-capacity/', configure_parking_capacity_view, name='configure_parking_capacity'),
+
     path('', include(router.urls)),
     
     # Strict Authentication & Password Recovery Endpoints
@@ -56,6 +63,9 @@ urlpatterns = [
 
     # Re-send Credentials Email Endpoint
     path('organizations/<str:org_id>/send-credentials/', send_credentials_email_view, name='send_credentials_email'),
+
+    # Multi-Behavior Organization-Adaptive Groq AI Copilot
+    path('ai/org-copilot/', org_copilot_ai_view, name='org_copilot_ai'),
 
     # Explainable AI (XAI) SHAP Diagnostic Routes
     path('ai/shap-explain/', shap_sensor_explain_view, name='shap_sensor_explain'),
@@ -74,6 +84,8 @@ urlpatterns = [
     path('iot/ingest/', iot_ingest_view, name='iot_ingest'),
     path('iot/status/', iot_status_view, name='iot_status'),
     path('iot/packets/', iot_packets_stream_view, name='iot_packets'),
+    path('iot/nodes/live/', iot_live_nodes_view, name='iot_live_nodes'),
+    path('iot/nodes/update-positions/', iot_update_node_positions_view, name='iot_update_node_positions'),
     path('iot/simulate/', iot_simulate_packet_view, name='iot_simulate'),
     path('iot/gateway-config/', iot_gateway_config_view, name='iot_gateway_config'),
 ]
