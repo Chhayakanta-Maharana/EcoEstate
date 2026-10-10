@@ -132,6 +132,12 @@ def _ingest_socket_packet(raw_data_str: str, client_ip: str, protocol: str):
     if len(IOT_PACKET_STREAM) > 50:
         IOT_PACKET_STREAM.pop()
 
+    try:
+        from api.views import sync_packet_to_models
+        sync_packet_to_models(new_packet)
+    except Exception as e:
+        print(f"[SOCKET_SYNC_ERROR] {e}")
+
     return new_packet
 
 

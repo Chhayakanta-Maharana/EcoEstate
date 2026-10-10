@@ -40,12 +40,14 @@ export const EquipmentTab: React.FC<EquipmentTabProps> = ({ org }) => {
   const fetchEquipment = () => {
     if (!activeOrg?.id) return;
     DjangoApi.getEquipment(activeOrg.id).then((data) => {
-      if (Array.isArray(data) && data.length > 0) setDbEquipment(data);
+      if (Array.isArray(data)) setDbEquipment(data);
     });
   };
 
   useEffect(() => {
     fetchEquipment();
+    const interval = setInterval(fetchEquipment, 1500);
+    return () => clearInterval(interval);
   }, [activeOrg?.id]);
 
   const handleDeleteEquipment = (id: string) => {
@@ -55,23 +57,21 @@ export const EquipmentTab: React.FC<EquipmentTabProps> = ({ org }) => {
     );
   };
 
-  const equipmentList: EquipmentItem[] = dbEquipment.length > 0
-    ? dbEquipment.map((eq) => ({
-        id: eq.equipment_code || `EQ-${eq.id}`,
-        name: eq.name,
-        category: eq.category,
-        location: eq.location,
-        status: (eq.status || 'Operational') as any,
-        healthScore: eq.health_score || 95,
-        powerRatingKw: eq.power_rating_kw || 50,
-        runtimeHoursToday: eq.runtime_hours_today || 14,
-        vibrationMmPerSec: eq.vibration_mm_per_sec || 1.2,
-        operatingTempC: eq.operating_temp_c || 45,
-        lastCalibrated: eq.last_calibrated || '2026-09-15',
-        nextServiceDate: eq.next_service_date || '2026-12-15',
-        dataSource: (eq.data_source || 'IoT LAN/WiFi') as any,
-      }))
-    : contextEquipments;
+  const equipmentList: EquipmentItem[] = dbEquipment.map((eq) => ({
+    id: eq.equipment_code || `EQ-${eq.id}`,
+    name: eq.name,
+    category: eq.category,
+    location: eq.location,
+    status: (eq.status || 'Operational') as any,
+    healthScore: eq.health_score || 95,
+    powerRatingKw: eq.power_rating_kw || 50,
+    runtimeHoursToday: eq.runtime_hours_today || 14,
+    vibrationMmPerSec: eq.vibration_mm_per_sec || 1.2,
+    operatingTempC: eq.operating_temp_c || 45,
+    lastCalibrated: eq.last_calibrated || '2026-09-15',
+    nextServiceDate: eq.next_service_date || '2026-12-15',
+    dataSource: (eq.data_source || 'IoT LAN/WiFi') as any,
+  }));
 
   // SHAP Explainable AI Modal State
   const [isShapModalOpen, setIsShapModalOpen] = useState(false);
@@ -304,92 +304,102 @@ Main ETP Sludge Centrifuge,Effluent Treatment,ETP Yard,45,42,1.8,91,Operational`
       </div>
 
       {/* Equipment Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {filteredEquipment.map((item) => (
-          <div
-            key={item.id}
-            className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-4 hover:border-emerald-500/70 transition-all group"
-          >
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs font-bold text-stone-400 dark:text-slate-500">{item.id}</span>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${getStatusBadge(item.status)}`}>
-                    {item.status}
+      {filteredEquipment.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {filteredEquipment.map((item) => (
+            <div
+              key={item.id}
+              className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-4 hover:border-emerald-500/70 transition-all group"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-bold text-stone-400 dark:text-slate-500">{item.id}</span>
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${getStatusBadge(item.status)}`}>
+                      {item.status}
+                    </span>
+                  </div>
+                  <h3 className="font-bold text-sm text-stone-900 dark:text-white mt-1 group-hover:text-emerald-400 transition-colors">
+                    {item.name}
+                  </h3>
+                  <p className="text-xs text-stone-500 dark:text-slate-400 flex items-center gap-1">
+                    <MapPin className="w-3 h-3 text-stone-400" /> {item.location} • {item.category}
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => handleDeleteEquipment(item.id)}
+                  title="Remove Equipment"
+                  className="p-2 rounded-xl text-stone-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Health Score Progress */}
+              <div className="space-y-1.5">
+                <div className="flex justify-between text-xs font-semibold">
+                  <span className="text-stone-500 dark:text-slate-400">Asset Health Score</span>
+                  <span className={`font-extrabold ${item.healthScore >= 90 ? 'text-emerald-500' : item.healthScore >= 75 ? 'text-amber-500' : 'text-rose-500'}`}>
+                    {item.healthScore}%
                   </span>
                 </div>
-                <h3 className="font-bold text-sm text-stone-900 dark:text-white mt-1 group-hover:text-emerald-400 transition-colors">
-                  {item.name}
-                </h3>
-                <p className="text-xs text-stone-500 dark:text-slate-400 flex items-center gap-1">
-                  <MapPin className="w-3 h-3 text-stone-400" /> {item.location} • {item.category}
-                </p>
+                <div className="w-full h-2.5 bg-stone-100 dark:bg-stone-900 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${
+                      item.healthScore >= 90 ? 'bg-emerald-500' : item.healthScore >= 75 ? 'bg-amber-500' : 'bg-rose-500'
+                    }`}
+                    style={{ width: `${item.healthScore}%` }}
+                  />
+                </div>
               </div>
 
+              {/* Telemetry Detail Grid */}
+              <div className="grid grid-cols-3 gap-2 p-3 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722] text-[11px]">
+                <div>
+                  <span className="text-stone-400 dark:text-slate-500 block">Vibration:</span>
+                  <span className="font-bold text-stone-800 dark:text-slate-200">{item.vibrationMmPerSec} mm/s</span>
+                </div>
+                <div>
+                  <span className="text-stone-400 dark:text-slate-500 block">Temp:</span>
+                  <span className="font-bold text-stone-800 dark:text-slate-200">{item.operatingTempC}°C</span>
+                </div>
+                <div>
+                  <span className="text-stone-400 dark:text-slate-500 block">Power:</span>
+                  <span className="font-bold text-stone-800 dark:text-slate-200">{item.powerRatingKw} kW</span>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-[#ece3d6]/60 dark:border-[#151722] flex items-center justify-between text-[11px] text-stone-400 dark:text-slate-500">
+                <span className="px-2 py-0.5 rounded-md bg-stone-100 dark:bg-[#0a0b12] font-mono text-[10px]">
+                  Feed: {item.dataSource}
+                </span>
+                <span>Service: {item.nextServiceDate}</span>
+              </div>
+
+              {/* SHAP Explainable AI attribution trigger */}
               <button
-                onClick={() => handleDeleteEquipment(item.id)}
-                title="Remove Equipment"
-                className="p-2 rounded-xl text-stone-400 hover:text-rose-500 hover:bg-rose-500/10 transition-colors"
+                onClick={() => {
+                  setSelectedShapCategory(getCategoryForEquipment(item));
+                  setIsShapModalOpen(true);
+                }}
+                className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-amber-500/10 via-rose-500/10 to-purple-500/10 hover:from-amber-500/20 hover:via-rose-500/20 hover:to-purple-500/20 border border-amber-500/30 hover:border-amber-500/60 text-amber-700 dark:text-amber-300 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
               >
-                <Trash2 className="w-4 h-4" />
+                <Wrench className="w-3.5 h-3.5 text-amber-500" />
+                <span>Root Cause &amp; Maintenance Checklist</span>
               </button>
             </div>
-
-            {/* Health Score Progress */}
-            <div className="space-y-1.5">
-              <div className="flex justify-between text-xs font-semibold">
-                <span className="text-stone-500 dark:text-slate-400">Asset Health Score</span>
-                <span className={`font-extrabold ${item.healthScore >= 90 ? 'text-emerald-500' : item.healthScore >= 75 ? 'text-amber-500' : 'text-rose-500'}`}>
-                  {item.healthScore}%
-                </span>
-              </div>
-              <div className="w-full h-2.5 bg-stone-100 dark:bg-stone-900 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    item.healthScore >= 90 ? 'bg-emerald-500' : item.healthScore >= 75 ? 'bg-amber-500' : 'bg-rose-500'
-                  }`}
-                  style={{ width: `${item.healthScore}%` }}
-                />
-              </div>
-            </div>
-
-            {/* Telemetry Detail Grid */}
-            <div className="grid grid-cols-3 gap-2 p-3 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722] text-[11px]">
-              <div>
-                <span className="text-stone-400 dark:text-slate-500 block">Vibration:</span>
-                <span className="font-bold text-stone-800 dark:text-slate-200">{item.vibrationMmPerSec} mm/s</span>
-              </div>
-              <div>
-                <span className="text-stone-400 dark:text-slate-500 block">Temp:</span>
-                <span className="font-bold text-stone-800 dark:text-slate-200">{item.operatingTempC}°C</span>
-              </div>
-              <div>
-                <span className="text-stone-400 dark:text-slate-500 block">Power:</span>
-                <span className="font-bold text-stone-800 dark:text-slate-200">{item.powerRatingKw} kW</span>
-              </div>
-            </div>
-
-            <div className="pt-2 border-t border-[#ece3d6]/60 dark:border-[#151722] flex items-center justify-between text-[11px] text-stone-400 dark:text-slate-500">
-              <span className="px-2 py-0.5 rounded-md bg-stone-100 dark:bg-[#0a0b12] font-mono text-[10px]">
-                Feed: {item.dataSource}
-              </span>
-              <span>Service: {item.nextServiceDate}</span>
-            </div>
-
-            {/* SHAP Explainable AI attribution trigger */}
-            <button
-              onClick={() => {
-                setSelectedShapCategory(getCategoryForEquipment(item));
-                setIsShapModalOpen(true);
-              }}
-              className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-amber-500/10 via-rose-500/10 to-purple-500/10 hover:from-amber-500/20 hover:via-rose-500/20 hover:to-purple-500/20 border border-amber-500/30 hover:border-amber-500/60 text-amber-700 dark:text-amber-300 font-bold text-xs flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
-            >
-              <Wrench className="w-3.5 h-3.5 text-amber-500" />
-              <span>Root Cause &amp; Maintenance Checklist</span>
-            </button>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-center p-12 border border-dashed border-stone-300 dark:border-stone-800 rounded-3xl bg-white dark:bg-[#07080e] flex flex-col items-center justify-center space-y-3">
+          <Cpu className="w-10 h-10 text-stone-400 dark:text-stone-600 animate-pulse" />
+          <h3 className="font-bold text-base text-stone-800 dark:text-slate-200">Awaiting Equipment Telemetry Stream</h3>
+          <p className="text-xs text-stone-500 dark:text-slate-400 max-w-md">
+            No live equipment sensors connected yet. Telemetry will automatically appear as soon as vibration and temperature packets stream from the IoT Gateway, or you can import CSV / add instruments manually.
+          </p>
+        </div>
+      )}
 
       {/* Manual Add Modal */}
       {showAddModal && (

@@ -89,37 +89,38 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
           if (waterData) setDbWater(waterData);
           if (energyData) setDbEnergy(energyData);
           if (parkingData) setDbParking(parkingData);
-          if (Array.isArray(eqData) && eqData.length > 0) setDbEquipment(eqData);
-          if (Array.isArray(recData) && recData.length > 0) setDbRecommendations(recData);
+          if (Array.isArray(eqData)) setDbEquipment(eqData);
+          if (Array.isArray(recData)) setDbRecommendations(recData);
         }
       } catch (err) {
         console.warn('Live telemetry fetch fallback:', err);
       }
     };
     fetchOrgData();
-    return () => { isMounted = false; };
+    const interval = setInterval(fetchOrgData, 1500);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, [activeOrg?.id]);
 
-  // Base fallback data structure
-  const orgType = activeOrg?.type || 'COLLEGE';
-  const fallbackAqi = getAqiData(orgType);
-  const fallbackWater = getWaterData(orgType);
-  const fallbackEnergy = getEnergyData(orgType);
-  const fallbackParking = getParkingData(orgType);
-  const fallbackRecs = getAiRecommendations(orgType);
+  const hasAqi = Boolean(dbAqi && (dbAqi.overall_aqi !== undefined || dbAqi.pm25 !== undefined));
+  const hasEnergy = Boolean(dbEnergy && (dbEnergy.current_load_kw !== undefined || dbEnergy.solar_rooftop_kw !== undefined));
+  const hasWater = Boolean(dbWater && (dbWater.stp_recycle_rate_pct !== undefined || dbWater.stp_treated_water_kl !== undefined));
+  const hasEquipment = Boolean(dbEquipment && dbEquipment.length > 0);
 
-  // Merged live database values (prioritizing NeonDB data)
+  // Live database values (strictly showing '--' when awaiting packets)
   const aqi = {
-    overallAqi: dbAqi?.overall_aqi ?? fallbackAqi.overallAqi,
-    status: dbAqi?.status ?? fallbackAqi.status,
-    pm25: dbAqi?.pm25 ?? fallbackAqi.pm25,
-    co2: dbAqi?.co2 ?? fallbackAqi.co2,
-    voc: dbAqi?.voc ?? fallbackAqi.voc,
+    overallAqi: hasAqi ? dbAqi.overall_aqi : '--',
+    status: hasAqi ? dbAqi.status : '--',
+    pm25: hasAqi ? dbAqi.pm25 : '--',
+    co2: hasAqi ? dbAqi.co2 : '--',
+    voc: hasAqi ? dbAqi.voc : '--',
   };
 
-  const loadKw = dbEnergy?.current_load_kw ?? fallbackEnergy.currentLoadKw;
-  const solarKw = dbEnergy?.solar_rooftop_kw ?? fallbackEnergy.solarRooftopKw;
-  const liveTrend24h = [
+  const loadKw = hasEnergy ? Number(dbEnergy.current_load_kw || 0) : null;
+  const solarKw = hasEnergy ? Number(dbEnergy.solar_rooftop_kw || 0) : null;
+  const liveTrend24h = (hasEnergy && loadKw !== null && solarKw !== null) ? [
     { time: '02:00', grid: Math.round(loadKw * 0.45), solar: 0, load: Math.round(loadKw * 0.45) },
     { time: '06:00', grid: Math.round(loadKw * 0.52), solar: Math.round(solarKw * 0.12), load: Math.round(loadKw * 0.58) },
     { time: '10:00', grid: Math.round(loadKw * 0.72), solar: Math.round(solarKw * 0.86), load: Math.round(loadKw * 0.92) },
@@ -127,25 +128,25 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
     { time: '16:00', grid: Math.round(loadKw * 0.78), solar: Math.round(solarKw * 0.62), load: Math.round(loadKw * 0.95) },
     { time: '19:00', grid: Math.round(loadKw * 0.94), solar: 0, load: Math.round(loadKw * 0.94) },
     { time: '22:00', grid: Math.round(loadKw * 0.62), solar: 0, load: Math.round(loadKw * 0.62) },
-  ];
+  ] : [];
 
   const energy = {
-    currentLoadKw: loadKw,
-    solarRooftopKw: solarKw,
-    peakLoadKw: dbEnergy?.peak_load_kw ?? fallbackEnergy.peakLoadKw,
-    powerFactor: dbEnergy?.power_factor ?? fallbackEnergy.powerFactor,
-    savingsInrToday: dbEnergy?.savings_inr_today ?? fallbackEnergy.savingsInrToday,
+    currentLoadKw: hasEnergy ? dbEnergy.current_load_kw : '--',
+    solarRooftopKw: hasEnergy ? dbEnergy.solar_rooftop_kw : '--',
+    peakLoadKw: hasEnergy ? dbEnergy.peak_load_kw : '--',
+    powerFactor: hasEnergy ? dbEnergy.power_factor : '--',
+    savingsInrToday: hasEnergy ? dbEnergy.savings_inr_today : '--',
     trend24h: liveTrend24h,
   };
 
   const water = {
-    stpTreatedWaterKL: dbWater?.stp_treated_water_kl ?? fallbackWater.stpTreatedWaterKL,
-    dailyConsumptionKL: dbWater?.daily_consumption_kl ?? fallbackWater.dailyConsumptionKL,
-    stpRecycleRatePct: dbWater?.stp_recycle_rate_pct ?? fallbackWater.stpRecycleRatePct,
-    phLevel: dbWater?.ph_level ?? fallbackWater.phLevel,
+    stpTreatedWaterKL: hasWater ? dbWater.stp_treated_water_kl : '--',
+    dailyConsumptionKL: hasWater ? dbWater.daily_consumption_kl : '--',
+    stpRecycleRatePct: hasWater ? dbWater.stp_recycle_rate_pct : '--',
+    phLevel: hasWater ? dbWater.ph_level : '--',
   };
 
-  const effectiveEquipments = dbEquipment.length > 0 ? dbEquipment.map((eq) => ({
+  const effectiveEquipments = dbEquipment.map((eq) => ({
     id: eq.equipment_code || `EQ-${eq.id}`,
     name: eq.name,
     category: eq.category,
@@ -155,24 +156,22 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
     powerKw: eq.power_rating_kw,
     operatingTempC: eq.operating_temp_c,
     vibrationMmSec: eq.vibration_mm_per_sec,
-  })) : contextEquipments;
+  }));
 
   const criticalEquipments = effectiveEquipments.filter((e) => e.status === 'Critical' || e.status === 'Warning');
-  const avgHealth = Math.round(
-    effectiveEquipments.reduce((acc, curr) => acc + (curr.healthScore || 90), 0) / (effectiveEquipments.length || 1)
-  );
+  const avgHealth = effectiveEquipments.length > 0
+    ? Math.round(effectiveEquipments.reduce((acc, curr) => acc + (curr.healthScore || 90), 0) / effectiveEquipments.length)
+    : null;
 
-  const aiRecs = dbRecommendations.length > 0
-    ? dbRecommendations.map((r, i) => ({
-        id: `rec-${r.id || i}`,
-        title: r.title,
-        category: r.category,
-        urgency: r.urgency,
-        impactDescription: r.impact_description,
-        estimatedSaving: r.estimated_saving,
-        confidenceScore: r.confidence_score,
-      }))
-    : fallbackRecs;
+  const aiRecs = dbRecommendations.map((r, i) => ({
+    id: `rec-${r.id || i}`,
+    title: r.title,
+    category: r.category,
+    urgency: r.urgency,
+    impactDescription: r.impact_description,
+    estimatedSaving: r.estimated_saving,
+    confidenceScore: r.confidence_score,
+  }));
 
   // Resource Consumption Donut Data from live database
   const gridPower = Math.max(0, energy.currentLoadKw - energy.solarRooftopKw);
@@ -284,19 +283,21 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Campus Air Quality</span>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-50 dark:bg-cyan-500/20 text-cyan-700 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-500/30">
-              {aqi.status}
+              {hasAqi ? aqi.status : '--'}
             </span>
           </div>
           <div className="flex items-baseline justify-between">
             <div>
-              <span className="text-3xl font-black text-stone-900 dark:text-white">{aqi.overallAqi}</span>
+              <span className="text-3xl font-black text-stone-900 dark:text-white">{hasAqi ? aqi.overallAqi : '--'}</span>
               <span className="text-xs font-mono text-stone-400 dark:text-slate-400 ml-1">NAQI</span>
             </div>
             <svg className="w-20 h-7 text-cyan-500" viewBox="0 0 100 35" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M0 25 Q20 30 40 15 T80 8 T100 5" strokeLinecap="round" />
             </svg>
           </div>
-          <p className="text-[11px] text-cyan-600 dark:text-cyan-400 font-semibold">PM2.5: {aqi.pm25} µg/m³ • CO2: {aqi.co2} ppm</p>
+          <p className="text-[11px] text-cyan-600 dark:text-cyan-400 font-semibold">
+            {hasAqi ? `PM2.5: ${aqi.pm25} µg/m³ • CO2: ${aqi.co2} ppm` : 'PM2.5: -- • CO2: -- (Awaiting Stream)'}
+          </p>
         </div>
 
         {/* Card 2: Real-time Power & Solar */}
@@ -307,19 +308,21 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Substation Load</span>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30">
-              Solar {(energy.solarRooftopKw / 1000).toFixed(1)} MW
+              {hasEnergy && solarKw !== null ? `Solar ${(solarKw / 1000).toFixed(1)} MW` : 'Solar --'}
             </span>
           </div>
           <div className="flex items-baseline justify-between">
             <div>
-              <span className="text-3xl font-black text-stone-900 dark:text-white">{energy.currentLoadKw}</span>
+              <span className="text-3xl font-black text-stone-900 dark:text-white">{hasEnergy ? energy.currentLoadKw : '--'}</span>
               <span className="text-xs font-mono text-stone-400 dark:text-slate-400 ml-1">kW</span>
             </div>
             <svg className="w-20 h-7 text-amber-500" viewBox="0 0 100 35" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M0 28 Q25 5 50 20 T100 8" strokeLinecap="round" />
             </svg>
           </div>
-          <p className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold">Peak: {energy.peakLoadKw} kW • PF {energy.powerFactor}</p>
+          <p className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold">
+            {hasEnergy ? `Peak: ${energy.peakLoadKw} kW • PF ${energy.powerFactor}` : 'Peak: -- • PF -- (Awaiting Stream)'}
+          </p>
         </div>
 
         {/* Card 3: Water Recycled (STP Closed Loop) */}
@@ -330,19 +333,21 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Daily Water Treated</span>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30">
-              STP {water.stpRecycleRatePct}%
+              {hasWater ? `STP ${water.stpRecycleRatePct}%` : 'STP --'}
             </span>
           </div>
           <div className="flex items-baseline justify-between">
             <div>
-              <span className="text-3xl font-black text-stone-900 dark:text-white">{water.stpTreatedWaterKL}</span>
+              <span className="text-3xl font-black text-stone-900 dark:text-white">{hasWater ? water.stpTreatedWaterKL : '--'}</span>
               <span className="text-xs font-mono text-stone-400 dark:text-slate-400 ml-1">kL / day</span>
             </div>
             <svg className="w-20 h-7 text-blue-500" viewBox="0 0 100 35" fill="none" stroke="currentColor" strokeWidth="2.5">
               <path d="M0 15 Q30 30 60 10 T100 20" strokeLinecap="round" />
             </svg>
           </div>
-          <p className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold">Total Flow: {water.dailyConsumptionKL} kL • pH {water.phLevel}</p>
+          <p className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold">
+            {hasWater ? `Total Flow: ${water.dailyConsumptionKL} kL • pH ${water.phLevel}` : 'Total Flow: -- • pH -- (Awaiting Stream)'}
+          </p>
         </div>
 
         {/* Card 4: Machinery Digital Twin Health */}
@@ -353,21 +358,21 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Asset Twin Health</span>
             <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30">
-              {avgHealth}% Health
+              {avgHealth !== null ? `${avgHealth}% Health` : '--'}
             </span>
           </div>
           <div className="flex items-baseline justify-between">
             <div>
-              <span className="text-3xl font-black text-stone-900 dark:text-white">{effectiveEquipments.length}</span>
+              <span className="text-3xl font-black text-stone-900 dark:text-white">{hasEquipment ? effectiveEquipments.length : '--'}</span>
               <span className="text-xs font-mono text-stone-400 dark:text-slate-400 ml-1">Assets Online</span>
             </div>
             <span className="text-xs text-emerald-600 dark:text-emerald-400 font-bold">
-              {criticalEquipments.length > 0 ? `${criticalEquipments.length} Service` : 'All Optimal'}
+              {hasEquipment ? (criticalEquipments.length > 0 ? `${criticalEquipments.length} Service` : 'All Optimal') : '--'}
             </span>
           </div>
           <div className="flex items-center justify-between text-[11px] pt-1 border-t border-[#ece3d6]/60 dark:border-[#151722]/60">
             <span className="text-emerald-600 dark:text-emerald-400 font-semibold truncate">
-              Vibration &amp; Thermal Synced
+              {hasEquipment ? 'Vibration & Thermal Synced' : 'Awaiting Sensor Telemetry'}
             </span>
             <button
               onClick={(e) => {

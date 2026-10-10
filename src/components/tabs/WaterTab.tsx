@@ -2,18 +2,13 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { getWaterData } from '@/data/mockData';
 import { DjangoApi } from '@/services/api';
 import { Organization } from '@/types';
 import {
   Droplets,
   Activity,
-  CheckCircle2,
-  AlertCircle,
-  TrendingDown,
-  RefreshCw,
   Waves,
-  ShieldCheck,
+  Radio,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -37,37 +32,46 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
 
   useEffect(() => {
     if (!activeOrg?.id) return;
-    DjangoApi.getWaterTelemetry(activeOrg.id).then((data) => {
-      if (data) setDbWater(data);
-    });
+    let isMounted = true;
+
+    const fetchWater = () => {
+      DjangoApi.getWaterTelemetry(activeOrg.id).then((data) => {
+        if (isMounted && data) setDbWater(data);
+      });
+    };
+
+    fetchWater();
+    const interval = setInterval(fetchWater, 1500);
+
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, [activeOrg?.id]);
 
-  const fallback = getWaterData(activeOrg?.type || 'HOSPITAL');
-  const dailyKL = dbWater?.daily_consumption_kl ?? fallback.dailyConsumptionKL;
-  const stpKL = dbWater?.stp_treated_water_kl ?? fallback.stpTreatedWaterKL;
+  const hasData = Boolean(dbWater && (dbWater.stp_recycle_rate_pct !== undefined || dbWater.daily_consumption_kl !== undefined || dbWater.flow_rate_lps !== undefined));
 
-  const liveTrend7Days = [
-    { day: 'Mon', freshWater: Math.round(dailyKL * 0.95), recycledWater: Math.round(stpKL * 0.92) },
-    { day: 'Tue', freshWater: Math.round(dailyKL * 1.02), recycledWater: Math.round(stpKL * 0.98) },
-    { day: 'Wed', freshWater: Math.round(dailyKL * 1.05), recycledWater: Math.round(stpKL * 1.01) },
-    { day: 'Thu', freshWater: Math.round(dailyKL * 0.98), recycledWater: Math.round(stpKL * 0.96) },
-    { day: 'Fri', freshWater: Math.round(dailyKL * 1.08), recycledWater: Math.round(stpKL * 1.04) },
-    { day: 'Sat', freshWater: Math.round(dailyKL * 0.82), recycledWater: Math.round(stpKL * 0.85) },
-    { day: 'Today', freshWater: Math.round(dailyKL), recycledWater: Math.round(stpKL) },
-  ];
+  const dailyKL = hasData ? Number(dbWater.daily_consumption_kl || 0) : null;
+  const stpKL = hasData ? Number(dbWater.stp_treated_water_kl || 0) : null;
+  const flowRate = hasData ? Number(dbWater.flow_rate_lps || 0) : null;
+  const undergroundTank = hasData ? Number(dbWater.underground_tank_level_pct || 0) : null;
+  const overheadTank = hasData ? Number(dbWater.overhead_tank_level_pct || 0) : null;
+  const recycleRate = hasData ? Number(dbWater.stp_recycle_rate_pct || 0) : null;
+  const phVal = hasData ? Number(dbWater.ph_level || 0) : null;
+  const turbVal = hasData ? Number(dbWater.turbidity_ntu || 0) : null;
+  const leakAlerts = hasData ? Number(dbWater.leak_alert_count || 0) : 0;
 
-  const water = {
-    dailyConsumptionKL: dailyKL,
-    flowRateLps: dbWater?.flow_rate_lps ?? fallback.flowRateLps,
-    undergroundTankLevelPct: dbWater?.underground_tank_level_pct ?? fallback.undergroundTankLevelPct,
-    overheadTankLevelPct: dbWater?.overhead_tank_level_pct ?? fallback.overheadTankLevelPct,
-    stpRecycleRatePct: dbWater?.stp_recycle_rate_pct ?? fallback.stpRecycleRatePct,
-    stpTreatedWaterKL: stpKL,
-    phLevel: dbWater?.ph_level ?? fallback.phLevel,
-    turbidityNtu: dbWater?.turbidity_ntu ?? fallback.turbidityNtu,
-    leakAlertCount: dbWater?.leak_alert_count ?? fallback.leakAlertCount,
-    trend7Days: liveTrend7Days,
-  };
+  const liveTrend7Days = hasData && dailyKL !== null && stpKL !== null
+    ? [
+        { day: 'Mon', freshWater: Math.round(dailyKL * 0.95), recycledWater: Math.round(stpKL * 0.92) },
+        { day: 'Tue', freshWater: Math.round(dailyKL * 1.02), recycledWater: Math.round(stpKL * 0.98) },
+        { day: 'Wed', freshWater: Math.round(dailyKL * 1.05), recycledWater: Math.round(stpKL * 1.01) },
+        { day: 'Thu', freshWater: Math.round(dailyKL * 0.98), recycledWater: Math.round(stpKL * 0.96) },
+        { day: 'Fri', freshWater: Math.round(dailyKL * 1.08), recycledWater: Math.round(stpKL * 1.04) },
+        { day: 'Sat', freshWater: Math.round(dailyKL * 0.82), recycledWater: Math.round(stpKL * 0.85) },
+        { day: 'Today', freshWater: Math.round(dailyKL), recycledWater: Math.round(stpKL) },
+      ]
+    : [];
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
@@ -76,6 +80,15 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold text-cyan-400 mb-1">
             <Droplets className="w-4 h-4" /> Smart Water Metering & Circular STP Recycling
+            {hasData ? (
+              <span className="flex items-center gap-1 text-[10px] bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded-full border border-cyan-500/20">
+                <Activity className="w-3 h-3 animate-pulse" /> LIVE STREAM ACTIVE
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-[10px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-full border border-amber-500/20">
+                <Radio className="w-3 h-3 animate-pulse" /> AWAITING SENSOR FEED...
+              </span>
+            )}
           </div>
           <h1 className="text-2xl font-extrabold">Water Intelligence & Zero Liquid Discharge</h1>
         </div>
@@ -84,14 +97,14 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
           <div className="text-center">
             <span className="text-[10px] text-slate-400 uppercase font-semibold">STP Recycle Rate</span>
             <div className="flex items-baseline justify-center gap-1">
-              <span className="text-3xl font-extrabold text-cyan-400">{water.stpRecycleRatePct}%</span>
+              <span className="text-3xl font-extrabold text-cyan-400">{recycleRate !== null ? `${recycleRate}%` : '--'}</span>
             </div>
           </div>
           <div className="border-l border-white/10 pl-3">
             <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-              Circular Loop Active
+              {hasData ? 'Circular Loop Active' : '--'}
             </span>
-            <p className="text-[10px] text-slate-400 mt-1">{water.stpTreatedWaterKL} kL Reused / day</p>
+            <p className="text-[10px] text-slate-400 mt-1">{stpKL !== null ? `${stpKL} kL Reused / day` : 'Awaiting sensor stream'}</p>
           </div>
         </div>
       </div>
@@ -104,16 +117,18 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
             <Waves className="w-4 h-4 text-cyan-500" />
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-stone-900 dark:text-white">{water.undergroundTankLevelPct}%</span>
-            <span className="text-xs text-emerald-500 font-semibold">Optimal</span>
+            <span className="text-3xl font-extrabold text-stone-900 dark:text-white">
+              {undergroundTank !== null ? `${undergroundTank}%` : '--'}
+            </span>
+            <span className="text-xs text-emerald-500 font-semibold">{hasData ? 'Optimal' : '--'}</span>
           </div>
           <div className="w-full h-3 bg-stone-100 dark:bg-stone-900 rounded-full overflow-hidden">
             <div
               className="h-full bg-cyan-500 rounded-full transition-all duration-500"
-              style={{ width: `${water.undergroundTankLevelPct}%` }}
+              style={{ width: `${undergroundTank || 0}%` }}
             />
           </div>
-          <p className="text-[11px] text-stone-400 dark:text-slate-500">Capacity: 500,000 Liters</p>
+          <p className="text-[11px] text-stone-400 dark:text-slate-500">Flow: {flowRate !== null ? `${flowRate} L/s` : '--'}</p>
         </div>
 
         <div className="p-5 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-3">
@@ -122,16 +137,18 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
             <Waves className="w-4 h-4 text-blue-500" />
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="text-3xl font-extrabold text-stone-900 dark:text-white">{water.overheadTankLevelPct}%</span>
-            <span className="text-xs text-emerald-500 font-semibold">Auto-Pumping</span>
+            <span className="text-3xl font-extrabold text-stone-900 dark:text-white">
+              {overheadTank !== null ? `${overheadTank}%` : '--'}
+            </span>
+            <span className="text-xs text-emerald-500 font-semibold">{hasData ? 'Auto-Pumping' : '--'}</span>
           </div>
           <div className="w-full h-3 bg-stone-100 dark:bg-stone-900 rounded-full overflow-hidden">
             <div
               className="h-full bg-blue-500 rounded-full transition-all duration-500"
-              style={{ width: `${water.overheadTankLevelPct}%` }}
+              style={{ width: `${overheadTank || 0}%` }}
             />
           </div>
-          <p className="text-[11px] text-stone-400 dark:text-slate-500">Capacity: 150,000 Liters</p>
+          <p className="text-[11px] text-stone-400 dark:text-slate-500">Daily Intake: {dailyKL !== null ? `${dailyKL} kL` : '--'}</p>
         </div>
 
         <div className="p-5 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-2">
@@ -139,26 +156,26 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
           <div className="grid grid-cols-2 gap-2 pt-1">
             <div className="p-2 rounded-xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
               <span className="text-[10px] text-stone-500 dark:text-slate-400 block">pH Level</span>
-              <span className="text-base font-bold text-emerald-500">{water.phLevel}</span>
+              <span className="text-base font-bold text-emerald-500">{phVal !== null ? phVal : '--'}</span>
             </div>
             <div className="p-2 rounded-xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
               <span className="text-[10px] text-stone-500 dark:text-slate-400 block">Turbidity</span>
-              <span className="text-base font-bold text-cyan-500">{water.turbidityNtu} NTU</span>
+              <span className="text-base font-bold text-cyan-500">{turbVal !== null ? `${turbVal} NTU` : '--'}</span>
             </div>
           </div>
-          <p className="text-[10px] text-stone-400 dark:text-slate-500">BIS 10500 Potable Standard Pass</p>
+          <p className="text-[10px] text-stone-400 dark:text-slate-500">{hasData ? 'BIS 10500 Potable Standard Pass' : 'Awaiting sensor check'}</p>
         </div>
 
         <div className="p-5 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-2">
           <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Smart Leak Sensor Grid</span>
           <div className="pt-2 flex items-center gap-2">
-            <span className="w-3 h-3 rounded-full bg-emerald-500" />
+            <span className={`w-3 h-3 rounded-full ${hasData ? 'bg-emerald-500' : 'bg-stone-500'}`} />
             <span className="text-sm font-bold text-stone-900 dark:text-white">
-              {water.leakAlertCount === 0 ? 'Zero Pipeline Leaks' : `${water.leakAlertCount} Pipe Alert`}
+              {hasData ? (leakAlerts === 0 ? 'Zero Pipeline Leaks' : `${leakAlerts} Pipe Alert`) : '--'}
             </span>
           </div>
           <p className="text-xs text-stone-500 dark:text-slate-400">
-            Acoustic wave IoT sensors active across all main distribution lines.
+            Acoustic wave IoT sensors across distribution lines.
           </p>
         </div>
       </div>
@@ -173,22 +190,30 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
           </div>
         </div>
 
-        <div className="h-72 w-full">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={water.trend7Days}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} />
-              <XAxis dataKey="day" stroke="#94a3b8" fontSize={11} />
-              <YAxis stroke="#94a3b8" fontSize={11} unit=" kL" />
-              <Tooltip
-                contentStyle={{ backgroundColor: '#07080e', borderRadius: '12px', border: '1px solid #151722', color: '#ffffff' }}
-                itemStyle={{ color: '#ffffff', fontWeight: 700 }}
-                labelStyle={{ color: '#38bdf8', fontWeight: 700 }}
-              />
-              <Legend />
-              <Bar dataKey="freshWater" name="Freshwater Intake (kL)" fill="#0284c7" radius={[6, 6, 0, 0]} />
-              <Bar dataKey="recycledWater" name="STP Treated Water (kL)" fill="#10b981" radius={[6, 6, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+        <div className="h-72 w-full flex items-center justify-center">
+          {hasData && liveTrend7Days.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={liveTrend7Days}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} />
+                <XAxis dataKey="day" stroke="#94a3b8" fontSize={11} />
+                <YAxis stroke="#94a3b8" fontSize={11} unit=" kL" />
+                <Tooltip
+                  contentStyle={{ backgroundColor: '#07080e', borderRadius: '12px', border: '1px solid #151722', color: '#ffffff' }}
+                  itemStyle={{ color: '#ffffff', fontWeight: 700 }}
+                  labelStyle={{ color: '#38bdf8', fontWeight: 700 }}
+                />
+                <Legend />
+                <Bar dataKey="freshWater" name="Freshwater Intake (kL)" fill="#0284c7" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="recycledWater" name="STP Treated Water (kL)" fill="#10b981" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          ) : (
+            <div className="text-center p-8 border border-dashed border-stone-300 dark:border-stone-800 rounded-2xl w-full h-full flex flex-col items-center justify-center">
+              <Radio className="w-8 h-8 text-stone-400 dark:text-stone-600 animate-pulse mb-2" />
+              <p className="text-sm font-semibold text-stone-600 dark:text-slate-400">Awaiting Water IoT Sensor Telemetry</p>
+              <p className="text-xs text-stone-400 dark:text-slate-500 mt-1">Transmitting flow rate and ultrasonic tank depth packets will activate chart.</p>
+            </div>
+          )}
         </div>
       </div>
     </div>

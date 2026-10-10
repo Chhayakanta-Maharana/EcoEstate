@@ -41,88 +41,8 @@ from .email_service import (
 )
 
 def ensure_org_telemetry(org):
-    """Ensures real database telemetry, assets, bins and staff exist for an organization in NeonDB."""
+    """Ensures base staff credentials exist for an organization in NeonDB without injecting dummy telemetry data."""
     try:
-        if not AqiTelemetry.objects.filter(organization=org).exists():
-            aqi_val = 68 if org.facility_type == 'COLLEGE' else (42 if org.facility_type == 'HOSPITAL' else 145)
-            AqiTelemetry.objects.create(
-                organization=org,
-                overall_aqi=aqi_val,
-                status='Satisfactory' if aqi_val < 100 else 'Moderate',
-                pm25=28.4 if aqi_val < 100 else 68.2,
-                pm10=55.0 if aqi_val < 100 else 122.0,
-                co2=480.0 if aqi_val < 100 else 720.0,
-                voc=95.0 if aqi_val < 100 else 210.0,
-                temperature=27.5,
-                humidity=58.0,
-                noise=48.2 if aqi_val < 100 else 64.5,
-                hotspot_location=f"{org.name} Main Gate & Utility Circle",
-                anomaly_detected=False
-            )
-        if not WaterTelemetry.objects.filter(organization=org).exists():
-            WaterTelemetry.objects.create(
-                organization=org,
-                daily_consumption_kl=520.0 if org.facility_type == 'COLLEGE' else 780.0,
-                flow_rate_lps=18.5,
-                underground_tank_level_pct=84,
-                overhead_tank_level_pct=76,
-                stp_recycle_rate_pct=82,
-                stp_treated_water_kl=420.0,
-                ph_level=7.35,
-                turbidity_ntu=1.8,
-                leak_alert_count=0
-            )
-        if not EnergyTelemetry.objects.filter(organization=org).exists():
-            EnergyTelemetry.objects.create(
-                organization=org,
-                current_load_kw=940.0,
-                daily_total_kwh=19200.0,
-                peak_load_kw=1250.0,
-                grid_power_kw=720.0,
-                solar_rooftop_kw=220.0,
-                power_factor=0.98,
-                carbon_emissions_kg=13800.0,
-                savings_inr_today=16500.0
-            )
-        if not ParkingTelemetry.objects.filter(organization=org).exists():
-            ParkingTelemetry.objects.create(
-                organization=org,
-                total_slots=450,
-                occupied_slots=290,
-                available_slots=160,
-                ev_charging_total=35,
-                ev_charging_occupied=22,
-                occupancy_rate_pct=64,
-                peak_congestion_zone="Gate 1 & North Visitor Lot",
-                entry_flow_rate=95
-            )
-        if Dustbin.objects.filter(organization=org).count() == 0:
-            bins = [
-                {'bin_code': f'BIN-{org.id}-01', 'zone': 'Academic Block / Main Concourse', 'bin_type': 'Dry Recyclable', 'fill_percentage': 45, 'battery_pct': 94, 'predicted_overflow_mins': 180, 'status': 'Normal', 'last_emptied': '1.5 hrs ago'},
-                {'bin_code': f'BIN-{org.id}-02', 'zone': 'Student Cafeteria & Food Court', 'bin_type': 'Wet / Organic Waste', 'fill_percentage': 72, 'battery_pct': 88, 'predicted_overflow_mins': 65, 'status': 'Attention', 'last_emptied': '3 hrs ago'},
-                {'bin_code': f'BIN-{org.id}-03', 'zone': 'Central Research & Lab Facility', 'bin_type': 'E-Waste & Batteries', 'fill_percentage': 28, 'battery_pct': 96, 'predicted_overflow_mins': 320, 'status': 'Normal', 'last_emptied': '5 hrs ago'},
-                {'bin_code': f'BIN-{org.id}-04', 'zone': 'Sports Complex & Hostel Gate', 'bin_type': 'Mixed Municipal Waste', 'fill_percentage': 58, 'battery_pct': 91, 'predicted_overflow_mins': 110, 'status': 'Normal', 'last_emptied': '2 hrs ago'},
-            ]
-            for b in bins:
-                Dustbin.objects.create(organization=org, **b)
-        if Equipment.objects.filter(organization=org).count() < 4:
-            equipments = [
-                {'equipment_code': f'EQ-{org.id}-HVAC-01', 'name': 'Central Substation Chiller & HVAC Unit', 'category': 'HVAC & Thermal', 'location': 'Main Utility Plant', 'power_rating_kw': 180, 'operating_temp_c': 39.5, 'vibration_mm_per_sec': 1.1, 'health_score': 94, 'status': 'Operational'},
-                {'equipment_code': f'EQ-{org.id}-SOLAR-01', 'name': 'Rooftop Solar Inverter Array (450 kW)', 'category': 'Solar & Electrical', 'location': 'Library & Admin Rooftop', 'power_rating_kw': 450, 'operating_temp_c': 48.2, 'vibration_mm_per_sec': 0.4, 'health_score': 98, 'status': 'Operational'},
-                {'equipment_code': f'EQ-{org.id}-STP-01', 'name': 'MBBR Sewage Treatment Aeration Pump', 'category': 'Water & STP', 'location': 'South STP Yard', 'power_rating_kw': 75, 'operating_temp_c': 44.0, 'vibration_mm_per_sec': 2.3, 'health_score': 88, 'status': 'Operational'},
-                {'equipment_code': f'EQ-{org.id}-DG-01', 'name': 'Emergency Backup DG Genset (500 kVA)', 'category': 'Backup Power', 'location': 'Powerhouse Zone B', 'power_rating_kw': 500, 'operating_temp_c': 32.0, 'vibration_mm_per_sec': 0.8, 'health_score': 95, 'status': 'Operational'},
-                {'equipment_code': f'EQ-{org.id}-CAAQMS-01', 'name': 'Continuous Optical CAAQMS Air Monitor', 'category': 'Environmental Sensor', 'location': 'Central Gate Pole', 'power_rating_kw': 5, 'operating_temp_c': 28.0, 'vibration_mm_per_sec': 0.1, 'health_score': 99, 'status': 'Operational'},
-            ]
-            for eq in equipments:
-                Equipment.objects.get_or_create(organization=org, equipment_code=eq['equipment_code'], defaults=eq)
-        if not AiRecommendation.objects.filter(organization=org).exists():
-            recs = [
-                {'title': 'Solar Peak Shaving Adjustment', 'category': 'ENERGY', 'urgency': 'Immediate', 'impact_description': 'Shift chiller cooling pre-load to 11:30 AM to absorb peak rooftop solar generation.', 'estimated_saving': '₹4,800 / day', 'confidence_score': 96},
-                {'title': 'STP Recirculation Optimization', 'category': 'WATER', 'urgency': 'Scheduled', 'impact_description': 'Increase secondary filtration duration during 14:00-17:00 when wastewater flow reaches peak.', 'estimated_saving': '120 kL / day', 'confidence_score': 92},
-                {'title': 'Substation Power Factor Correction', 'category': 'ELECTRICAL', 'urgency': 'Optimal', 'impact_description': 'Capacitor bank stepped up to maintain 0.98 power factor across high inductive load blocks.', 'estimated_saving': '₹2,200 / day', 'confidence_score': 98}
-            ]
-            for r in recs:
-                AiRecommendation.objects.create(organization=org, **r)
         if org.assigned_admin_email and not StaffMember.objects.filter(email=org.assigned_admin_email).exists():
             StaffMember.objects.create(
                 organization=org,
@@ -134,7 +54,7 @@ def ensure_org_telemetry(org):
                 password=org.assigned_password or 'estate@2026'
             )
     except Exception as e:
-        print(f"[ENSURE_TELEMETRY_ERROR] {e}")
+        print(f"[ENSURE_ORG_ERROR] {e}")
 
 class OrganizationViewSet(viewsets.ModelViewSet):
     queryset = Organization.objects.all().order_by('-created_at')
@@ -491,61 +411,133 @@ import time
 import random
 from datetime import datetime
 
-# In-memory circular buffer for live ingested sensor packets
-IOT_PACKET_STREAM = [
-    {
-        'id': 'pkt-1001',
-        'source': 'LAN',
-        'interface': 'Ethernet RJ45 (Modbus-TCP)',
-        'device_id': 'MODBUS-ETH-SUBSTATION-01',
-        'ip_address': '192.168.1.102',
-        'sensor_type': 'ENERGY',
-        'location': 'Primary 33kV Substation',
-        'metrics': {'current_load_kw': 642.5, 'power_factor': 0.98, 'grid_power_kw': 450.0, 'solar_kw': 192.5},
-        'timestamp': datetime.now().strftime('%H:%M:%S'),
-        'status': 'HEALTHY'
-    },
-    {
-        'id': 'pkt-1002',
-        'source': 'WIFI',
-        'interface': 'WiFi 802.11 b/g/n (ESP32 Node)',
-        'device_id': 'ESP32-AQI-LIBRARY-04',
-        'ip_address': '192.168.1.145',
-        'mac_address': '30:AE:A4:7F:8C:11',
-        'signal_dbm': -54,
-        'sensor_type': 'AQI',
-        'location': 'Central Library Plaza',
-        'metrics': {'pm25': 24.2, 'pm10': 48.6, 'temp_c': 28.4, 'humidity_pct': 58},
-        'timestamp': datetime.now().strftime('%H:%M:%S'),
-        'status': 'HEALTHY'
-    },
-    {
-        'id': 'pkt-1003',
-        'source': 'LAN',
-        'interface': 'Ethernet RJ45 (PLC Gateway)',
-        'device_id': 'PLC-LAN-WATER-PUMP-02',
-        'ip_address': '192.168.1.108',
-        'sensor_type': 'WATER',
-        'location': 'Central Water Reservoir & STP',
-        'metrics': {'flow_rate_lps': 19.4, 'underground_tank_pct': 84, 'ph_level': 7.35, 'turbidity_ntu': 1.8},
-        'timestamp': datetime.now().strftime('%H:%M:%S'),
-        'status': 'HEALTHY'
-    },
-    {
-        'id': 'pkt-1004',
-        'source': 'WIFI',
-        'interface': 'WiFi 802.11 b/g/n (ESP32 Ultrasonic)',
-        'device_id': 'ESP32-BIN-CANTEEN-02',
-        'ip_address': '192.168.1.178',
-        'mac_address': '24:6F:28:B2:1A:09',
-        'signal_dbm': -62,
-        'sensor_type': 'DUSTBIN',
-        'location': 'Student Food Court / Canteen',
-        'metrics': {'fill_percentage': 68, 'battery_pct': 92, 'distance_cm': 32.0},
-        'timestamp': datetime.now().strftime('%H:%M:%S'),
-        'status': 'HEALTHY'
-    }
-]
+# In-memory circular buffer for live ingested sensor packets (starts empty until live hardware packets arrive)
+IOT_PACKET_STREAM = []
+
+def sync_packet_to_models(packet):
+    """
+    Persists incoming live IoT packet metrics directly into NeonDB models:
+    AqiTelemetry, WaterTelemetry, EnergyTelemetry, Equipment, Dustbin.
+    Broadcasts across registered organizations if no specific organization is pinned.
+    """
+    try:
+        from .models import Organization, AqiTelemetry, WaterTelemetry, EnergyTelemetry, Equipment, Dustbin
+        metrics = packet.get('metrics', {})
+        sensor_type = (packet.get('sensor_type') or '').upper()
+        org_identifier = packet.get('org_id') or packet.get('organization_id') or packet.get('organization')
+        
+        target_orgs = []
+        if org_identifier:
+            clean_id = str(org_identifier).replace('org-', '')
+            if clean_id.isdigit():
+                o = Organization.objects.filter(id=int(clean_id)).first()
+                if o:
+                    target_orgs.append(o)
+            if not target_orgs:
+                o = Organization.objects.filter(name__icontains=str(org_identifier)).first()
+                if o:
+                    target_orgs.append(o)
+        
+        if not target_orgs:
+            target_orgs = list(Organization.objects.all())
+
+        if not target_orgs:
+            return
+
+        for target_org in target_orgs:
+            if sensor_type == 'AQI':
+                pm25_val = float(metrics.get('pm25', metrics.get('pm25_ug_m3', 0)))
+                pm10_val = float(metrics.get('pm10', metrics.get('pm10_ug_m3', 0)))
+                co2_val = float(metrics.get('co2', metrics.get('co2_ppm', 0)))
+                voc_val = float(metrics.get('voc', metrics.get('voc_ppb', 0)))
+                temp_val = float(metrics.get('temp_c', metrics.get('temperature', 0)))
+                hum_val = float(metrics.get('humidity', metrics.get('humidity_pct', 0)))
+                noise_val = float(metrics.get('noise', metrics.get('noise_db', 0)))
+                
+                computed_aqi = int(pm25_val * 2.5) if pm25_val > 0 else (int(pm10_val) if pm10_val > 0 else 50)
+                status_str = 'Good' if computed_aqi <= 50 else ('Moderate' if computed_aqi <= 100 else 'Unhealthy')
+
+                AqiTelemetry.objects.create(
+                    organization=target_org,
+                    overall_aqi=computed_aqi,
+                    status=status_str,
+                    pm25=pm25_val,
+                    pm10=pm10_val,
+                    co2=co2_val,
+                    voc=voc_val,
+                    temperature=temp_val,
+                    humidity=hum_val,
+                    noise=noise_val,
+                    hotspot_location=packet.get('location', f"{target_org.name} IoT Node"),
+                    anomaly_detected=(computed_aqi > 150 or pm25_val > 60)
+                )
+
+            elif sensor_type == 'WATER':
+                flow_val = float(metrics.get('flow_rate_lps', 0))
+                tank_val = int(metrics.get('tank_level_pct', metrics.get('underground_tank_pct', 0)))
+                ph_val = float(metrics.get('ph_level', 7.2))
+                turb_val = float(metrics.get('turbidity_ntu', 1.5))
+
+                WaterTelemetry.objects.create(
+                    organization=target_org,
+                    flow_rate_lps=flow_val,
+                    underground_tank_level_pct=tank_val if tank_val > 0 else 75,
+                    overhead_tank_level_pct=tank_val if tank_val > 0 else 70,
+                    ph_level=ph_val,
+                    turbidity_ntu=turb_val,
+                    daily_consumption_kl=round(flow_val * 3.6 * 8, 1) if flow_val > 0 else 320.0
+                )
+
+            elif sensor_type == 'ENERGY':
+                load_val = float(metrics.get('current_load_kw', 0))
+                pf_val = float(metrics.get('power_factor', 0.95))
+                solar_val = float(metrics.get('solar_kw', 0))
+                grid_val = float(metrics.get('grid_power_kw', max(0, load_val - solar_val)))
+
+                EnergyTelemetry.objects.create(
+                    organization=target_org,
+                    current_load_kw=load_val,
+                    power_factor=pf_val,
+                    solar_rooftop_kw=solar_val,
+                    grid_power_kw=grid_val,
+                    daily_total_kwh=round(load_val * 14, 1) if load_val > 0 else 12000.0,
+                    carbon_emissions_kg=round(load_val * 0.82 * 14, 1) if load_val > 0 else 8500.0
+                )
+
+            elif sensor_type in ['EQUIPMENT', 'VIBRATION']:
+                vib_val = float(metrics.get('vibration_mm_s', 0))
+                temp_val = float(metrics.get('operating_temp_c', 0))
+                Equipment.objects.update_or_create(
+                    organization=target_org,
+                    equipment_code=packet.get('device_id', f"EQ-{target_org.id}-LIVE"),
+                    defaults={
+                        'name': packet.get('device_id', 'Live IoT Sensor Equipment'),
+                        'category': 'Pumps & Motors',
+                        'location': packet.get('location', f"{target_org.name} Plant Yard"),
+                        'vibration_mm_per_sec': vib_val,
+                        'operating_temp_c': temp_val,
+                        'status': 'Warning' if (vib_val > 3.0 or temp_val > 70) else 'Operational',
+                        'health_score': max(30, int(100 - vib_val * 15)),
+                        'data_source': f"Live {packet.get('source', 'IoT')}"
+                    }
+                )
+
+            elif sensor_type == 'DUSTBIN':
+                fill_val = int(metrics.get('fill_percentage', 0))
+                battery_val = int(metrics.get('battery_pct', 90))
+                Dustbin.objects.update_or_create(
+                    organization=target_org,
+                    bin_code=packet.get('device_id', f"BIN-{target_org.id}-LIVE"),
+                    defaults={
+                        'zone': packet.get('location', f"{target_org.name} Plaza"),
+                        'bin_type': 'Smart Bin',
+                        'fill_percentage': fill_val,
+                        'battery_pct': battery_val,
+                        'status': 'Critical' if fill_val >= 85 else ('Warning' if fill_val >= 70 else 'Normal')
+                    }
+                )
+    except Exception as e:
+        print(f"[SYNC_PACKET_ERROR] {e}")
 
 @api_view(['POST'])
 def iot_ingest_view(request):
@@ -596,6 +588,9 @@ def iot_ingest_view(request):
     IOT_PACKET_STREAM.insert(0, new_packet)
     if len(IOT_PACKET_STREAM) > 50:
         IOT_PACKET_STREAM.pop()
+
+    # Synchronize into NeonDB database models
+    sync_packet_to_models(new_packet)
 
     try:
         from .socket_listener import record_http_packet

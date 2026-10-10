@@ -215,7 +215,7 @@ export const EstateWorkspace: React.FC<EstateWorkspaceProps> = ({
     { id: 'staff', label: 'Campus Staff & Roles', icon: Users, badge: 'Admin Lead' },
     { id: '3d', label: '3D Campus Twin', icon: Layers, badge: '3D Mesh' },
     { id: 'aqi', label: 'Air Quality (AQI)', icon: Wind, badge: 'CPCB' },
-    { id: 'water', label: 'Water & STP Loop', icon: Droplets, badge: 'STP 82%' },
+    { id: 'water', label: 'Water & STP Loop', icon: Droplets, badge: 'STP Loop' },
     { id: 'energy', label: 'Energy & Solar Grid', icon: Zap, badge: 'Solar' },
     { id: 'parking', label: 'Smart EV Parking', icon: Car, badge: 'IoT' },
     { id: 'waste', label: 'Waste Logistics', icon: Trash2, badge: 'Route' },
