@@ -183,42 +183,97 @@ def cleanup():
             pass
 
 
+def launch_edge_app_mode(url: str) -> bool:
+    """Launches standalone native application window using Microsoft Edge in app mode."""
+    candidates = [
+        os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+        os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+        os.path.expandvars(r"%LOCALAPPDATA%\Microsoft\Edge\Application\msedge.exe"),
+        r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+        r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+    ]
+    temp_dir = os.environ.get("TEMP", os.path.expanduser("~"))
+    profile_dir = os.path.join(temp_dir, "EcoEstate_App_Profile")
+    for exe in candidates:
+        if os.path.isfile(exe):
+            try:
+                cmd = [
+                    exe,
+                    f"--app={url}",
+                    "--window-size=1380,860",
+                    "--disable-features=Translate",
+                    f"--user-data-dir={profile_dir}"
+                ]
+                proc = subprocess.Popen(cmd)
+                _CHILD_PROCESSES.append(proc)
+                proc.wait()
+                return True
+            except Exception as e:
+                print(f"[EcoEstate Desktop] Edge app mode launch notice: {e}")
+    return False
+
+
 def main():
     print("=" * 68)
     print("⚡ EcoEstate India • Enterprise Desktop Application")
     print("=" * 68)
 
-    # 1. Start local backend in background if present
-    threading.Thread(target=ensure_local_backend_if_present, daemon=True).start()
-
-    # 2. Resolve startup URL
-    target_url, mode = resolve_startup_url()
-    print(f"[EcoEstate Desktop] Launching Native Window -> {target_url} ({mode})")
-
-    # 3. Create native window
-    # Edge Chromium WebView2 engine with dark theme
-    window = webview.create_window(
-        title=APP_TITLE,
-        url=target_url,
-        width=1380,
-        height=860,
-        min_size=(1024, 680),
-        background_color=APP_BG_COLOR,
-        resizable=True,
-        fullscreen=False,
-        confirm_close=False,
-        text_select=True,
-        zoomable=True
-    )
-
-    api = DesktopBridgeApi(window)
-    window.expose(api.get_system_info, api.switch_to_localhost, api.switch_to_cloud)
-
-    setup_window_hooks(window)
-
     try:
-        # Start webview with Edge Chromium / CEF GUI
-        webview.start(debug=False, http_server=False)
+        # 1. Start local backend in background if present
+        threading.Thread(target=ensure_local_backend_if_present, daemon=True).start()
+
+        # 2. Resolve startup URL
+        target_url, mode = resolve_startup_url()
+        print(f"[EcoEstate Desktop] Launching Native Window -> {target_url} ({mode})")
+
+        # 3. Launch standalone native application window
+        launched = launch_edge_app_mode(target_url)
+        if not launched:
+            print("[EcoEstate Desktop] Native Edge app mode not available. Trying webview engine...")
+            try:
+                window = webview.create_window(
+                    title=APP_TITLE,
+                    url=target_url,
+                    width=1380,
+                    height=860,
+                    min_size=(1024, 680),
+                    background_color=APP_BG_COLOR,
+                    resizable=True,
+                    fullscreen=False,
+                    confirm_close=False,
+                    text_select=True,
+                    zoomable=True
+                )
+                api = DesktopBridgeApi(window)
+                window.expose(api.get_system_info, api.switch_to_localhost, api.switch_to_cloud)
+                setup_window_hooks(window)
+                webview.start(debug=False, http_server=False)
+                launched = True
+            except Exception as w_err:
+                print(f"[EcoEstate Desktop] Webview notice: {w_err}. Falling back to default browser...")
+                import webbrowser
+                webbrowser.open(target_url)
+                launched = True
+
+    except Exception as e:
+        import traceback
+        err_msg = traceback.format_exc()
+        try:
+            with open("desktop_app_error.log", "w", encoding="utf-8") as f:
+                f.write(err_msg)
+        except Exception:
+            pass
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                f"EcoEstate Desktop App Notice:\n\n{e}\n\nCheck desktop_app_error.log for trace.",
+                "EcoEstate India Desktop",
+                0x10
+            )
+        except Exception:
+            pass
+        sys.exit(1)
     finally:
         cleanup()
 

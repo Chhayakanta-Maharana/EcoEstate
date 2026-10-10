@@ -908,12 +908,32 @@ def run_cli_mode():
 
 
 def main():
-    if "--cli" in sys.argv or not HAS_TKINTER:
-        run_cli_mode()
-    else:
-        root = tk.Tk()
-        app = IoTSenderGui(root)
-        root.mainloop()
+    try:
+        if "--cli" in sys.argv or not HAS_TKINTER:
+            run_cli_mode()
+        else:
+            root = tk.Tk()
+            app = IoTSenderGui(root)
+            root.mainloop()
+    except Exception as e:
+        import traceback
+        err_msg = traceback.format_exc()
+        try:
+            with open("iot_sender_error.log", "w", encoding="utf-8") as f:
+                f.write(err_msg)
+        except Exception:
+            pass
+        try:
+            import ctypes
+            ctypes.windll.user32.MessageBoxW(
+                0,
+                f"EcoEstate IoT Sender Startup Notice:\n\n{e}\n\nFull log saved to iot_sender_error.log",
+                "EcoEstate IoT Sender",
+                0x10
+            )
+        except Exception:
+            pass
+        sys.exit(1)
 
 
 if __name__ == "__main__":
