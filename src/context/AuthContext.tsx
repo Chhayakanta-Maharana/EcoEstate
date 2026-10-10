@@ -2,7 +2,6 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Organization, Role, EquipmentItem } from '@/types';
-import { getEquipmentList, INITIAL_ORGANIZATIONS } from '@/data/mockData';
 import { DjangoApi } from '@/services/api';
 
 export interface AppNotification {
@@ -74,7 +73,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setIsAuthReady(true);
   }, []);
 
-  const [organizations, setOrganizations] = useState<Organization[]>(INITIAL_ORGANIZATIONS);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [users, setUsers] = useState<User[]>([]);
   const [activeOrgId, setActiveOrgId] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -85,47 +84,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const [isSimulatingIoT, setIsSimulatingIoT] = useState<boolean>(true);
   const [dataSource, setDataSource] = useState<DataSourceType>('loading');
-  const [equipmentList, setEquipmentList] = useState<EquipmentItem[]>(getEquipmentList('HOSPITAL'));
+  const [equipmentList, setEquipmentList] = useState<EquipmentItem[]>([]);
 
   // Live Notifications State
-  const [notifications, setNotifications] = useState<AppNotification[]>([
-    {
-      id: 'notif-1',
-      title: 'Credentials Dispatched',
-      message: 'Official credentials email delivered to hari.pangi@gcek.ac.in for GCEK Bhawanipatna.',
-      type: 'EMAIL_SENT',
-      timestamp: '2 mins ago',
-      read: false,
-      targetRole: 'SUPERADMIN',
-    },
-    {
-      id: 'notif-2',
-      title: 'Institutional Lead Appointed',
-      message: 'Dr. A.K. Mohapatra appointed as Estate Administrator for AIIMS Bhubaneswar.',
-      type: 'ROLE_ASSIGNED',
-      timestamp: '15 mins ago',
-      read: false,
-      targetRole: 'ALL',
-    },
-    {
-      id: 'notif-3',
-      title: 'Estate Provisioned',
-      message: 'Tata Steel Kalinganagar industrial complex connected with CEMS telemetry.',
-      type: 'ESTATE_CREATED',
-      timestamp: '1 hr ago',
-      read: true,
-      targetRole: 'SUPERADMIN',
-    },
-    {
-      id: 'notif-4',
-      title: 'Dual-Channel Gateway Online',
-      message: 'IoT Ingestion Gateway active on TCP:5000, UDP:5005, and Cloud WiFi HTTP.',
-      type: 'SYSTEM',
-      timestamp: '3 hrs ago',
-      read: true,
-      targetRole: 'ALL',
-    },
-  ]);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
 
   const unreadNotificationCount = notifications.filter((n) => !n.read).length;
 
@@ -398,15 +360,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       }
     } catch (err) {
-      console.warn('NeonDB fetch status:', err);
-      // Fall back to mock data only if we have no real data yet
-      if (organizations.length === 0 || organizations === INITIAL_ORGANIZATIONS) {
-        setOrganizations(INITIAL_ORGANIZATIONS);
-        setDataSource('mock');
-      } else {
-        // Keep existing real data, just note the fetch failed
-        setDataSource((prev) => prev === 'backend' ? 'backend' : 'mock');
-      }
+      console.warn('Database fetch status:', err);
+      setDataSource('backend');
     }
   };
 
@@ -502,106 +457,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           success: true,
           redirectUrl: backendRes.redirect_url || (authenticatedUser.role === 'SUPERADMIN' ? '/admin/dashboard' : `/user/${authenticatedUser.organizationId}`),
         };
-      } else if (backendRes.error && !backendRes.error.toLowerCase().includes('cannot connect')) {
-        return { success: false, error: backendRes.error };
+      } else {
+        return { success: false, error: backendRes.error || 'Access Denied: Invalid credentials.' };
       }
     } catch (apiErr) {
-      console.warn('Backend login check failed, evaluating cached database state...', apiErr);
+      return { success: false, error: 'Database Connection Error: Unable to verify credentials with backend.' };
     }
-
-    // 2. Strict Fallback for SuperAdmin records (supports both updated and default credentials)
-    let superAdminConfig = {
-      name: 'Alex Carter',
-      email: 'superadmin@ecoestate.gov.in',
-      title: 'National Director & Chief Administrator',
-      passwords: ['admin123', 'superadmin@2026', 'ecoestate@2026'],
-    };
-    if (typeof window !== 'undefined') {
-      try {
-        const savedSA = JSON.parse(localStorage.getItem('ecoestate-superadmin-config') || '{}');
-        if (savedSA.email) superAdminConfig.email = savedSA.email.toLowerCase().trim();
-        if (savedSA.name) superAdminConfig.name = savedSA.name.trim();
-        if (savedSA.title) superAdminConfig.title = savedSA.title.trim();
-        if (savedSA.password) superAdminConfig.passwords.push(savedSA.password.trim());
-      } catch (e) {
-        // use default
-      }
-    }
-
-    if (cleanEmail === superAdminConfig.email || cleanEmail === 'superadmin@ecoestate.gov.in') {
-      if (superAdminConfig.passwords.includes(cleanPassword)) {
-        const superUser: User = {
-          id: 'user-superadmin',
-          name: superAdminConfig.name,
-          email: superAdminConfig.email,
-          role: 'SUPERADMIN',
-          organizationId: 'all',
-          organizationName: 'National Platform',
-          title: superAdminConfig.title,
-          status: 'Active',
-          lastActive: 'Just now',
-        };
-        setCurrentUser(superUser);
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('ecoestate-current-user', JSON.stringify(superUser));
-        }
-        return { success: true, redirectUrl: '/admin/dashboard' };
-      }
-      return { success: false, error: 'Incorrect password for SuperAdmin account.' };
-    }
-
-    // Check existing assigned organization admins with password check
-    const matchedOrg = organizations.find(
-      (o) => o.assignedAdminEmail.toLowerCase() === cleanEmail
-    );
-    if (matchedOrg) {
-      const savedPass = typeof window !== 'undefined' ? localStorage.getItem('ecoestate-user-password') : null;
-      const orgSavedPass = typeof window !== 'undefined'
-        ? (localStorage.getItem(`ecoestate-org-pass-${matchedOrg.id}`) || localStorage.getItem(`ecoestate-org-pass-${matchedOrg.id.replace('org-', '')}`))
-        : null;
-      const validAdminPasswords = [
-        matchedOrg.assignedPassword,
-        savedPass,
-        orgSavedPass,
-        'estate@2026',
-        'bput@2026',
-        'admin123',
-      ].filter(Boolean) as string[];
-
-      if (!matchedOrg.assignedPassword || validAdminPasswords.includes(cleanPassword)) {
-        const orgUser: User = {
-          id: `user-${matchedOrg.id}`,
-          name: matchedOrg.assignedAdminName,
-          email: matchedOrg.assignedAdminEmail,
-          role: 'ORG_ADMIN',
-          organizationId: matchedOrg.id,
-          organizationName: matchedOrg.name,
-          title: `Estate Administrator - ${matchedOrg.name}`,
-          status: 'Active',
-          lastActive: 'Just now',
-        };
-        setCurrentUser(orgUser);
-        setActiveOrgId(matchedOrg.id);
-        return { success: true, redirectUrl: `/user/${matchedOrg.id}` };
-      }
-      return { success: false, error: 'Incorrect password for assigned Estate Administrator account.' };
-    }
-
-    // Check existing registered staff users
-    const matchedStaff = users.find((u) => u.email.toLowerCase() === cleanEmail);
-    if (matchedStaff) {
-      setCurrentUser(matchedStaff);
-      if (matchedStaff.organizationId) {
-        setActiveOrgId(matchedStaff.organizationId);
-      }
-      return { success: true, redirectUrl: `/user/${matchedStaff.organizationId || 'org-current'}` };
-    }
-
-    // STRICT REJECTION: If not registered in database, DO NOT ALLOW ACCESS!
-    return {
-      success: false,
-      error: `Access Denied: "${cleanEmail}" is not registered in the system. Only authorized administrators assigned by the SuperAdmin can log in.`,
-    };
   };
 
   const sendCredentialsEmail = async (

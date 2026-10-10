@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { getSustainabilityScorecard, INITIAL_ORGANIZATIONS } from '@/data/mockData';
+import { getSustainabilityScorecard } from '@/data/mockData';
 import { DjangoApi } from '@/services/api';
 import {
   Award,
@@ -32,8 +32,8 @@ interface ScorecardTabProps {
 }
 
 export const ScorecardTab: React.FC<ScorecardTabProps> = ({ org }) => {
-  const { activeOrg: contextOrg } = useAuth();
-  const activeOrg = org || contextOrg || INITIAL_ORGANIZATIONS[0];
+  const { activeOrg: contextOrg, organizations } = useAuth();
+  const activeOrg = org || contextOrg || organizations[0] || null;
   const [dbEnergy, setDbEnergy] = useState<any>(null);
   const [dbWater, setDbWater] = useState<any>(null);
 

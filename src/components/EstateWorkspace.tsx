@@ -62,7 +62,6 @@ import ScorecardTab from '@/components/tabs/ScorecardTab';
 import Campus3DTab from '@/components/tabs/Campus3DTab';
 import CampusStaffTab from '@/components/tabs/CampusStaffTab';
 import IoTGatewayModal from '@/components/IoTGatewayModal';
-import { INITIAL_ORGANIZATIONS } from '@/data/mockData';
 
 interface EstateWorkspaceProps {
   orgId?: string;
@@ -193,7 +192,7 @@ export const EstateWorkspace: React.FC<EstateWorkspaceProps> = ({
     ) ||
     activeOrg ||
     organizations[0] ||
-    INITIAL_ORGANIZATIONS[0];
+    null;
 
   // If orgId is provided in URL, sync it with AuthContext
   useEffect(() => {
@@ -508,32 +507,37 @@ export const EstateWorkspace: React.FC<EstateWorkspaceProps> = ({
             <button
               onClick={() => setIsIotModalOpen(true)}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border font-bold transition-all cursor-pointer shadow-sm text-xs ${
-                activeStream?.category
+                activeStream?.status === 'ACTIVE' || activeStream?.is_active
                   ? 'bg-cyan-500/15 hover:bg-cyan-500/25 border-cyan-500/40 text-cyan-800 dark:text-cyan-300'
-                  : 'hidden sm:flex bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-700 dark:text-emerald-400'
+                  : 'bg-stone-500/10 hover:bg-stone-500/20 border-stone-500/20 text-stone-600 dark:text-stone-400'
               }`}
               title="Click to inspect Dual Hardware Ingestion (LAN & WiFi)"
             >
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping flex-shrink-0" />
-              {activeStream?.category ? (
-                <div className="flex items-center gap-1.5 font-mono text-[11px]">
-                  <span className="font-extrabold uppercase text-cyan-700 dark:text-cyan-300">
-                    LIVE: {activeStream.category}
-                  </span>
-                  <span className="text-[10px] text-stone-400 dark:text-slate-400 font-sans hidden md:inline">
-                    • Inactive set to 0
-                  </span>
-                </div>
+              {activeStream?.status === 'ACTIVE' || activeStream?.is_active ? (
+                <>
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping flex-shrink-0" />
+                  <div className="flex items-center gap-1.5 font-mono text-[11px]">
+                    <span className="font-extrabold uppercase text-cyan-700 dark:text-cyan-300">
+                      LIVE: {activeStream.category}
+                    </span>
+                    <span className="text-[10px] text-stone-400 dark:text-slate-400 font-sans hidden md:inline">
+                      • Inactive set to 0
+                    </span>
+                  </div>
+                </>
               ) : (
-                <div className="flex items-center gap-1.5 font-mono text-[11px]">
-                  <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
-                    <Network className="w-3.5 h-3.5" /> LAN
-                  </span>
-                  <span className="opacity-40 text-stone-400">•</span>
-                  <span className="flex items-center gap-1 text-cyan-600 dark:text-cyan-400">
-                    <Wifi className="w-3.5 h-3.5" /> WiFi
-                  </span>
-                </div>
+                <>
+                  <span className="w-2 h-2 rounded-full bg-stone-400 dark:bg-stone-500 flex-shrink-0" />
+                  <div className="flex items-center gap-1.5 font-mono text-[11px]">
+                    <span className="font-bold text-stone-500 dark:text-slate-400">
+                      INACTIVE (Awaiting Feed)
+                    </span>
+                    <span className="opacity-40 text-stone-400">•</span>
+                    <span className="text-stone-400 dark:text-slate-500 hidden md:inline text-[10px]">
+                      UDP:5005 / HTTP:8000
+                    </span>
+                  </div>
+                </>
               )}
             </button>
 

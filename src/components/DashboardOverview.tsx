@@ -9,7 +9,6 @@ import {
   getParkingData,
   getDustbins,
   getAiRecommendations,
-  INITIAL_ORGANIZATIONS,
 } from '@/data/mockData';
 import {
   Wind,
@@ -58,8 +57,8 @@ interface DashboardOverviewProps {
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigateTab, org }) => {
-  const { activeOrg: contextOrg, isSimulatingIoT, equipmentList: contextEquipments } = useAuth();
-  const activeOrg = org || contextOrg || INITIAL_ORGANIZATIONS[0];
+  const { activeOrg: contextOrg, isSimulatingIoT, equipmentList: contextEquipments, organizations } = useAuth();
+  const activeOrg = org || contextOrg || organizations[0] || null;
   const [timeRange, setTimeRange] = useState('7D');
   const [isShapModalOpen, setIsShapModalOpen] = useState(false);
 
@@ -107,7 +106,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
     };
   }, [activeOrg?.id]);
 
-  const currentCategory = activeStream?.category || null;
+  const isStreamLive = Boolean(activeStream?.is_active ?? (activeStream?.status === 'ACTIVE'));
+  const currentCategory = isStreamLive ? (activeStream?.category || null) : null;
 
   // Strict Stream Isolation:
   // - If no packet arrived: show '--'

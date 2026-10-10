@@ -63,6 +63,24 @@ class OrganizationViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         org = serializer.save()
         ensure_org_telemetry(org)
+        # Automatically create or update StaffMember so assigned admin can immediately log in with their credentials
+        if org.assigned_admin_email:
+            try:
+                StaffMember.objects.update_or_create(
+                    email__iexact=org.assigned_admin_email.strip().lower(),
+                    defaults={
+                        'name': org.assigned_admin_name or f"Admin of {org.name}",
+                        'email': org.assigned_admin_email.strip().lower(),
+                        'organization': org,
+                        'role': 'ORG_ADMIN',
+                        'title': f"Estate Administrator - {org.name}",
+                        'password': org.assigned_password or 'estate@2026',
+                        'status': 'Active'
+                    }
+                )
+            except Exception as e:
+                print(f"[ORG_CREATE_STAFF_SYNC_ERROR] {e}")
+
         # Asynchronously dispatch credentials email in a background thread so the HTTP request never blocks
         if org.assigned_admin_email:
             def _async_create_email():
@@ -85,6 +103,23 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         old_email = old_org.assigned_admin_email
         org = serializer.save()
         ensure_org_telemetry(org)
+        # Sync updated credentials to StaffMember table
+        if org.assigned_admin_email:
+            try:
+                StaffMember.objects.update_or_create(
+                    email__iexact=org.assigned_admin_email.strip().lower(),
+                    defaults={
+                        'name': org.assigned_admin_name or f"Admin of {org.name}",
+                        'email': org.assigned_admin_email.strip().lower(),
+                        'organization': org,
+                        'role': 'ORG_ADMIN',
+                        'title': f"Estate Administrator - {org.name}",
+                        'password': org.assigned_password or 'estate@2026',
+                        'status': 'Active'
+                    }
+                )
+            except Exception as e:
+                print(f"[ORG_UPDATE_STAFF_SYNC_ERROR] {e}")
         # If admin email changed or send_credentials requested, dispatch asynchronously
         if org.assigned_admin_email and (org.assigned_admin_email.lower() != (old_email or '').lower() or self.request.data.get('send_credentials')):
             def _async_update_email():
@@ -108,6 +143,14 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
+def resolve_org_from_param(org_id_param):
+    if not org_id_param:
+        return None
+    clean = str(org_id_param).replace('org-', '').strip()
+    if clean.isdigit():
+        return Organization.objects.filter(id=int(clean)).first()
+    return Organization.objects.filter(name__icontains=clean).first()
+
 class StaffMemberViewSet(viewsets.ModelViewSet):
     queryset = StaffMember.objects.all().order_by('-created_at')
     serializer_class = StaffMemberSerializer
@@ -115,9 +158,9 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         org_id = self.request.query_params.get('org_id')
         if org_id:
-            clean_id = str(org_id).replace('org-', '')
-            if clean_id.isdigit():
-                return StaffMember.objects.filter(organization_id=int(clean_id))
+            org = resolve_org_from_param(org_id)
+            if org:
+                return StaffMember.objects.filter(organization=org).order_by('-created_at')
         return super().get_queryset()
 
 class EquipmentViewSet(viewsets.ModelViewSet):
@@ -127,12 +170,10 @@ class EquipmentViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         org_id = self.request.query_params.get('org_id')
         if org_id:
-            clean_id = str(org_id).replace('org-', '')
-            if clean_id.isdigit():
-                org = Organization.objects.filter(id=int(clean_id)).first()
-                if org:
-                    ensure_org_telemetry(org)
-                return Equipment.objects.filter(organization_id=int(clean_id)).order_by('id')
+            org = resolve_org_from_param(org_id)
+            if org:
+                ensure_org_telemetry(org)
+                return Equipment.objects.filter(organization=org).order_by('id')
         return super().get_queryset().order_by('id')
 
 class DustbinViewSet(viewsets.ModelViewSet):
@@ -142,12 +183,10 @@ class DustbinViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         org_id = self.request.query_params.get('org_id')
         if org_id:
-            clean_id = str(org_id).replace('org-', '')
-            if clean_id.isdigit():
-                org = Organization.objects.filter(id=int(clean_id)).first()
-                if org:
-                    ensure_org_telemetry(org)
-                return Dustbin.objects.filter(organization_id=int(clean_id)).order_by('id')
+            org = resolve_org_from_param(org_id)
+            if org:
+                ensure_org_telemetry(org)
+                return Dustbin.objects.filter(organization=org).order_by('id')
         return super().get_queryset().order_by('id')
 
 class AqiTelemetryViewSet(viewsets.ModelViewSet):
@@ -157,12 +196,10 @@ class AqiTelemetryViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         org_id = self.request.query_params.get('org_id')
         if org_id:
-            clean_id = str(org_id).replace('org-', '')
-            if clean_id.isdigit():
-                org = Organization.objects.filter(id=int(clean_id)).first()
-                if org:
-                    ensure_org_telemetry(org)
-                return AqiTelemetry.objects.filter(organization_id=int(clean_id)).order_by('-recorded_at')
+            org = resolve_org_from_param(org_id)
+            if org:
+                ensure_org_telemetry(org)
+                return AqiTelemetry.objects.filter(organization=org).order_by('-recorded_at')
         return super().get_queryset().order_by('-recorded_at')
 
 class WaterTelemetryViewSet(viewsets.ModelViewSet):
@@ -172,12 +209,10 @@ class WaterTelemetryViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         org_id = self.request.query_params.get('org_id')
         if org_id:
-            clean_id = str(org_id).replace('org-', '')
-            if clean_id.isdigit():
-                org = Organization.objects.filter(id=int(clean_id)).first()
-                if org:
-                    ensure_org_telemetry(org)
-                return WaterTelemetry.objects.filter(organization_id=int(clean_id)).order_by('-recorded_at')
+            org = resolve_org_from_param(org_id)
+            if org:
+                ensure_org_telemetry(org)
+                return WaterTelemetry.objects.filter(organization=org).order_by('-recorded_at')
         return super().get_queryset().order_by('-recorded_at')
 
 class EnergyTelemetryViewSet(viewsets.ModelViewSet):
@@ -187,12 +222,10 @@ class EnergyTelemetryViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         org_id = self.request.query_params.get('org_id')
         if org_id:
-            clean_id = str(org_id).replace('org-', '')
-            if clean_id.isdigit():
-                org = Organization.objects.filter(id=int(clean_id)).first()
-                if org:
-                    ensure_org_telemetry(org)
-                return EnergyTelemetry.objects.filter(organization_id=int(clean_id)).order_by('-recorded_at')
+            org = resolve_org_from_param(org_id)
+            if org:
+                ensure_org_telemetry(org)
+                return EnergyTelemetry.objects.filter(organization=org).order_by('-recorded_at')
         return super().get_queryset().order_by('-recorded_at')
 
 class ParkingTelemetryViewSet(viewsets.ModelViewSet):
@@ -202,12 +235,10 @@ class ParkingTelemetryViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         org_id = self.request.query_params.get('org_id')
         if org_id:
-            clean_id = str(org_id).replace('org-', '')
-            if clean_id.isdigit():
-                org = Organization.objects.filter(id=int(clean_id)).first()
-                if org:
-                    ensure_org_telemetry(org)
-                return ParkingTelemetry.objects.filter(organization_id=int(clean_id)).order_by('-recorded_at')
+            org = resolve_org_from_param(org_id)
+            if org:
+                ensure_org_telemetry(org)
+                return ParkingTelemetry.objects.filter(organization=org).order_by('-recorded_at')
         return super().get_queryset().order_by('-recorded_at')
 
 class AiRecommendationViewSet(viewsets.ModelViewSet):
@@ -462,6 +493,7 @@ def sync_packet_to_models(packet):
             'device_id': device_id,
             'location': location,
             'timestamp': packet.get('timestamp') or datetime.now().strftime('%H:%M:%S'),
+            'last_epoch': time.time(),
             'metrics': metrics
         }
 
@@ -785,6 +817,22 @@ def iot_status_view(request):
     except Exception:
         gw_cfg = None
 
+    # Stream Heartbeat Liveness Check (8 second timeout)
+    stream_payload = None
+    if CURRENT_ACTIVE_STREAM and CURRENT_ACTIVE_STREAM.get('category'):
+        last_epoch = CURRENT_ACTIVE_STREAM.get('last_epoch', 0)
+        is_stream_live = (time.time() - last_epoch) <= 8.0
+        stream_payload = dict(CURRENT_ACTIVE_STREAM)
+        stream_payload['is_active'] = is_stream_live
+        stream_payload['status'] = 'ACTIVE' if is_stream_live else 'INACTIVE'
+    else:
+        stream_payload = {
+            'category': None,
+            'is_active': False,
+            'status': 'INACTIVE',
+            'metrics': {}
+        }
+
     return Response({
         'lan_channel': {
             'status': 'ONLINE',
@@ -816,7 +864,7 @@ def iot_status_view(request):
             'recent_packet_count': len(wifi_packets)
         },
         'gateway_config': gw_cfg,
-        'active_stream': CURRENT_ACTIVE_STREAM,
+        'active_stream': stream_payload,
         'last_packet': IOT_PACKET_STREAM[0] if IOT_PACKET_STREAM else None,
         'system_summary': {
             'dual_mode_active': True,

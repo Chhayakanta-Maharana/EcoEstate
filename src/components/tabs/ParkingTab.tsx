@@ -2,7 +2,6 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { getParkingData } from '@/data/mockData';
 import { DjangoApi } from '@/services/api';
 import { Organization } from '@/types';
 import {

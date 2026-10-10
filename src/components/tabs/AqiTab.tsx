@@ -61,7 +61,8 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
     };
   }, [activeOrg?.id]);
 
-  const currentCategory = activeStream?.category || null;
+  const isStreamLive = Boolean(activeStream?.is_active ?? (activeStream?.status === 'ACTIVE'));
+  const currentCategory = isStreamLive ? (activeStream?.category || null) : null;
   const isAqiActive = currentCategory === 'AQI';
 
   // Strict stream isolation with direct streaming fallback:
@@ -125,13 +126,13 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold text-emerald-600 dark:text-emerald-400 mb-1">
             <Wind className="w-4 h-4" /> Continuous Ambient Air Quality Monitoring System (CAAQMS)
-            {hasData ? (
+            {isAqiActive && isStreamLive ? (
               <span className="flex items-center gap-1 text-[10px] bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded-full border border-emerald-500/20">
                 <Activity className="w-3 h-3 animate-pulse" /> LIVE STREAM ACTIVE
               </span>
             ) : (
-              <span className="flex items-center gap-1 text-[10px] bg-amber-500/10 text-amber-500 px-2 py-0.5 rounded-full border border-amber-500/20">
-                <Radio className="w-3 h-3 animate-pulse" /> AWAITING SENSOR FEED...
+              <span className="flex items-center gap-1 text-[10px] bg-stone-500/10 text-stone-500 px-2 py-0.5 rounded-full border border-stone-500/20">
+                <Radio className="w-3 h-3" /> INACTIVE (AWAITING SENSOR FEED)
               </span>
             )}
           </div>
