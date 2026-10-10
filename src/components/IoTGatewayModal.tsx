@@ -21,6 +21,13 @@ import {
   Play,
   Layers,
   ArrowRight,
+  Settings,
+  Sliders,
+  Save,
+  CheckCircle,
+  AlertTriangle,
+  Globe,
+  Share2,
 } from 'lucide-react';
 import { DjangoApi } from '@/services/api';
 
@@ -33,20 +40,36 @@ export const IoTGatewayModal: React.FC<IoTGatewayModalProps> = ({ isOpen, onClos
   const [gatewayStatus, setGatewayStatus] = useState<any>(null);
   const [packetStream, setPacketStream] = useState<any[]>([]);
   const [filterChannel, setFilterChannel] = useState<'ALL' | 'LAN' | 'WIFI'>('ALL');
-  const [activeCodeTab, setActiveCodeTab] = useState<'esp32' | 'lan_python'>('esp32');
+  const [activeCodeTab, setActiveCodeTab] = useState<'esp32' | 'lan_python' | 'udp_broadcast'>('udp_broadcast');
   const [copiedCode, setCopiedCode] = useState(false);
   const [isSimulating, setIsSimulating] = useState(false);
   const [simulationToast, setSimulationToast] = useState<string | null>(null);
 
-  // Fetch status and live packets
+  // Admin Configuration State
+  const [isConfigOpen, setIsConfigOpen] = useState(false);
+  const [preferredProtocol, setPreferredProtocol] = useState<'UDP_BROADCAST' | 'TCP_SOCKET' | 'HTTP_REST'>('UDP_BROADCAST');
+  const [udpPort, setUdpPort] = useState<number>(5005);
+  const [tcpPort, setTcpPort] = useState<number>(5000);
+  const [udpBroadcastEnabled, setUdpBroadcastEnabled] = useState<boolean>(true);
+  const [isSavingConfig, setIsSavingConfig] = useState(false);
+  const [configToast, setConfigToast] = useState<string | null>(null);
+
+  // Fetch status, gateway config, and live packets
   const refreshData = async () => {
     try {
-      const [statusRes, packetsRes] = await Promise.all([
+      const [statusRes, packetsRes, configRes] = await Promise.all([
         DjangoApi.getIoTStatus(),
         DjangoApi.getIoTPackets(30),
+        DjangoApi.getIoTGatewayConfig(),
       ]);
       if (statusRes) setGatewayStatus(statusRes);
       if (packetsRes?.packets) setPacketStream(packetsRes.packets);
+      if (configRes?.config) {
+        setPreferredProtocol(configRes.config.preferred_protocol || 'UDP_BROADCAST');
+        setUdpPort(configRes.config.udp_port || 5005);
+        setTcpPort(configRes.config.tcp_port || 5000);
+        setUdpBroadcastEnabled(configRes.config.udp_broadcast_enabled !== false);
+      }
     } catch (e) {
       console.warn('Could not refresh IoT telemetry', e);
     }
@@ -55,15 +78,36 @@ export const IoTGatewayModal: React.FC<IoTGatewayModalProps> = ({ isOpen, onClos
   useEffect(() => {
     if (isOpen) {
       refreshData();
-      const interval = setInterval(refreshData, 3000);
+      const interval = setInterval(refreshData, 2500);
       return () => clearInterval(interval);
     }
   }, [isOpen]);
 
+  const handleSaveConfig = async () => {
+    setIsSavingConfig(true);
+    try {
+      const res = await DjangoApi.updateIoTGatewayConfig({
+        preferred_protocol: preferredProtocol,
+        udp_port: udpPort,
+        tcp_port: tcpPort,
+        udp_broadcast_enabled: udpBroadcastEnabled,
+      });
+      if (res?.status === 'success') {
+        setConfigToast('✅ IoT Gateway Settings Applied! Socket listeners synchronized on 0.0.0.0.');
+        setTimeout(() => setConfigToast(null), 4000);
+        refreshData();
+      }
+    } catch (err) {
+      console.error('Failed to save IoT config', err);
+    } finally {
+      setIsSavingConfig(false);
+    }
+  };
+
   const handleSimulate = async (
     source: 'LAN' | 'WIFI',
     sensorType: string,
-    protocol: string = source === 'LAN' ? 'TCP' : 'HTTP',
+    protocol: string = source === 'LAN' ? 'UDP' : 'HTTP',
     isAnomaly: boolean = false
   ) => {
     setIsSimulating(true);
@@ -74,7 +118,7 @@ export const IoTGatewayModal: React.FC<IoTGatewayModalProps> = ({ isOpen, onClos
         setSimulationToast(
           isAnomaly
             ? `CRITICAL FAULT INJECTED via ${source} [${protocol}]! Check Equipment Diagnostics.`
-            : `Live telemetry received from ${source} [${protocol}] [${sensorType}]!`
+            : `Live telemetry received from ${source} [${protocol}] [${sensorType}] on 0.0.0.0!`
         );
         setTimeout(() => setSimulationToast(null), 3500);
       }
@@ -85,9 +129,44 @@ export const IoTGatewayModal: React.FC<IoTGatewayModalProps> = ({ isOpen, onClos
     }
   };
 
+  const serverLocalIp = gatewayStatus?.lan_channel?.gateway_ip || '192.168.1.100';
+  const stats = gatewayStatus?.gateway_config?.stats || { udp_packets: 0, tcp_packets: 0, http_packets: 0 };
+
+  const udpBroadcastSnippet = `# ==============================================================
+# EcoEstate IoT Telemetry Sender • UDP Subnet Broadcast (Zero-Config)
+# Transmits to 255.255.255.255 on Port ${udpPort} (Received by 0.0.0.0)
+# ==============================================================
+import socket
+import json
+import time
+
+BROADCAST_IP = "255.255.255.255"  # Reaches any 0.0.0.0 receiver on shared WiFi
+UDP_PORT = ${udpPort}
+
+payload = {
+    "source": "LAN",
+    "protocol": "UDP",
+    "sensor_type": "WATER",
+    "device_id": "LAN-UDP-PUMP-04",
+    "location": "STP Yard MBBR Lift Pit",
+    "metrics": {
+        "vibration_mm_s": 1.15,
+        "operating_temp_c": 42.5,
+        "flow_rate_lps": 18.2
+    }
+}
+
+sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+
+print(f"Broadcasting telemetry to {BROADCAST_IP}:{UDP_PORT}...")
+sock.sendto(json.dumps(payload).encode('utf-8'), (BROADCAST_IP, UDP_PORT))
+sock.close()
+print("Broadcast packet dispatched successfully!")`;
+
   const esp32CodeSnippet = `// ==============================================================
 // ESP32 WiFi Sensor Telemetry Node -> EcoEstate Dual Gateway
-// Direct HTTP JSON POST to: http://<server-ip>:8000/api/iot/ingest/
+// Direct HTTP JSON POST to: http://${serverLocalIp}:8000/api/iot/ingest/
 // ==============================================================
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -95,7 +174,7 @@ export const IoTGatewayModal: React.FC<IoTGatewayModalProps> = ({ isOpen, onClos
 
 const char* ssid = "EcoEstate_IoT_Grid";
 const char* password = "CampusIoTSecretKey";
-const char* serverUrl = "http://192.168.1.100:8000/api/iot/ingest/";
+const char* serverUrl = "http://${serverLocalIp}:8000/api/iot/ingest/";
 
 void setup() {
   Serial.begin(115200);
@@ -115,6 +194,7 @@ void loop() {
 
     StaticJsonDocument<256> doc;
     doc["source"] = "WIFI";
+    doc["protocol"] = "HTTP";
     doc["device_id"] = "ESP32-AQI-NODE-01";
     doc["sensor_type"] = "AQI";
     doc["ip_address"] = WiFi.localIP().toString();
@@ -139,53 +219,39 @@ void loop() {
 
   const lanPythonSnippet = `# ==============================================================
 # Industrial LAN (Ethernet RJ45 / Modbus-TCP) Telemetry Gateway
-# Raspberry Pi / Industrial Edge PC / Modbus Transceiver
+# Direct TCP Socket Connection to 0.0.0.0:${tcpPort}
 # ==============================================================
-import time
-import requests
 import socket
+import json
+import time
 
-GATEWAY_ENDPOINT = "http://127.0.0.1:8000/api/iot/ingest/"
+SERVER_HOST = "${serverLocalIp}"
+TCP_PORT = ${tcpPort}
 
-def get_lan_ip():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(('8.8.8.8', 1))
-        return s.getsockname()[0]
-    except Exception:
-        return '192.168.1.50'
-    finally:
-        s.close()
-
-def push_lan_sensor_telemetry():
-    # Read industrial sensors via Modbus-TCP (Port 502) or RS-485
-    payload = {
-        "source": "LAN",
-        "interface": "Ethernet RJ45 (Modbus-TCP)",
-        "device_id": "MODBUS-LAN-SUBSTATION-01",
-        "sensor_type": "ENERGY",
-        "ip_address": get_lan_ip(),
-        "location": "Primary 33kV Substation Transformer",
-        "metrics": {
-            "current_load_kw": 584.2,
-            "power_factor": 0.98,
-            "grid_power_kw": 410.0,
-            "solar_kw": 174.2,
-            "voltage_v": 415.4
-        }
+payload = {
+    "source": "LAN",
+    "protocol": "TCP",
+    "device_id": "MODBUS-LAN-SUBSTATION-01",
+    "sensor_type": "ENERGY",
+    "location": "Primary 33kV Substation Transformer",
+    "metrics": {
+        "current_load_kw": 584.2,
+        "power_factor": 0.98,
+        "grid_power_kw": 410.0,
+        "solar_kw": 174.2,
+        "voltage_v": 415.4
     }
-    
-    try:
-        res = requests.post(GATEWAY_ENDPOINT, json=payload, timeout=2.0)
-        print(f"[LAN GATEWAY] Transmitted packet: {res.status_code} - {res.json().get('message')}")
-    except Exception as e:
-        print(f"[LAN GATEWAY ERROR] {e}")
+}
 
-if __name__ == "__main__":
-    print(f"Starting EcoEstate LAN Telemetry Gateway on {get_lan_ip()}...")
-    while True:
-        push_lan_sensor_telemetry()
-        time.sleep(3) # Stream every 3 seconds over physical wire`;
+try:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.connect((SERVER_HOST, TCP_PORT))
+    sock.sendall((json.dumps(payload) + "\\n").encode('utf-8'))
+    ack = sock.recv(1024)
+    print(f"[TCP SUCCESS] ACK Received: {ack.decode('utf-8')}")
+    sock.close()
+except Exception as e:
+    print(f"[TCP ERROR] {e}")`;
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
@@ -213,20 +279,32 @@ if __name__ == "__main__":
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-base sm:text-lg font-black text-stone-900 dark:text-white tracking-tight">
-                  Dual-Channel IoT Sensor Gateway
+                  IoT Gateway & Multi-Protocol Ingestion
                 </h2>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-                  LAN + WiFi ACTIVE
+                  0.0.0.0 LISTENER ACTIVE
                 </span>
               </div>
               <p className="text-xs text-stone-500 dark:text-slate-400">
-                Receiving physical telemetry via wired Ethernet (RJ45 / Modbus) & Wireless (ESP32 Mesh)
+                Receiving UDP Broadcasts (255.255.255.255), TCP Direct Stream & WiFi REST on all network interfaces
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsConfigOpen(!isConfigOpen)}
+              title="Toggle Organization Admin Network Settings"
+              className={`p-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                isConfigOpen
+                  ? 'bg-cyan-500 text-slate-950 border-cyan-400 font-extrabold shadow-md'
+                  : 'bg-white dark:bg-[#0a0b12] border-[#ece3d6] dark:border-[#151722] text-stone-600 dark:text-slate-300 hover:text-cyan-500'
+              }`}
+            >
+              <Sliders className="w-4 h-4" />
+              <span className="hidden sm:inline">Admin Config</span>
+            </button>
             <button
               onClick={refreshData}
               title="Refresh Telemetry Pipeline"
@@ -244,7 +322,7 @@ if __name__ == "__main__":
         </div>
 
         {/* Content Body: Scrollable */}
-        <div className="p-4 sm:p-6 overflow-y-auto space-y-6">
+        <div className="p-4 sm:p-6 overflow-y-auto space-y-5">
           
           {/* Notification Toast */}
           {simulationToast && (
@@ -257,10 +335,109 @@ if __name__ == "__main__":
             </div>
           )}
 
-          {/* 1. DUAL CHANNEL ARCHITECTURE OVERVIEW */}
+          {configToast && (
+            <div className="p-3 rounded-2xl bg-cyan-500/15 border border-cyan-500/40 text-cyan-700 dark:text-cyan-300 text-xs font-bold flex items-center justify-between animate-in slide-in-from-top duration-200">
+              <div className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4 text-cyan-500" />
+                <span>{configToast}</span>
+              </div>
+              <span className="font-mono text-[10px]">Socket Ports Updated</span>
+            </div>
+          )}
+
+          {/* ADMIN CONFIGURATION PANEL (Collapsible or always available) */}
+          {isConfigOpen && (
+            <div className="p-4 sm:p-5 rounded-2xl bg-gradient-to-br from-[#f8f5ee] to-[#f2ede4] dark:from-[#0d101e] dark:to-[#090b14] border-2 border-cyan-500/50 shadow-lg space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
+              <div className="flex items-center justify-between border-b border-[#ece3d6] dark:border-[#1e2338] pb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-1.5 rounded-lg bg-cyan-500/20 text-cyan-600 dark:text-cyan-400">
+                    <Settings className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h3 className="font-black text-sm text-stone-900 dark:text-white">
+                      Organization Admin • IoT Network & Protocol Control
+                    </h3>
+                    <p className="text-[11px] text-stone-500 dark:text-slate-400">
+                      Alter protocol priorities, binding ports, and UDP broadcast settings for your institute
+                    </p>
+                  </div>
+                </div>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-cyan-500/20 text-cyan-600 dark:text-cyan-300 border border-cyan-500/30">
+                  Role: Org Admin
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                {/* Protocol Preference */}
+                <div className="space-y-1.5">
+                  <label className="font-bold text-stone-700 dark:text-slate-300 flex items-center gap-1">
+                    <Share2 className="w-3.5 h-3.5 text-cyan-500" /> Preferred Protocol Mode:
+                  </label>
+                  <select
+                    value={preferredProtocol}
+                    onChange={(e: any) => setPreferredProtocol(e.target.value)}
+                    className="w-full p-2 rounded-xl border border-[#ece3d6] dark:border-[#1d2035] bg-white dark:bg-[#121422] text-stone-900 dark:text-white font-semibold cursor-pointer outline-none focus:border-cyan-500"
+                  >
+                    <option value="UDP_BROADCAST">📡 UDP Broadcast (255.255.255.255) - Zero Config</option>
+                    <option value="TCP_SOCKET">🔌 TCP Socket (Modbus-TCP / Port 5000)</option>
+                    <option value="HTTP_REST">📶 WiFi HTTP REST (Port 8000)</option>
+                  </select>
+                </div>
+
+                {/* UDP Port Config */}
+                <div className="space-y-1.5">
+                  <label className="font-bold text-stone-700 dark:text-slate-300 flex items-center gap-1">
+                    <Network className="w-3.5 h-3.5 text-blue-500" /> UDP Broadcast Port:
+                  </label>
+                  <input
+                    type="number"
+                    value={udpPort}
+                    onChange={(e) => setUdpPort(Number(e.target.value))}
+                    className="w-full p-2 rounded-xl border border-[#ece3d6] dark:border-[#1d2035] bg-white dark:bg-[#121422] text-stone-900 dark:text-white font-mono font-bold outline-none focus:border-cyan-500"
+                    placeholder="5005"
+                  />
+                </div>
+
+                {/* TCP Port Config */}
+                <div className="space-y-1.5">
+                  <label className="font-bold text-stone-700 dark:text-slate-300 flex items-center gap-1">
+                    <Server className="w-3.5 h-3.5 text-emerald-500" /> TCP Socket Port:
+                  </label>
+                  <input
+                    type="number"
+                    value={tcpPort}
+                    onChange={(e) => setTcpPort(Number(e.target.value))}
+                    className="w-full p-2 rounded-xl border border-[#ece3d6] dark:border-[#1d2035] bg-white dark:bg-[#121422] text-stone-900 dark:text-white font-mono font-bold outline-none focus:border-cyan-500"
+                    placeholder="5000"
+                  />
+                </div>
+              </div>
+
+              {/* Shared WiFi Info & Save Button */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2 border-t border-[#ece3d6] dark:border-[#1e2338]">
+                <div className="flex items-center gap-2 text-[11px] text-stone-600 dark:text-slate-400">
+                  <Globe className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                  <span>Receiver Bind: <strong>0.0.0.0</strong> • Subnet Auto-IP: <strong>{serverLocalIp}</strong></span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleSaveConfig}
+                    disabled={isSavingConfig}
+                    className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-black text-xs flex items-center gap-1.5 transition-all shadow-md cursor-pointer disabled:opacity-60"
+                  >
+                    <Save className="w-3.5 h-3.5" />
+                    <span>{isSavingConfig ? 'Applying...' : 'Save & Restart Listeners'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* 1. DUAL CHANNEL ARCHITECTURE OVERVIEW & REAL-TIME STATS */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             
-            {/* Channel 1: LAN (Ethernet RJ45) */}
+            {/* Channel 1: LAN & UDP BROADCAST */}
             <div className="p-4 sm:p-5 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border-2 border-emerald-500/40 relative overflow-hidden space-y-3 shadow-sm">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-2.5">
@@ -269,10 +446,10 @@ if __name__ == "__main__":
                   </div>
                   <div>
                     <h3 className="font-black text-sm text-stone-900 dark:text-white flex items-center gap-1.5">
-                      <span>LAN (Ethernet / Modbus-TCP)</span>
+                      <span>LAN UDP Broadcast & TCP Socket</span>
                     </h3>
                     <span className="text-[11px] text-stone-500 dark:text-slate-400">
-                      Physical RJ45 Cat6 Cable • Industrial Wired
+                      Binds to 0.0.0.0 • Catches 255.255.255.255 Subnet Telemetry
                     </span>
                   </div>
                 </div>
@@ -283,30 +460,30 @@ if __name__ == "__main__":
 
               <div className="grid grid-cols-2 gap-2 text-xs font-mono">
                 <div className="p-2 rounded-xl bg-white dark:bg-[#121422] border border-[#ece3d6] dark:border-[#1d2035]">
-                  <span className="text-[10px] text-stone-400 block font-sans">Gateway Host IP</span>
-                  <span className="font-bold text-stone-900 dark:text-white">192.168.1.50</span>
+                  <span className="text-[10px] text-stone-400 block font-sans">Receiver Binding</span>
+                  <span className="font-bold text-emerald-600 dark:text-emerald-400">0.0.0.0 (All NICs)</span>
                 </div>
                 <div className="p-2 rounded-xl bg-white dark:bg-[#121422] border border-[#ece3d6] dark:border-[#1d2035]">
-                  <span className="text-[10px] text-stone-400 block font-sans">Wire Latency</span>
-                  <span className="font-bold text-emerald-500">1.8 ms (Zero Jitter)</span>
+                  <span className="text-[10px] text-stone-400 block font-sans">Broadcast Destination</span>
+                  <span className="font-bold text-stone-900 dark:text-white">255.255.255.255</span>
                 </div>
                 <div className="p-2 rounded-xl bg-white dark:bg-[#121422] border border-[#ece3d6] dark:border-[#1d2035]">
-                  <span className="text-[10px] text-stone-400 block font-sans">Active Wired Nodes</span>
-                  <span className="font-bold text-stone-900 dark:text-white">12 Industrial Units</span>
+                  <span className="text-[10px] text-stone-400 block font-sans">UDP Port</span>
+                  <span className="font-bold text-blue-500">Port {udpPort}</span>
                 </div>
                 <div className="p-2 rounded-xl bg-white dark:bg-[#121422] border border-[#ece3d6] dark:border-[#1d2035]">
-                  <span className="text-[10px] text-stone-400 block font-sans">Packet Frequency</span>
-                  <span className="font-bold text-cyan-500">1,420 pkts/min</span>
+                  <span className="text-[10px] text-stone-400 block font-sans">TCP Modbus Port</span>
+                  <span className="font-bold text-cyan-500">Port {tcpPort}</span>
                 </div>
               </div>
 
               <div className="text-[11px] text-stone-600 dark:text-slate-400 pt-1 border-t border-emerald-500/20 flex items-center justify-between">
-                <span>Targets: Substation, STP Pump, Solar Bank</span>
-                <span className="font-bold text-emerald-600 dark:text-emerald-400">Port 502 / 8000</span>
+                <span>UDP Broadcasts Received: <strong>{stats.udp_packets} pkts</strong></span>
+                <span className="font-bold text-emerald-600 dark:text-emerald-400">Zero-Config Ready</span>
               </div>
             </div>
 
-            {/* Channel 2: WiFi (Wireless 802.11 Mesh) */}
+            {/* Channel 2: WiFi & REST INGEST */}
             <div className="p-4 sm:p-5 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border-2 border-cyan-500/40 relative overflow-hidden space-y-3 shadow-sm">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-2.5">
@@ -315,10 +492,10 @@ if __name__ == "__main__":
                   </div>
                   <div>
                     <h3 className="font-black text-sm text-stone-900 dark:text-white flex items-center gap-1.5">
-                      <span>WiFi (ESP32 Wireless Mesh)</span>
+                      <span>WiFi (ESP32 Mesh & HTTP REST)</span>
                     </h3>
                     <span className="text-[11px] text-stone-500 dark:text-slate-400">
-                      802.11 b/g/n Grid • Distributed Wireless
+                      Shared WiFi Subnet Ingestion & REST Endpoint
                     </span>
                   </div>
                 </div>
@@ -329,44 +506,44 @@ if __name__ == "__main__":
 
               <div className="grid grid-cols-2 gap-2 text-xs font-mono">
                 <div className="p-2 rounded-xl bg-white dark:bg-[#121422] border border-[#ece3d6] dark:border-[#1d2035]">
-                  <span className="text-[10px] text-stone-400 block font-sans">Network SSID</span>
-                  <span className="font-bold text-stone-900 dark:text-white truncate">EcoEstate_IoT_Grid</span>
+                  <span className="text-[10px] text-stone-400 block font-sans">Server Local IP</span>
+                  <span className="font-bold text-stone-900 dark:text-white truncate">{serverLocalIp}</span>
                 </div>
                 <div className="p-2 rounded-xl bg-white dark:bg-[#121422] border border-[#ece3d6] dark:border-[#1d2035]">
-                  <span className="text-[10px] text-stone-400 block font-sans">Avg Signal (RSSI)</span>
-                  <span className="font-bold text-cyan-400">-56 dBm (High SNR)</span>
+                  <span className="text-[10px] text-stone-400 block font-sans">HTTP Ingest Endpoint</span>
+                  <span className="font-bold text-cyan-400 truncate">:8000/api/iot/ingest/</span>
                 </div>
                 <div className="p-2 rounded-xl bg-white dark:bg-[#121422] border border-[#ece3d6] dark:border-[#1d2035]">
                   <span className="text-[10px] text-stone-400 block font-sans">Active WiFi Nodes</span>
                   <span className="font-bold text-stone-900 dark:text-white">28 Microcontrollers</span>
                 </div>
                 <div className="p-2 rounded-xl bg-white dark:bg-[#121422] border border-[#ece3d6] dark:border-[#1d2035]">
-                  <span className="text-[10px] text-stone-400 block font-sans">Packet Frequency</span>
-                  <span className="font-bold text-indigo-400">3,450 pkts/min</span>
+                  <span className="text-[10px] text-stone-400 block font-sans">HTTP Ingested Packets</span>
+                  <span className="font-bold text-indigo-400">{stats.http_packets} pkts</span>
                 </div>
               </div>
 
               <div className="text-[11px] text-stone-600 dark:text-slate-400 pt-1 border-t border-cyan-500/20 flex items-center justify-between">
                 <span>Targets: AQI Sensors, Smart Bins, Parking</span>
-                <span className="font-bold text-cyan-600 dark:text-cyan-400">WPA2-Enterprise</span>
+                <span className="font-bold text-cyan-600 dark:text-cyan-400">ESP32 / ESP8266</span>
               </div>
             </div>
           </div>
 
-          {/* SENDER APP LAUNCHER BANNER */}
+          {/* SENDER APP BANNER */}
           <div className="p-3.5 rounded-2xl bg-gradient-to-r from-cyan-500/15 via-indigo-500/15 to-purple-500/15 border border-cyan-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-sm">
             <div className="space-y-0.5">
               <div className="flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping" />
                 <span className="font-extrabold text-stone-900 dark:text-white">
-                  Desktop IoT Hardware Sender Application Ready
+                  IoT Sender App: Broadcast 255.255.255.255 Ready
                 </span>
                 <span className="px-2 py-0.2 rounded-full bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 font-mono text-[9px] font-bold">
-                  TCP 5000 • UDP 5005 • WiFi 8000
+                  UDP {udpPort} • TCP {tcpPort} • Shared WiFi
                 </span>
               </div>
               <p className="text-stone-600 dark:text-slate-300 text-[11px]">
-                Launch the native Python GUI application to stream telemetry via actual TCP/UDP sockets and WiFi REST API.
+                Sender automatically broadcasts to <strong>255.255.255.255:{udpPort}</strong> without requiring manual server IP configuration.
               </p>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
@@ -377,7 +554,7 @@ if __name__ == "__main__":
             </div>
           </div>
 
-          {/* 2. REAL-TIME TEST SIMULATOR (Instant Live Verification) */}
+          {/* 2. REAL-TIME TEST SIMULATOR */}
           <div className="p-4 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722] space-y-3">
             <div className="flex items-center justify-between">
               <div>
@@ -385,15 +562,28 @@ if __name__ == "__main__":
                   Transmit Test Sensor Packet (Verify Live Ingestion)
                 </h4>
                 <p className="text-[11px] text-stone-500 dark:text-slate-400">
-                  Dispatch real telemetry payloads over LAN TCP socket, LAN UDP datagram, or WiFi HTTP REST:
+                  Dispatch telemetry over UDP broadcast, TCP socket, or WiFi HTTP REST:
                 </p>
               </div>
               <span className="text-[10px] font-mono text-cyan-600 dark:text-cyan-400 hidden sm:inline">
-                Ports: TCP:5000 | UDP:5005 | HTTP:8000
+                Ports: UDP:{udpPort} | TCP:{tcpPort} | HTTP:8000
               </span>
             </div>
 
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <button
+                onClick={() => handleSimulate('LAN', 'WATER', 'UDP', false)}
+                disabled={isSimulating}
+                className="p-2.5 rounded-xl border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-400 text-xs font-bold flex flex-col items-center gap-1 transition-all cursor-pointer disabled:opacity-60"
+              >
+                <div className="flex items-center gap-1">
+                  <Radio className="w-3.5 h-3.5" />
+                  <Droplets className="w-3.5 h-3.5" />
+                </div>
+                <span>UDP Broadcast</span>
+                <span className="text-[9px] opacity-75 font-mono">255.255.255.255:{udpPort}</span>
+              </button>
+
               <button
                 onClick={() => handleSimulate('LAN', 'ENERGY', 'TCP', false)}
                 disabled={isSimulating}
@@ -404,20 +594,7 @@ if __name__ == "__main__":
                   <Zap className="w-3.5 h-3.5" />
                 </div>
                 <span>LAN TCP Socket</span>
-                <span className="text-[9px] opacity-75 font-mono">Port 5000 • Modbus</span>
-              </button>
-
-              <button
-                onClick={() => handleSimulate('LAN', 'WATER', 'UDP', false)}
-                disabled={isSimulating}
-                className="p-2.5 rounded-xl border border-blue-500/30 bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-400 text-xs font-bold flex flex-col items-center gap-1 transition-all cursor-pointer disabled:opacity-60"
-              >
-                <div className="flex items-center gap-1">
-                  <Network className="w-3.5 h-3.5" />
-                  <Droplets className="w-3.5 h-3.5" />
-                </div>
-                <span>LAN UDP Datagram</span>
-                <span className="text-[9px] opacity-75 font-mono">Port 5005 • Fast UDP</span>
+                <span className="text-[9px] opacity-75 font-mono">0.0.0.0:{tcpPort} • Modbus</span>
               </button>
 
               <button
@@ -434,7 +611,7 @@ if __name__ == "__main__":
               </button>
 
               <button
-                onClick={() => handleSimulate('LAN', 'EQUIPMENT', 'TCP', true)}
+                onClick={() => handleSimulate('LAN', 'EQUIPMENT', 'UDP', true)}
                 disabled={isSimulating}
                 className="p-2.5 rounded-xl border border-rose-500/40 bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-400 text-xs font-bold flex flex-col items-center gap-1 transition-all cursor-pointer disabled:opacity-60"
               >
@@ -444,14 +621,14 @@ if __name__ == "__main__":
                 </div>
                 <span className="flex items-center gap-1.5 font-bold">
                   <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
-                  Inject Vibration Fault
+                  Inject Anomaly Fault
                 </span>
-                <span className="text-[9px] opacity-75 font-mono">4.8 mm/s • Simulates Failure</span>
+                <span className="text-[9px] opacity-75 font-mono">4.8 mm/s • UDP Broadcast</span>
               </button>
             </div>
           </div>
 
-          {/* 3. LIVE INGESTED TELEMETRY STREAM (Packet Inspection Log) */}
+          {/* 3. LIVE INGESTED TELEMETRY STREAM */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
@@ -481,7 +658,7 @@ if __name__ == "__main__":
                       : 'text-stone-400'
                   }`}
                 >
-                  LAN Only
+                  LAN / UDP
                 </button>
                 <button
                   onClick={() => setFilterChannel('WIFI')}
@@ -497,10 +674,10 @@ if __name__ == "__main__":
             </div>
 
             {/* Packets List */}
-            <div className="rounded-2xl border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-[#07080e] overflow-hidden max-h-56 overflow-y-auto divide-y divide-[#ece3d6] dark:divide-[#151722]">
+            <div className="rounded-2xl border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-[#07080e] overflow-hidden max-h-52 overflow-y-auto divide-y divide-[#ece3d6] dark:divide-[#151722]">
               {filteredPackets.length === 0 ? (
                 <div className="p-6 text-center text-xs text-stone-400">
-                  No packets recorded for this channel filter. Click the test buttons above to simulate live data.
+                  No packets recorded for this channel filter. Dispatch test packets above or stream from Python sender.
                 </div>
               ) : (
                 filteredPackets.map((pkt) => (
@@ -518,7 +695,13 @@ if __name__ == "__main__":
                       </span>
 
                       {pkt.protocol && (
-                        <span className="px-1.5 py-0.2 rounded text-[9px] font-mono font-black bg-stone-200 dark:bg-slate-800 text-stone-700 dark:text-slate-300">
+                        <span className={`px-1.5 py-0.2 rounded text-[9px] font-mono font-black ${
+                          pkt.protocol === 'UDP'
+                            ? 'bg-blue-500/20 text-blue-700 dark:text-blue-300 border border-blue-500/30'
+                            : pkt.protocol === 'TCP'
+                            ? 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                            : 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border border-cyan-500/30'
+                        }`}>
                           {pkt.protocol}
                         </span>
                       )}
@@ -571,18 +754,28 @@ if __name__ == "__main__":
             </div>
           </div>
 
-          {/* 4. HARDWARE FLASHING SNIPPETS (For Real Physical Sensors) */}
+          {/* 4. HARDWARE FLASHING & CODE EXAMPLES */}
           <div className="p-4 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722] space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Terminal className="w-4 h-4 text-purple-500" />
                 <h4 className="text-xs font-black uppercase tracking-wider text-stone-800 dark:text-slate-200">
-                  Ready-to-Flash Hardware Integration Code
+                  Ready-to-Use Integration Code
                 </h4>
               </div>
 
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-1 p-0.5 rounded-xl bg-white dark:bg-[#121422] border border-[#ece3d6] dark:border-[#151722] text-[11px] font-bold">
+                  <button
+                    onClick={() => setActiveCodeTab('udp_broadcast')}
+                    className={`px-2 py-0.5 rounded-lg transition-colors cursor-pointer ${
+                      activeCodeTab === 'udp_broadcast'
+                        ? 'bg-blue-500 text-white font-extrabold'
+                        : 'text-stone-400'
+                    }`}
+                  >
+                    UDP Broadcast (Python)
+                  </button>
                   <button
                     onClick={() => setActiveCodeTab('esp32')}
                     className={`px-2 py-0.5 rounded-lg transition-colors cursor-pointer ${
@@ -591,7 +784,7 @@ if __name__ == "__main__":
                         : 'text-stone-400'
                     }`}
                   >
-                    ESP32 WiFi (Arduino C++)
+                    ESP32 WiFi (C++)
                   </button>
                   <button
                     onClick={() => setActiveCodeTab('lan_python')}
@@ -601,12 +794,12 @@ if __name__ == "__main__":
                         : 'text-stone-400'
                     }`}
                   >
-                    LAN Modbus / Python
+                    TCP Modbus (Python)
                   </button>
                 </div>
 
                 <button
-                  onClick={() => copyToClipboard(activeCodeTab === 'esp32' ? esp32CodeSnippet : lanPythonSnippet)}
+                  onClick={() => copyToClipboard(activeCodeTab === 'udp_broadcast' ? udpBroadcastSnippet : activeCodeTab === 'esp32' ? esp32CodeSnippet : lanPythonSnippet)}
                   className="px-2.5 py-1 rounded-xl bg-white dark:bg-[#121422] border border-[#ece3d6] dark:border-[#151722] text-xs font-bold text-stone-700 dark:text-slate-300 hover:text-cyan-500 flex items-center gap-1 cursor-pointer"
                 >
                   {copiedCode ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
@@ -615,8 +808,8 @@ if __name__ == "__main__":
               </div>
             </div>
 
-            <div className="relative rounded-xl overflow-hidden bg-slate-950 border border-stone-800 p-3 font-mono text-[11px] text-emerald-400 max-h-48 overflow-y-auto leading-relaxed">
-              <pre>{activeCodeTab === 'esp32' ? esp32CodeSnippet : lanPythonSnippet}</pre>
+            <div className="relative rounded-xl overflow-hidden bg-slate-950 border border-stone-800 p-3 font-mono text-[11px] text-emerald-400 max-h-44 overflow-y-auto leading-relaxed">
+              <pre>{activeCodeTab === 'udp_broadcast' ? udpBroadcastSnippet : activeCodeTab === 'esp32' ? esp32CodeSnippet : lanPythonSnippet}</pre>
             </div>
           </div>
 
@@ -626,7 +819,7 @@ if __name__ == "__main__":
         <div className="p-3 sm:p-4 border-t border-[#ece3d6] dark:border-[#151722] bg-[#fbf8f3] dark:bg-[#04050a] flex items-center justify-between text-xs text-stone-500 dark:text-slate-400">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
-            <span>Dual Ingestion: <strong>http://localhost:8000/api/iot/ingest/</strong></span>
+            <span>0.0.0.0 Listeners: <strong>UDP {udpPort} (Broadcast 255.255.255.255) • TCP {tcpPort} • HTTP Ingest 8000</strong></span>
           </div>
           <button
             onClick={onClose}

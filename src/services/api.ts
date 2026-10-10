@@ -242,6 +242,31 @@ export const DjangoApi = {
     }
   },
 
+  async getIoTGatewayConfig() {
+    try {
+      const res = await fetch(`${API_BASE_URL}/iot/gateway-config/`, { cache: 'no-store' });
+      if (!res.ok) throw new Error('Failed to fetch gateway config');
+      return await res.json();
+    } catch (err) {
+      console.warn('Gateway config fetch error', err);
+      return null;
+    }
+  },
+
+  async updateIoTGatewayConfig(config: any) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/iot/gateway-config/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(config),
+      });
+      return await res.json();
+    } catch (err) {
+      console.error('Update gateway config error', err);
+      return null;
+    }
+  },
+
   async ingestIoTPacket(packetData: any) {
     try {
       const res = await fetch(`${API_BASE_URL}/iot/ingest/`, {

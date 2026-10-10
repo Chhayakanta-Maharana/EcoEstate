@@ -597,12 +597,33 @@ def iot_ingest_view(request):
     if len(IOT_PACKET_STREAM) > 50:
         IOT_PACKET_STREAM.pop()
 
+    try:
+        from .socket_listener import record_http_packet
+        record_http_packet(device_id)
+    except Exception:
+        pass
+
     return Response({
         'status': 'success',
         'message': f"Ingested telemetry packet from {source} [{sensor_type}] via {device_id}",
         'packet': new_packet,
         'gateway_sync': 'SYNCHRONIZED_WITH_TWIN'
     }, status=status.HTTP_201_CREATED)
+
+@api_view(['GET', 'POST'])
+def iot_gateway_config_view(request):
+    """
+    Get or update IoT Gateway network settings (UDP/TCP/HTTP binding, ports, protocol preference).
+    """
+    try:
+        from .socket_listener import get_gateway_config, update_gateway_config
+        if request.method == 'POST':
+            updated = update_gateway_config(request.data)
+            return Response({'status': 'success', 'config': updated}, status=status.HTTP_200_OK)
+        else:
+            return Response({'status': 'success', 'config': get_gateway_config()}, status=status.HTTP_200_OK)
+    except Exception as e:
+        return Response({'status': 'error', 'message': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 @api_view(['GET'])
 def iot_status_view(request):
@@ -612,14 +633,25 @@ def iot_status_view(request):
     lan_packets = [p for p in IOT_PACKET_STREAM if p['source'] == 'LAN']
     wifi_packets = [p for p in IOT_PACKET_STREAM if p['source'] == 'WIFI']
 
+    try:
+        from .socket_listener import get_gateway_config
+        gw_cfg = get_gateway_config()
+    except Exception:
+        gw_cfg = None
+
     return Response({
         'lan_channel': {
             'status': 'ONLINE',
-            'channel_name': 'Ethernet RJ45 / Industrial Modbus-TCP',
-            'interface': 'eth0 / Physical 1000BASE-T',
-            'gateway_ip': '192.168.1.50',
+            'channel_name': 'Ethernet RJ45 / Industrial Modbus-TCP & UDP Broadcast',
+            'interface': '0.0.0.0 (Binds all network interfaces)',
+            'gateway_ip': gw_cfg.get('server_local_ip', '192.168.1.50') if gw_cfg else '192.168.1.50',
             'subnet': '255.255.255.0',
-            'protocols': ['Modbus-TCP (Port 502)', 'HTTP/REST (Port 8000)', 'BACnet/IP'],
+            'broadcast_ip': '255.255.255.255',
+            'protocols': [
+                f"UDP Broadcast (Port {gw_cfg.get('udp_port', 5005) if gw_cfg else 5005})",
+                f"Modbus-TCP / JSON (Port {gw_cfg.get('tcp_port', 5000) if gw_cfg else 5000})",
+                'HTTP/REST (Port 8000)'
+            ],
             'active_wired_nodes': 12,
             'packet_rate_per_min': 1420,
             'latency_ms': 1.8,
@@ -633,16 +665,17 @@ def iot_status_view(request):
             'security': 'WPA2-Enterprise / AES',
             'active_wireless_nodes': 28,
             'avg_rssi_dbm': -56,
-            'protocols': ['HTTP POST (Port 8000)', 'MQTT over WebSockets'],
+            'protocols': ['HTTP POST (Port 8000)', 'UDP Broadcast (Port 5005)', 'MQTT'],
             'packet_rate_per_min': 3450,
             'recent_packet_count': len(wifi_packets)
         },
+        'gateway_config': gw_cfg,
         'system_summary': {
             'dual_mode_active': True,
             'total_nodes_online': 40,
             'total_packets_buffered': len(IOT_PACKET_STREAM),
             'last_sync_time': datetime.now().strftime('%H:%M:%S'),
-            'firmware_version': 'EcoGateway-v2.6-Dual'
+            'firmware_version': 'EcoGateway-v2.8-MultiProto'
         }
     }, status=status.HTTP_200_OK)
 

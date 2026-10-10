@@ -240,20 +240,22 @@ def send_packet_lan_tcp(host: str, port: int, payload: dict) -> tuple[bool, str]
 
 
 def send_packet_lan_udp(host: str, port: int, payload: dict) -> tuple[bool, str]:
-    """Sends telemetry payload via UDP Datagram to LAN Gateway."""
+    """Sends telemetry payload via UDP Datagram / Broadcast (255.255.255.255) to LAN Gateway."""
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(3.0)
+        # Enable SO_BROADCAST to permit 255.255.255.255 subnet broadcasts on shared WiFi/LAN
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.settimeout(2.5)
         msg = json.dumps(payload)
         sock.sendto(msg.encode('utf-8'), (host, port))
         
         # Try reading ACK
-        sock.settimeout(1.5)
+        sock.settimeout(1.2)
         try:
             resp, _ = sock.recvfrom(1024)
             ack_msg = resp.decode('utf-8', errors='ignore').strip()
         except socket.timeout:
-            ack_msg = "UDP Datagram Dispatched (No Wait ACK)"
+            ack_msg = f"UDP Broadcast Packet Transmitted to {host}:{port}"
         sock.close()
         return True, f"UDP Success: {ack_msg}"
     except Exception as e:
@@ -377,16 +379,38 @@ class IoTSenderGui:
         lan_grid = tk.Frame(lan_frame, bg="#0d111f")
         lan_grid.pack(fill="x", padx=10, pady=4)
 
-        tk.Label(lan_grid, text="Gateway Host:", bg="#0d111f", fg="#94a3b8").grid(row=0, column=0, sticky="w", pady=2)
-        self.lan_host_var = tk.StringVar(value=DEFAULT_HOST)
+        tk.Label(lan_grid, text="Gateway Host / Broadcast:", bg="#0d111f", fg="#94a3b8").grid(row=0, column=0, sticky="w", pady=2)
+        self.lan_host_var = tk.StringVar(value="255.255.255.255")
         tk.Entry(lan_grid, textvariable=self.lan_host_var, width=16, bg="#070913", fg="#ffffff", insertbackground="#ffffff").grid(row=0, column=1, sticky="w", padx=5, pady=2)
 
-        tk.Label(lan_grid, text="Device LAN IP:", bg="#0d111f", fg="#94a3b8").grid(row=0, column=2, sticky="w", padx=(10, 0), pady=2)
+        # Broadcast helper buttons
+        btn_box = tk.Frame(lan_grid, bg="#0d111f")
+        btn_box.grid(row=0, column=2, columnspan=2, sticky="w", padx=5)
+        
+        btn_bcast = tk.Button(
+            btn_box, text="📡 255.255.255.255", font=("Segoe UI", 7, "bold"),
+            bg="#1e3a8a", fg="#93c5fd", activebackground="#2563eb", activeforeground="#ffffff",
+            bd=0, padx=5, pady=1, cursor="hand2", command=lambda: self.lan_host_var.set("255.255.255.255")
+        )
+        btn_bcast.pack(side="left", padx=2)
+
+        btn_local = tk.Button(
+            btn_box, text=f"🎯 Local IP ({self.detected_ip})", font=("Segoe UI", 7, "bold"),
+            bg="#064e3b", fg="#6ee7b7", activebackground="#047857", activeforeground="#ffffff",
+            bd=0, padx=5, pady=1, cursor="hand2", command=lambda: self.lan_host_var.set(self.detected_ip)
+        )
+        btn_local.pack(side="left", padx=2)
+
+        tk.Label(lan_grid, text="Port (UDP/TCP):", bg="#0d111f", fg="#94a3b8").grid(row=1, column=0, sticky="w", pady=2)
+        self.lan_port_var = tk.StringVar(value="5005")
+        tk.Entry(lan_grid, textvariable=self.lan_port_var, width=16, bg="#070913", fg="#ffffff", insertbackground="#ffffff").grid(row=1, column=1, sticky="w", padx=5, pady=2)
+
+        tk.Label(lan_grid, text="Device LAN IP:", bg="#0d111f", fg="#94a3b8").grid(row=1, column=2, sticky="w", padx=(10, 0), pady=2)
         self.lan_dev_ip_var = tk.StringVar(value=self.detected_ip)
-        tk.Entry(lan_grid, textvariable=self.lan_dev_ip_var, width=16, bg="#070913", fg="#ffffff", insertbackground="#ffffff").grid(row=0, column=3, sticky="w", padx=5, pady=2)
+        tk.Entry(lan_grid, textvariable=self.lan_dev_ip_var, width=16, bg="#070913", fg="#ffffff", insertbackground="#ffffff").grid(row=1, column=3, sticky="w", padx=5, pady=2)
 
         # Detected IP info label
-        ip_info = tk.Label(lan_frame, text=f"🌐 Auto-Detected Network IP: {self.detected_ip} (Shared WiFi Ready)", bg="#0d111f", fg="#10b981", font=("Segoe UI", 8, "bold"))
+        ip_info = tk.Label(lan_frame, text=f"🌐 0.0.0.0 Receiver Compatible • Subnet Broadcast: 255.255.255.255:5005 (UDP)", bg="#0d111f", fg="#10b981", font=("Segoe UI", 8, "bold"))
         ip_info.pack(anchor="w", padx=10, pady=(4, 6))
 
         # TAB 2: WIFI (ESP32)
@@ -653,14 +677,17 @@ class IoTSenderGui:
         proto = payload.get("protocol", "TCP")
 
         if is_lan:
-            host = self.lan_host_var.get().strip() or DEFAULT_HOST
+            host = self.lan_host_var.get().strip() or "255.255.255.255"
+            try:
+                port = int(self.lan_port_var.get().strip())
+            except Exception:
+                port = DEFAULT_TCP_PORT if proto == "TCP" else DEFAULT_UDP_PORT
+
             if proto == "TCP":
-                port = DEFAULT_TCP_PORT
                 self._log(f"Dispatching [LAN TCP] to {host}:{port} ({payload['device_id']})...", "INFO")
                 ok, msg = send_packet_lan_tcp(host, port, payload)
             else:
-                port = DEFAULT_UDP_PORT
-                self._log(f"Dispatching [LAN UDP] to {host}:{port} ({payload['device_id']})...", "INFO")
+                self._log(f"Dispatching [LAN UDP Broadcast] to {host}:{port} ({payload['device_id']})...", "INFO")
                 ok, msg = send_packet_lan_udp(host, port, payload)
         else:
             url = self.wifi_url_var.get().strip() or DEFAULT_HTTP_URL

@@ -19,6 +19,7 @@ from .views import (
     iot_status_view,
     iot_packets_stream_view,
     iot_simulate_packet_view,
+    iot_gateway_config_view,
     admin_realtime_analytics_view,
     api_login_view,
     forgot_password_request_view,
@@ -74,6 +75,7 @@ urlpatterns = [
     path('iot/status/', iot_status_view, name='iot_status'),
     path('iot/packets/', iot_packets_stream_view, name='iot_packets'),
     path('iot/simulate/', iot_simulate_packet_view, name='iot_simulate'),
+    path('iot/gateway-config/', iot_gateway_config_view, name='iot_gateway_config'),
 ]
 
 
