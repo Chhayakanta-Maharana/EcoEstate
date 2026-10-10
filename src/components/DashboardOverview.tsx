@@ -169,6 +169,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
     vibrationMmSec: eq.vibration_mm_per_sec,
   }));
 
+  const hasEquipment = effectiveEquipments.length > 0;
   const criticalEquipments = effectiveEquipments.filter((e) => e.status === 'Critical' || e.status === 'Warning');
   const avgHealth = effectiveEquipments.length > 0
     ? Math.round(effectiveEquipments.reduce((acc, curr) => acc + (curr.healthScore || 90), 0) / effectiveEquipments.length)

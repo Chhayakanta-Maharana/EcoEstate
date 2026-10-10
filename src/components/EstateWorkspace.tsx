@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
+import { DjangoApi } from '@/services/api';
 import Logo from '@/components/Logo';
 import { Role } from '@/types';
 import {
@@ -172,7 +173,7 @@ export const EstateWorkspace: React.FC<EstateWorkspaceProps> = ({
   useEffect(() => {
     const checkIoT = () => {
       DjangoApi.getIoTStatus()
-        .then((s) => {
+        .then((s: any) => {
           if (s?.active_stream) setActiveStream(s.active_stream);
         })
         .catch(() => {});
