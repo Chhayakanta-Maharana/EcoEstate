@@ -14,6 +14,7 @@ import {
   Sparkles,
   Info,
   Radio,
+  MapPin,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -205,8 +206,8 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
           </h2>
 
           <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800/30 text-xs space-y-2">
-            <p className="font-bold text-amber-800 dark:text-amber-300">
-              📍 Primary Hotspot: {aqi.hotspotLocation}
+            <p className="font-bold text-amber-800 dark:text-amber-300 flex items-center gap-1.5">
+              <MapPin className="w-3.5 h-3.5 text-amber-500" /> Primary Hotspot: {aqi.hotspotLocation}
             </p>
             <p className="text-stone-600 dark:text-slate-300 text-[11px] leading-relaxed">
               Localized PM2.5 elevation detected due to vehicular idling and mechanical exhaust. Recommended action: Route delivery transit away from air intake louvers.

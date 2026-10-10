@@ -10,8 +10,8 @@ class Organization(models.Model):
     ]
 
     name = models.CharField(max_length=255)
-    facility_type = models.CharField(max_length=50, choices=FACILITY_TYPES, default='HOSPITAL')
-    category_label = models.CharField(max_length=255, default='Institutional Estate')
+    facility_type = models.CharField(max_length=50, choices=FACILITY_TYPES, default='COLLEGE')
+    category_label = models.CharField(max_length=255, default='College / University Campus')
     city = models.CharField(max_length=100)
     state = models.CharField(max_length=100)
     area_sqft = models.BigIntegerField(default=1000000)

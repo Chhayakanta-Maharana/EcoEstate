@@ -23,6 +23,7 @@ import {
   Layers,
   Sparkles,
   Send,
+  MapPin,
 } from 'lucide-react';
 
 interface SuperAdminViewProps {
@@ -428,8 +429,8 @@ export const SuperAdminView: React.FC<SuperAdminViewProps> = ({ onNavigateToOrg 
                               {org.type}
                             </span>
                           </div>
-                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-                            📍 {org.city}, {org.state} • Score: {org.sustainabilityScore}/100
+                          <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 inline-flex items-center gap-1">
+                            <MapPin className="w-3 h-3 text-stone-400" /> {org.city}, {org.state} • Score: {org.sustainabilityScore}/100
                           </p>
                         </div>
                       </div>

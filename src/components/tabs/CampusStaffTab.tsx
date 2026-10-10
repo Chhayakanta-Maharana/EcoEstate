@@ -443,9 +443,9 @@ export const CampusStaffTab: React.FC<CampusStaffTabProps> = ({ onSimulateRole, 
               </div>
               <button
                 onClick={() => setShowAddModal(false)}
-                className="text-stone-400 hover:text-stone-600 dark:hover:text-white font-bold"
+                className="text-stone-400 hover:text-stone-600 dark:hover:text-white"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
 
@@ -485,11 +485,11 @@ export const CampusStaffTab: React.FC<CampusStaffTabProps> = ({ onSimulateRole, 
                   onChange={(e) => setRole(e.target.value as Role)}
                   className="w-full px-3 py-2 rounded-xl border border-[#ece3d6] dark:border-[#151722] bg-[#f8f5ee] dark:bg-[#0a0b12] text-stone-900 dark:text-white font-bold"
                 >
-                  <option value="ESTATE_MANAGER">🏢 Estate Manager (Maintenance & Waste)</option>
-                  <option value="ENERGY_AUDITOR">⚡ Energy Auditor (Solar, Grid & ESG GRIHA)</option>
-                  <option value="ORG_OPERATOR">🎛️ SCADA Operator (Live IoT & Actuators)</option>
-                  <option value="FACILITY_VIEWER">👁️ Facility Viewer (Read-Only Campus Twin)</option>
-                  <option value="ORG_ADMIN">👑 Estate Admin (Full Administrative Authority)</option>
+                  <option value="ESTATE_MANAGER">Estate Manager (Maintenance &amp; Waste)</option>
+                  <option value="ENERGY_AUDITOR">Energy Auditor (Solar, Grid &amp; ESG GRIHA)</option>
+                  <option value="ORG_OPERATOR">SCADA Operator (Live IoT &amp; Actuators)</option>
+                  <option value="FACILITY_VIEWER">Facility Viewer (Read-Only Campus Twin)</option>
+                  <option value="ORG_ADMIN">Estate Admin (Full Administrative Authority)</option>
                 </select>
               </div>
 

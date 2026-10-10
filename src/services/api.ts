@@ -90,6 +90,8 @@ export const DjangoApi = {
     }
   },
 
+
+
   // Update 3D Twin Campus Image and Nodes in NeonDB
   async updateCampusTwin(orgId: string | number, payload: { campus_image_url?: string; campus_nodes_json?: string }): Promise<BackendOrg | null> {
     try {
@@ -670,6 +672,34 @@ export const DjangoApi = {
     } catch (err) {
       console.error('Reset password API error', err);
       return { error: 'Network error communicating with authentication server.' };
+    }
+  },
+
+  // SuperAdmin Profile API
+
+  async updateSuperAdminProfile(data: { name?: string; email?: string; title?: string; password?: string }): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/superadmin/profile/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      return await res.json();
+    } catch (err) {
+      console.warn('Update superadmin profile API error', err);
+      return { error: 'Backend unreachable' };
+    }
+  },
+
+  async getSuperAdminProfile(): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/superadmin/profile/`, {
+        cache: 'no-store',
+      });
+      return await res.json();
+    } catch (err) {
+      console.warn('Get superadmin profile API error', err);
+      return null;
     }
   },
 };

@@ -73,7 +73,7 @@ export const IoTGatewayModal: React.FC<IoTGatewayModalProps> = ({ isOpen, onClos
         setPacketStream((prev) => [res.packet, ...prev.slice(0, 29)]);
         setSimulationToast(
           isAnomaly
-            ? `⚠️ CRITICAL FAULT INJECTED via ${source} [${protocol}]! Check Equipment Diagnostics.`
+            ? `CRITICAL FAULT INJECTED via ${source} [${protocol}]! Check Equipment Diagnostics.`
             : `Live telemetry received from ${source} [${protocol}] [${sensorType}]!`
         );
         setTimeout(() => setSimulationToast(null), 3500);
@@ -269,7 +269,7 @@ if __name__ == "__main__":
                   </div>
                   <div>
                     <h3 className="font-black text-sm text-stone-900 dark:text-white flex items-center gap-1.5">
-                      <span>🔌 LAN (Ethernet / Modbus-TCP)</span>
+                      <span>LAN (Ethernet / Modbus-TCP)</span>
                     </h3>
                     <span className="text-[11px] text-stone-500 dark:text-slate-400">
                       Physical RJ45 Cat6 Cable • Industrial Wired
@@ -315,7 +315,7 @@ if __name__ == "__main__":
                   </div>
                   <div>
                     <h3 className="font-black text-sm text-stone-900 dark:text-white flex items-center gap-1.5">
-                      <span>📶 WiFi (ESP32 Wireless Mesh)</span>
+                      <span>WiFi (ESP32 Wireless Mesh)</span>
                     </h3>
                     <span className="text-[11px] text-stone-500 dark:text-slate-400">
                       802.11 b/g/n Grid • Distributed Wireless
@@ -442,7 +442,10 @@ if __name__ == "__main__":
                   <Activity className="w-3.5 h-3.5 text-rose-500" />
                   <Cpu className="w-3.5 h-3.5" />
                 </div>
-                <span>🔴 Inject Vibration Fault</span>
+                <span className="flex items-center gap-1.5 font-bold">
+                  <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" />
+                  Inject Vibration Fault
+                </span>
                 <span className="text-[9px] opacity-75 font-mono">4.8 mm/s • Simulates Failure</span>
               </button>
             </div>
@@ -478,7 +481,7 @@ if __name__ == "__main__":
                       : 'text-stone-400'
                   }`}
                 >
-                  🔌 LAN Only
+                  LAN Only
                 </button>
                 <button
                   onClick={() => setFilterChannel('WIFI')}
@@ -488,7 +491,7 @@ if __name__ == "__main__":
                       : 'text-stone-400'
                   }`}
                 >
-                  📶 WiFi Only
+                  WiFi Only
                 </button>
               </div>
             </div>

@@ -21,6 +21,10 @@ const transporter = nodemailer.createTransport({
 
 export async function POST(req: Request) {
   try {
+    const hostHeader = req.headers.get('host') || '';
+    const protocol = hostHeader.includes('localhost') || hostHeader.includes('127.0.0.1') ? 'http' : 'https';
+    const effectivePortalUrl = hostHeader ? `${protocol}://${hostHeader}` : PORTAL_URL;
+
     const body = await req.json();
     const {
       type = 'ADMIN_CREDENTIALS',
@@ -37,7 +41,7 @@ export async function POST(req: Request) {
       role = 'ORG_ADMIN',
       roleLabel,
       organizationName,
-      assignedBy = 'National SuperAdmin (Alex Carter)',
+      assignedBy = 'National SuperAdmin',
     } = body;
 
     const recipient = type === 'USER_ROLE_ASSIGNMENT' ? userEmail : adminEmail;
@@ -194,14 +198,14 @@ export async function POST(req: Request) {
             <div style="font-size:12px; color:#22d3ee; margin-top:2px;">Category: ${cleanOrgType} Campus</div>
           </div>
           <div class="box">
-            <div class="cred-row"><span class="cred-label">Login Portal:</span><span class="cred-val">${PORTAL_URL}/login</span></div>
+            <div class="cred-row"><span class="cred-label">Login Portal:</span><span class="cred-val">${effectivePortalUrl}/login</span></div>
             <div class="cred-row"><span class="cred-label">Authorized Email:</span><span class="cred-val">${recipient}</span></div>
             <div class="cred-row"><span class="cred-label">Temporary Password:</span><span class="cred-val">${password}</span></div>
             <div class="cred-row"><span class="cred-label">Assigned Role:</span><span class="cred-val">ESTATE ADMIN</span></div>
-            <div class="cred-row"><span class="cred-label">Direct Dashboard:</span><span class="cred-val">${PORTAL_URL}/user/${orgId}</span></div>
+            <div class="cred-row"><span class="cred-label">Direct Dashboard:</span><span class="cred-val">${effectivePortalUrl}/user/${orgId}</span></div>
           </div>
           <div style="text-align: center; margin: 24px 0;">
-            <a href="${PORTAL_URL}/login" class="btn">🚀 Sign In to Estate Workspace</a>
+            <a href="${effectivePortalUrl}/login" class="btn">🚀 Sign In to Estate Workspace</a>
           </div>
           <h3 style="font-size:14px; color:#f8fafc;">Operational Scope:</h3>
           <ul style="padding-left:20px; font-size:13px; color:#94a3b8; line-height:1.6;">
@@ -221,7 +225,7 @@ export async function POST(req: Request) {
       from: `"EcoEstate India" <${EMAIL_USER}>`,
       to: recipient,
       subject: `🌿 EcoEstate India: You are Appointed as Estate Admin for ${cleanOrgName}`,
-      text: `Dear ${cleanAdminName},\n\nYou have been appointed as Estate Administrator for ${cleanOrgName} (${cleanOrgType}).\n\nLogin Portal: ${PORTAL_URL}/login\nEmail: ${recipient}\nPassword: ${password}\n\nRegards,\nEcoEstate India`,
+      text: `Dear ${cleanAdminName},\n\nYou have been appointed as Estate Administrator for ${cleanOrgName} (${cleanOrgType}).\n\nLogin Portal: ${effectivePortalUrl}/login\nEmail: ${recipient}\nPassword: ${password}\n\nRegards,\nEcoEstate India`,
       html: htmlContent,
     });
 

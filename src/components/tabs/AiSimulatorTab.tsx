@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { DjangoApi } from '@/services/api';
+import { Organization } from '@/types';
 import {
   BrainCircuit,
   Sparkles,
@@ -25,8 +26,13 @@ import {
   Info,
 } from 'lucide-react';
 
-export const AiSimulatorTab: React.FC = () => {
-  const { activeOrg } = useAuth();
+interface AiSimulatorTabProps {
+  org?: Organization;
+}
+
+export const AiSimulatorTab: React.FC<AiSimulatorTabProps> = ({ org }) => {
+  const { activeOrg: contextOrg } = useAuth();
+  const activeOrg = org || contextOrg;
 
   // Grand Finale Explicit Scenario State
   const [hvacHoursReduced, setHvacHoursReduced] = useState<number>(1.0); // Problem statement: "what if HVAC runs an hour less"
@@ -143,16 +149,12 @@ export const AiSimulatorTab: React.FC = () => {
       <div className="p-6 rounded-3xl bg-gradient-to-r from-emerald-950 via-slate-900 to-[#0c1833] border border-emerald-500/30 text-white flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold text-emerald-400 mb-1">
-            <BrainCircuit className="w-4 h-4" /> BPUT 2.0 Grand Finale • Generative Decision Support Engine
+            <BrainCircuit className="w-4 h-4" /> {activeOrg?.name || 'Campus'} Intelligence Engine
           </div>
           <h1 className="text-2xl font-extrabold flex items-center gap-2.5">
-            What-If Scenario Simulation & Named Interventions
+            What-If Scenario Simulation & Interventions
             {isSimulating && <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 font-mono animate-pulse">Running Neural Inference...</span>}
           </h1>
-          <p className="text-xs text-slate-300 mt-1 max-w-3xl">
-            Simulate the exact problem statement interventions for <strong>{activeOrg?.name} ({facilityType})</strong>: 
-            projected impact of reducing HVAC by 1 hour, shifting waste collection to Tuesday, and mitigating climate stress shocks.
-          </p>
         </div>
 
         <button
@@ -163,347 +165,356 @@ export const AiSimulatorTab: React.FC = () => {
         </button>
       </div>
 
-      {/* Quick Problem Statement Preset Buttons */}
+      {/* Quick Scenario Preset Buttons */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <button
           onClick={applyHvacScenarioPreset}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+          className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
             hvacHoursReduced === 1.0 && !isTuesdayCollectionShift
               ? 'bg-cyan-500/10 border-cyan-500 text-cyan-600 dark:text-cyan-400 shadow-md ring-1 ring-cyan-500/50'
               : 'bg-white dark:bg-[#07080e] border-[#ece3d6] dark:border-[#151722] hover:border-cyan-500/40 text-stone-800 dark:text-slate-200'
           }`}
         >
-          <div className="flex items-center justify-between text-xs font-bold mb-1">
+          <div className="flex items-center justify-between text-xs font-bold">
             <span className="flex items-center gap-1.5">
               <Zap className="w-4 h-4 text-cyan-500" /> Scenario A: HVAC 1 Hour Less
             </span>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400">Problem Statement</span>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-400">Energy Saving</span>
           </div>
-          <p className="text-[11px] text-stone-500 dark:text-slate-400">
-            Tests building thermal inertia by ramping down chiller runtime 1 hour earlier.
-          </p>
         </button>
 
         <button
           onClick={applyTuesdayWasteScenarioPreset}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+          className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
             isTuesdayCollectionShift && hvacHoursReduced === 0
               ? 'bg-amber-500/10 border-amber-500 text-amber-600 dark:text-amber-400 shadow-md ring-1 ring-amber-500/50'
               : 'bg-white dark:bg-[#07080e] border-[#ece3d6] dark:border-[#151722] hover:border-amber-500/40 text-stone-800 dark:text-slate-200'
           }`}
         >
-          <div className="flex items-center justify-between text-xs font-bold mb-1">
+          <div className="flex items-center justify-between text-xs font-bold">
             <span className="flex items-center gap-1.5">
               <Truck className="w-4 h-4 text-amber-500" /> Scenario B: Tuesday Waste Shift
             </span>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">Problem Statement</span>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400">Route Sync</span>
           </div>
-          <p className="text-[11px] text-stone-500 dark:text-slate-400">
-            Shifts collection fleet to Tuesday & Friday to synchronize with municipal processing.
-          </p>
         </button>
 
         <button
           onClick={applyCombinedGrandFinalePreset}
-          className={`p-4 rounded-2xl border text-left transition-all cursor-pointer ${
+          className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
             hvacHoursReduced === 1.0 && isTuesdayCollectionShift
               ? 'bg-emerald-500/10 border-emerald-500 text-emerald-600 dark:text-emerald-400 shadow-md ring-1 ring-emerald-500/50'
               : 'bg-white dark:bg-[#07080e] border-[#ece3d6] dark:border-[#151722] hover:border-emerald-500/40 text-stone-800 dark:text-slate-200'
           }`}
         >
-          <div className="flex items-center justify-between text-xs font-bold mb-1">
+          <div className="flex items-center justify-between text-xs font-bold">
             <span className="flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-emerald-500" /> Grand Finale Full Stress Test
+              <Sparkles className="w-4 h-4 text-emerald-500" /> Scenario C: Multi-Vector Stress Test
             </span>
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">Combined</span>
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400">Multi-Vector</span>
           </div>
-          <p className="text-[11px] text-stone-500 dark:text-slate-400">
-            Combines HVAC 1-hr reduction, Tuesday waste route, +3°C heatwave & solar dip.
-          </p>
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Interactive Controls */}
-        <div className="lg:col-span-6 p-6 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-5">
-          <div className="flex items-center justify-between pb-3 border-b border-[#ece3d6] dark:border-[#151722]">
-            <h2 className="font-bold text-sm text-stone-900 dark:text-white flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-emerald-500" />
-              Adjust Operational & Environmental Levers
-            </h2>
-            <span className="text-[10px] text-stone-400 dark:text-slate-500 font-mono">Live Inputs</span>
+      {/* Simulation Workspace Grid: Levers & Projected Impact */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        {/* Left Column: Interactive Levers */}
+        <div className="lg:col-span-6 p-6 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl flex flex-col justify-between space-y-4">
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b border-[#ece3d6] dark:border-[#151722] mb-4">
+              <h2 className="font-bold text-sm text-stone-900 dark:text-white flex items-center gap-2">
+                <Sliders className="w-4 h-4 text-emerald-500" />
+                Adjust Operational & Environmental Levers
+              </h2>
+              <span className="text-[10px] text-stone-400 dark:text-slate-500 font-mono">Live Inputs</span>
+            </div>
+
+            <div className="space-y-3">
+              {/* Intervention 1: HVAC Hours Reduction Slider */}
+              <div className="p-3.5 rounded-2xl bg-cyan-50/50 dark:bg-cyan-950/20 border border-cyan-200/60 dark:border-cyan-800/40 space-y-2">
+                <div className="flex justify-between text-xs font-semibold">
+                  <span className="text-cyan-900 dark:text-cyan-300 flex items-center gap-1.5">
+                    <Zap className="w-4 h-4 text-cyan-500" /> What if HVAC runs less per day?
+                  </span>
+                  <span className="font-mono text-cyan-600 dark:text-cyan-400 font-bold">
+                    {hvacHoursReduced > 0 ? `-${hvacHoursReduced} hr / day` : 'Normal Schedule (0 hr)'}
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="3.0"
+                  step="0.5"
+                  value={hvacHoursReduced}
+                  onChange={(e) => setHvacHoursReduced(Number(e.target.value))}
+                  className="w-full h-2 bg-cyan-200 dark:bg-cyan-900/50 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                />
+                <div className="flex justify-between text-[11px] text-stone-500 dark:text-slate-400">
+                  <span>0h (Baseline)</span>
+                  <span className="font-bold text-cyan-600 dark:text-cyan-400">1h (Recommended Target)</span>
+                  <span>3h (Extreme Conservation)</span>
+                </div>
+              </div>
+
+              {/* Intervention 2: Tuesday Collection Shift Toggle */}
+              <div className="p-3.5 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/40">
+                <div className="flex justify-between items-center text-xs font-semibold">
+                  <span className="text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
+                    <Calendar className="w-4 h-4 text-amber-500" /> Shift Waste Collection to Tuesday
+                  </span>
+                  <button
+                    onClick={() => setIsTuesdayCollectionShift(!isTuesdayCollectionShift)}
+                    className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                      isTuesdayCollectionShift
+                        ? 'bg-amber-500 text-slate-950 shadow-sm'
+                        : 'bg-stone-200 dark:bg-stone-800 text-stone-600 dark:text-slate-300'
+                    }`}
+                  >
+                    {isTuesdayCollectionShift ? 'Active (Tue Route)' : 'Standard (Daily)'}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
-          {/* Intervention 1: HVAC Hours Reduction Slider */}
-          <div className="p-4 rounded-2xl bg-cyan-50/50 dark:bg-cyan-950/20 border border-cyan-200/60 dark:border-cyan-800/40 space-y-2">
-            <div className="flex justify-between text-xs font-semibold">
-              <span className="text-cyan-900 dark:text-cyan-300 flex items-center gap-1.5">
-                <Zap className="w-4 h-4 text-cyan-500" /> What if HVAC runs less per day?
-              </span>
-              <span className="font-mono text-cyan-600 dark:text-cyan-400 font-bold">
-                {hvacHoursReduced > 0 ? `-${hvacHoursReduced} hr / day` : 'Normal Schedule (0 hr)'}
-              </span>
+          {/* Environmental / Climate Stress Levers in 2x2 grid */}
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-wider text-stone-400 dark:text-slate-500 mb-2">
+              Climate & Operational Stress Factors
             </div>
-            <input
-              type="range"
-              min="0"
-              max="3.0"
-              step="0.5"
-              value={hvacHoursReduced}
-              onChange={(e) => setHvacHoursReduced(Number(e.target.value))}
-              className="w-full h-2 bg-cyan-200 dark:bg-cyan-900/50 rounded-lg appearance-none cursor-pointer accent-cyan-500"
-            />
-            <div className="flex justify-between text-[11px] text-stone-500 dark:text-slate-400">
-              <span>0h (Baseline)</span>
-              <span className="font-bold text-cyan-600 dark:text-cyan-400">1h (Problem Statement)</span>
-              <span>3h (Extreme Conservation)</span>
-            </div>
-          </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Slider 3: Rooftop Solar Intermittency */}
+              <div className="p-3 rounded-2xl bg-stone-50 dark:bg-[#0c0d16] border border-stone-200/70 dark:border-white/5 space-y-1.5">
+                <div className="flex justify-between text-xs font-semibold">
+                  <span className="text-stone-700 dark:text-slate-300 flex items-center gap-1 text-[11px]">
+                    <SunMedium className="w-3.5 h-3.5 text-amber-500" /> Solar Dip:
+                  </span>
+                  <span className="font-mono text-amber-500 font-bold text-xs">-{solarDropPct}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="80"
+                  step="5"
+                  value={solarDropPct}
+                  onChange={(e) => setSolarDropPct(Number(e.target.value))}
+                  className="w-full h-1.5 bg-stone-200 dark:bg-stone-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                />
+              </div>
 
-          {/* Intervention 2: Tuesday Collection Shift Toggle */}
-          <div className="p-4 rounded-2xl bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/40 space-y-2">
-            <div className="flex justify-between items-center text-xs font-semibold">
-              <span className="text-amber-900 dark:text-amber-300 flex items-center gap-1.5">
-                <Calendar className="w-4 h-4 text-amber-500" /> What if Waste Collection shifts to Tuesday?
-              </span>
-              <button
-                onClick={() => setIsTuesdayCollectionShift(!isTuesdayCollectionShift)}
-                className={`px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  isTuesdayCollectionShift
-                    ? 'bg-amber-500 text-slate-950 shadow-sm'
-                    : 'bg-stone-200 dark:bg-stone-800 text-stone-600 dark:text-slate-300'
-                }`}
-              >
-                {isTuesdayCollectionShift ? 'Active (Tuesday Route)' : 'Disabled (Daily)'}
-              </button>
-            </div>
-            <p className="text-[11px] text-stone-500 dark:text-slate-400">
-              Synchronizes campus dry-waste pickup with regional municipal transfer stations on Tuesday & Friday.
-            </p>
-          </div>
+              {/* Slider 4: Occupancy Surge */}
+              <div className="p-3 rounded-2xl bg-stone-50 dark:bg-[#0c0d16] border border-stone-200/70 dark:border-white/5 space-y-1.5">
+                <div className="flex justify-between text-xs font-semibold">
+                  <span className="text-stone-700 dark:text-slate-300 flex items-center gap-1 text-[11px]">
+                    <Users className="w-3.5 h-3.5 text-emerald-500" /> Occupancy Surge:
+                  </span>
+                  <span className="font-mono text-emerald-500 font-bold text-xs">+{occupancySurgePct}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  step="10"
+                  value={occupancySurgePct}
+                  onChange={(e) => setOccupancySurgePct(Number(e.target.value))}
+                  className="w-full h-1.5 bg-stone-200 dark:bg-stone-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+                />
+              </div>
 
-          {/* Slider 3: Rooftop Solar Intermittency */}
-          <div className="space-y-2">
-            <div className="flex justify-between text-xs font-semibold">
-              <span className="text-stone-700 dark:text-slate-300 flex items-center gap-1.5">
-                <SunMedium className="w-4 h-4 text-amber-500" /> Rooftop Solar Output Dip (Cloud Cover / Smog):
-              </span>
-              <span className="font-mono text-amber-500 font-bold">-{solarDropPct}%</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="80"
-              step="5"
-              value={solarDropPct}
-              onChange={(e) => setSolarDropPct(Number(e.target.value))}
-              className="w-full h-2 bg-stone-200 dark:bg-stone-800 rounded-lg appearance-none cursor-pointer accent-amber-500"
-            />
-            <p className="text-[11px] text-stone-400 dark:text-slate-500">Solar generation dips from {baseSolarKw} kW → {simulatedSolarKw} kW</p>
-          </div>
+              {/* Slider 5: Ambient Heatwave */}
+              <div className="p-3 rounded-2xl bg-stone-50 dark:bg-[#0c0d16] border border-stone-200/70 dark:border-white/5 space-y-1.5">
+                <div className="flex justify-between text-xs font-semibold">
+                  <span className="text-stone-700 dark:text-slate-300 flex items-center gap-1 text-[11px]">
+                    <Flame className="w-3.5 h-3.5 text-rose-500" /> Heatwave Spike:
+                  </span>
+                  <span className="font-mono text-rose-500 font-bold text-xs">+{ambientHeatwaveC}°C</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="8"
+                  step="1"
+                  value={ambientHeatwaveC}
+                  onChange={(e) => setAmbientHeatwaveC(Number(e.target.value))}
+                  className="w-full h-1.5 bg-stone-200 dark:bg-stone-800 rounded-lg appearance-none cursor-pointer accent-rose-500"
+                />
+              </div>
 
-          {/* Slider 4: Occupancy Surge */}
-          <div className="space-y-2">
-            <div className="flex justify-between text-xs font-semibold">
-              <span className="text-stone-700 dark:text-slate-300 flex items-center gap-1.5">
-                <Users className="w-4 h-4 text-emerald-500" /> Campus Occupancy Surge (Events / OPD Rush):
-              </span>
-              <span className="font-mono text-emerald-500 font-bold">+{occupancySurgePct}%</span>
+              {/* Slider 6: Water Cut */}
+              <div className="p-3 rounded-2xl bg-stone-50 dark:bg-[#0c0d16] border border-stone-200/70 dark:border-white/5 space-y-1.5">
+                <div className="flex justify-between text-xs font-semibold">
+                  <span className="text-stone-700 dark:text-slate-300 flex items-center gap-1 text-[11px]">
+                    <Droplets className="w-3.5 h-3.5 text-blue-500" /> Water Cut:
+                  </span>
+                  <span className="font-mono text-blue-500 font-bold text-xs">-{waterInflowCutPct}%</span>
+                </div>
+                <input
+                  type="range"
+                  min="0"
+                  max="60"
+                  step="5"
+                  value={waterInflowCutPct}
+                  onChange={(e) => setWaterInflowCutPct(Number(e.target.value))}
+                  className="w-full h-1.5 bg-stone-200 dark:bg-stone-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+              </div>
             </div>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              step="10"
-              value={occupancySurgePct}
-              onChange={(e) => setOccupancySurgePct(Number(e.target.value))}
-              className="w-full h-2 bg-stone-200 dark:bg-stone-800 rounded-lg appearance-none cursor-pointer accent-emerald-500"
-            />
-          </div>
-
-          {/* Slider 5: Ambient Heatwave */}
-          <div className="space-y-2">
-            <div className="flex justify-between text-xs font-semibold">
-              <span className="text-stone-700 dark:text-slate-300 flex items-center gap-1.5">
-                <Flame className="w-4 h-4 text-rose-500" /> Ambient Summer Heatwave Spike:
-              </span>
-              <span className="font-mono text-rose-500 font-bold">+{ambientHeatwaveC}°C</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="8"
-              step="1"
-              value={ambientHeatwaveC}
-              onChange={(e) => setAmbientHeatwaveC(Number(e.target.value))}
-              className="w-full h-2 bg-stone-200 dark:bg-stone-800 rounded-lg appearance-none cursor-pointer accent-rose-500"
-            />
-          </div>
-
-          {/* Slider 6: Water Cut */}
-          <div className="space-y-2">
-            <div className="flex justify-between text-xs font-semibold">
-              <span className="text-stone-700 dark:text-slate-300 flex items-center gap-1.5">
-                <Droplets className="w-4 h-4 text-blue-500" /> Municipal Water Supply Cut:
-              </span>
-              <span className="font-mono text-blue-500 font-bold">-{waterInflowCutPct}%</span>
-            </div>
-            <input
-              type="range"
-              min="0"
-              max="60"
-              step="5"
-              value={waterInflowCutPct}
-              onChange={(e) => setWaterInflowCutPct(Number(e.target.value))}
-              className="w-full h-2 bg-stone-200 dark:bg-stone-800 rounded-lg appearance-none cursor-pointer accent-blue-500"
-            />
           </div>
         </div>
 
-        {/* Right Column: Projected Impact & Named Interventions */}
-        <div className="lg:col-span-6 space-y-5">
-          {/* Top Impact Summary Cards */}
-          <div className="p-6 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-[#ece3d6] dark:border-[#151722]">
-              <h2 className="font-bold text-sm text-stone-900 dark:text-white flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-emerald-500" />
-                Projected Impact on Operations & ESG
-              </h2>
-              <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
-                gridOverloadRisk === 'HIGH RISK' ? 'bg-rose-500 text-white' : gridOverloadRisk === 'MODERATE' ? 'bg-amber-500 text-white' : 'bg-emerald-500 text-white'
-              }`}>
-                Grid Strain: {gridOverloadRisk}
-              </span>
-            </div>
+        {/* Right Column: Projected Impact */}
+        <div className="lg:col-span-6 p-6 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl flex flex-col justify-between space-y-4">
+          <div className="flex items-center justify-between pb-3 border-b border-[#ece3d6] dark:border-[#151722]">
+            <h2 className="font-bold text-sm text-stone-900 dark:text-white flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-emerald-500" />
+              Projected Impact on Operations & ESG
+            </h2>
+            <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
+              gridOverloadRisk === 'HIGH RISK' ? 'bg-rose-500 text-white' : gridOverloadRisk === 'MODERATE' ? 'bg-amber-500 text-white' : 'bg-emerald-500 text-white'
+            }`}>
+              Grid Strain: {gridOverloadRisk}
+            </span>
+          </div>
 
-            {/* Projected Impact Matrix */}
-            <div className="grid grid-cols-2 gap-3">
-              {/* HVAC 1-hr Less Impact Card */}
-              <div className="p-4 rounded-2xl bg-cyan-50/60 dark:bg-cyan-950/20 border border-cyan-200/80 dark:border-cyan-800/40">
-                <span className="text-[10px] uppercase font-bold text-cyan-600 dark:text-cyan-400 block tracking-wider">
-                  ⚡ HVAC {hvacHoursReduced}h Less Impact
+          {/* Projected Impact Matrix - 2x2 grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 flex-1">
+            {/* HVAC 1-hr Less Impact Card */}
+            <div className="p-4 rounded-2xl bg-cyan-50/60 dark:bg-cyan-950/20 border border-cyan-200/80 dark:border-cyan-800/40 flex flex-col justify-between">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-cyan-600 dark:text-cyan-400 flex items-center gap-1 tracking-wider">
+                  <Zap className="w-3.5 h-3.5 text-cyan-500" /> HVAC {hvacHoursReduced}h Less Impact
                 </span>
                 <span className="text-xl font-extrabold text-stone-900 dark:text-white mt-1 block">
                   {hvacDailyKwhSaved} <span className="text-xs font-normal text-stone-400">kWh/day saved</span>
                 </span>
                 <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold mt-1">
-                  ₹ {hvacMonthlyInrSaved.toLocaleString()} / month saved
+                  ₹ {hvacMonthlyInrSaved.toLocaleString()} / mo saved
                 </p>
-                <div className="mt-2 pt-2 border-t border-cyan-200/50 dark:border-cyan-800/30 text-[10px] text-stone-500 dark:text-slate-400">
-                  <span>Carbon avoided: <strong>{hvacDailyCo2Avoided} kg CO2e/day</strong></span>
-                  <br />
-                  <span>Drift: <strong>+{thermalComfortDriftC}°C</strong> (ASHRAE 55 compliant)</span>
-                </div>
               </div>
+              <div className="mt-2 pt-2 border-t border-cyan-200/50 dark:border-cyan-800/30 text-[10px] text-stone-500 dark:text-slate-400 flex items-center justify-between">
+                <span>Carbon: -{hvacDailyCo2Avoided} kg</span>
+                <span>Drift: +{thermalComfortDriftC}°C</span>
+              </div>
+            </div>
 
-              {/* Tuesday Waste Collection Impact Card */}
-              <div className="p-4 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-800/40">
-                <span className="text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400 block tracking-wider">
-                  🚛 Tuesday Route Impact
+            {/* Tuesday Waste Collection Impact Card */}
+            <div className="p-4 rounded-2xl bg-amber-50/60 dark:bg-amber-950/20 border border-amber-200/80 dark:border-amber-800/40 flex flex-col justify-between">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400 flex items-center gap-1 tracking-wider">
+                  <Truck className="w-3.5 h-3.5 text-amber-500" /> Tuesday Route Impact
                 </span>
                 <span className="text-xl font-extrabold text-stone-900 dark:text-white mt-1 block">
                   {isTuesdayCollectionShift ? '-38%' : '0%'} <span className="text-xs font-normal text-stone-400">overflow risk</span>
                 </span>
                 <p className="text-[11px] text-emerald-600 dark:text-emerald-400 font-bold mt-1">
-                  {isTuesdayCollectionShift ? `₹ ${(dieselCostSavedWeeklyInr * 4).toLocaleString()} / month diesel saved` : 'Standard daily route'}
+                  {isTuesdayCollectionShift ? `₹ ${(dieselCostSavedWeeklyInr * 4).toLocaleString()} / mo saved` : 'Standard route'}
                 </p>
-                <div className="mt-2 pt-2 border-t border-amber-200/50 dark:border-amber-800/30 text-[10px] text-stone-500 dark:text-slate-400">
-                  <span>Landfill diverted: <strong>{landfillDivertedTonsMonthly} tons/mo</strong></span>
-                  <br />
-                  <span>Recyclable purity: <strong>+{dryRecyclablePurityGainPct}%</strong></span>
-                </div>
               </div>
+              <div className="mt-2 pt-2 border-t border-amber-200/50 dark:border-amber-800/30 text-[10px] text-stone-500 dark:text-slate-400 flex items-center justify-between">
+                <span>Diverted: {landfillDivertedTonsMonthly} t/mo</span>
+                <span>Purity: +{dryRecyclablePurityGainPct}%</span>
+              </div>
+            </div>
 
-              {/* Net Facility Peak Load */}
-              <div className="p-4 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
+            {/* Net Facility Peak Load */}
+            <div className="p-4 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722] flex flex-col justify-between">
+              <div>
                 <span className="text-[10px] uppercase font-bold text-stone-500 dark:text-slate-400 block tracking-wider">
                   Net Peak Demand
                 </span>
                 <span className="text-xl font-extrabold text-stone-900 dark:text-white mt-1 block">
                   {netFacilityLoadKw} <span className="text-xs font-normal text-stone-400">kW</span>
                 </span>
-                <span className={`text-[10px] font-semibold ${netFacilityLoadKw > baseLoadKw ? 'text-rose-500' : 'text-emerald-500'}`}>
-                  {netFacilityLoadKw > baseLoadKw ? `+${Math.round(((netFacilityLoadKw - baseLoadKw) / baseLoadKw) * 100)}% above normal` : 'Within safe transformer limits'}
-                </span>
               </div>
+              <span className={`text-[10px] font-semibold mt-2 ${netFacilityLoadKw > baseLoadKw ? 'text-rose-500' : 'text-emerald-500'}`}>
+                {netFacilityLoadKw > baseLoadKw ? `+${Math.round(((netFacilityLoadKw - baseLoadKw) / baseLoadKw) * 100)}% above normal` : 'Safe transformer limits'}
+              </span>
+            </div>
 
-              {/* Grid Import & Cost Balance */}
-              <div className="p-4 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
+            {/* Grid Import & Cost Balance */}
+            <div className="p-4 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722] flex flex-col justify-between">
+              <div>
                 <span className="text-[10px] uppercase font-bold text-stone-500 dark:text-slate-400 block tracking-wider">
                   Simulated Net Grid Draw
                 </span>
                 <span className="text-xl font-extrabold text-stone-900 dark:text-white mt-1 block">
                   {simulatedGridDrawKw} <span className="text-xs font-normal text-stone-400">kW</span>
                 </span>
-                <span className="text-[10px] text-amber-500 font-semibold">
-                  Net Daily Cost Shift: ₹{Math.max(0, extraCostPerDayInr).toLocaleString()}/day
+              </div>
+              <span className="text-[10px] text-amber-500 font-semibold mt-2">
+                Cost Shift: ₹{Math.max(0, extraCostPerDayInr).toLocaleString()}/day
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Full-Width Row: Plain-Language Actions */}
+      <div className="p-6 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-[#ece3d6] dark:border-[#151722]">
+          <h3 className="font-bold text-xs uppercase text-emerald-600 dark:text-emerald-400 tracking-wider flex items-center gap-1.5">
+            <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+            Named Interventions & Action Directives
+          </h3>
+          <span className="text-[10px] font-mono text-stone-400 dark:text-slate-500">ISO 50001 / GRIHA</span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="p-4 rounded-2xl bg-cyan-50/40 dark:bg-cyan-950/20 border border-cyan-200/60 dark:border-cyan-800/40 flex flex-col justify-between">
+            <div>
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-xs font-bold text-cyan-800 dark:text-cyan-300">
+                  [INT-ENG-101] HVAC Window Optimization
+                </span>
+                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md whitespace-nowrap">
+                  Saves ₹{hvacMonthlyInrSaved.toLocaleString()}/mo
                 </span>
               </div>
+              <p className="text-[11px] text-stone-600 dark:text-slate-300 mt-2 leading-relaxed">
+                Shift chiller shutdown 1 hr earlier using thermal storage. Keep circulation fans active to preserve air quality while saving {hvacDailyKwhSaved} kWh/day.
+              </p>
             </div>
           </div>
 
-          {/* Plain-Language Actions Tied to Specific Named Interventions */}
-          <div className="p-6 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-3">
-            <div className="flex items-center justify-between pb-2 border-b border-[#ece3d6] dark:border-[#151722]">
-              <h3 className="font-bold text-xs uppercase text-emerald-600 dark:text-emerald-400 tracking-wider flex items-center gap-1.5">
-                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                Plain-Language Actions Tied to Named Interventions
-              </h3>
-              <span className="text-[10px] font-mono text-stone-400 dark:text-slate-500">ISO 50001 / GRIHA</span>
-            </div>
-
-            <div className="space-y-2.5">
-              <div className="p-3.5 rounded-2xl bg-cyan-50/40 dark:bg-cyan-950/20 border border-cyan-200/60 dark:border-cyan-800/40">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-cyan-800 dark:text-cyan-300">
-                    [INT-ENG-101] HVAC Operating Window Optimization
-                  </span>
-                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
-                    Saves ₹{hvacMonthlyInrSaved.toLocaleString()}/mo
-                  </span>
-                </div>
-                <p className="text-[11px] text-stone-600 dark:text-slate-300 mt-1">
-                  <strong>Plain-Language Action:</strong> Shift central chiller plant shutdown 1 hour earlier (at 17:00 instead of 18:00) using building thermal storage. Keep circulation fans active to preserve air quality while saving {hvacDailyKwhSaved} kWh/day with zero clinical disruption.
-                </p>
+          <div className="p-4 rounded-2xl bg-amber-50/40 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/40 flex flex-col justify-between">
+            <div>
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-xs font-bold text-amber-800 dark:text-amber-300">
+                  [INT-WST-201] Tuesday Waste Routing
+                </span>
+                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md whitespace-nowrap">
+                  -38% Overflow
+                </span>
               </div>
-
-              <div className="p-3.5 rounded-2xl bg-amber-50/40 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/40">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-amber-800 dark:text-amber-300">
-                    [INT-WST-201] Tuesday & Friday Dynamic Municipal Solid Waste Routing
-                  </span>
-                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
-                    -38% Overflow
-                  </span>
-                </div>
-                <p className="text-[11px] text-stone-600 dark:text-slate-300 mt-1">
-                  <strong>Plain-Language Action:</strong> Consolidate collection trips on Tuesday & Friday morning when municipal processing facilities have 40% surplus sorting bandwidth. Eliminates post-weekend Monday container contamination and diverts {landfillDivertedTonsMonthly} tons from landfills.
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-emerald-50/40 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-800/40">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
-                    [INT-WTR-301] STP Treated Effluent Chiller Loop Diversion
-                  </span>
-                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
-                    95% Blend
-                  </span>
-                </div>
-                <p className="text-[11px] text-stone-600 dark:text-slate-300 mt-1">
-                  <strong>Plain-Language Action:</strong> Route 95% of MBBR treated STP effluent directly into the HVAC cooling tower reservoir during peak heat hours. Mitigates municipal water supply cuts and protects the underground fire & emergency buffer tank.
-                </p>
-              </div>
-            </div>
-
-            <div className="pt-2 border-t border-[#ece3d6] dark:border-[#151722] flex items-center justify-between text-[11px] text-stone-400 dark:text-slate-500">
-              <span className="flex items-center gap-1.5">
-                <Info className="w-3.5 h-3.5 text-cyan-500" />
-                Backend Engine: Django REST Framework + SciPy Simulation Kernel
-              </span>
-              <span className="text-emerald-500 font-mono">Status: Verified</span>
+              <p className="text-[11px] text-stone-600 dark:text-slate-300 mt-2 leading-relaxed">
+                Consolidate collection on Tuesday & Friday when sorting facilities have surplus bandwidth. Diverts {landfillDivertedTonsMonthly} tons from landfills.
+              </p>
             </div>
           </div>
+
+          <div className="p-4 rounded-2xl bg-emerald-50/40 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-800/40 flex flex-col justify-between">
+            <div>
+              <div className="flex items-start justify-between gap-2">
+                <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300">
+                  [INT-WTR-301] STP Chiller Loop Diversion
+                </span>
+                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md whitespace-nowrap">
+                  95% Blend
+                </span>
+              </div>
+              <p className="text-[11px] text-stone-600 dark:text-slate-300 mt-2 leading-relaxed">
+                Route 95% MBBR treated effluent into HVAC cooling tower reservoir during peak hours, protecting municipal freshwater reserve.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="pt-3 border-t border-[#ece3d6] dark:border-[#151722] flex items-center justify-between text-[11px] text-stone-400 dark:text-slate-500">
+          <span className="flex items-center gap-1.5">
+            <Info className="w-3.5 h-3.5 text-cyan-500" />
+            Django REST Framework + SciPy Simulation Kernel
+          </span>
+          <span className="text-emerald-500 font-mono font-semibold">Verified • Closed-Loop</span>
         </div>
       </div>
     </div>

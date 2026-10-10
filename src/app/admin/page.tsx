@@ -7,16 +7,16 @@ import SuperAdminPortal from '@/components/SuperAdminPortal';
 
 export default function AdminPage() {
   const router = useRouter();
-  const { currentUser } = useAuth();
+  const { currentUser, isAuthReady } = useAuth();
 
   useEffect(() => {
     // If not logged in, redirect to login
-    if (!currentUser) {
+    if (isAuthReady && !currentUser) {
       router.push('/login');
     }
-  }, [currentUser, router]);
+  }, [isAuthReady, currentUser, router]);
 
-  if (!currentUser) {
+  if (!isAuthReady || !currentUser) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
         <span className="inline-block w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />

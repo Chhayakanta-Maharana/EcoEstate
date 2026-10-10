@@ -18,6 +18,8 @@ import {
   Clock,
   Sparkles,
   Upload,
+  MapPin,
+  X,
 } from 'lucide-react';
 import ExplainableAiShapModal from '@/components/ExplainableAiShapModal';
 import { Organization } from '@/types';
@@ -235,9 +237,6 @@ Main ETP Sludge Centrifuge,Effluent Treatment,ETP Yard,45,42,1.8,91,Operational`
             <Cpu className="w-4 h-4" /> Asset Digital Twin • Manual Control + CSV Import
           </div>
           <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">Equipment & Machinery Control</h1>
-          <p className="text-xs sm:text-sm text-slate-300 mt-1">
-            Track vibration, thermal load, and health scores for {activeOrg?.name}
-          </p>
         </div>
 
         {/* Action buttons */}
@@ -322,8 +321,8 @@ Main ETP Sludge Centrifuge,Effluent Treatment,ETP Yard,45,42,1.8,91,Operational`
                 <h3 className="font-bold text-sm text-stone-900 dark:text-white mt-1 group-hover:text-emerald-400 transition-colors">
                   {item.name}
                 </h3>
-                <p className="text-xs text-stone-500 dark:text-slate-400">
-                  📍 {item.location} • {item.category}
+                <p className="text-xs text-stone-500 dark:text-slate-400 flex items-center gap-1">
+                  <MapPin className="w-3 h-3 text-stone-400" /> {item.location} • {item.category}
                 </p>
               </div>
 
@@ -403,9 +402,9 @@ Main ETP Sludge Centrifuge,Effluent Treatment,ETP Yard,45,42,1.8,91,Operational`
               </div>
               <button
                 onClick={() => setShowAddModal(false)}
-                className="text-stone-400 hover:text-stone-600 dark:hover:text-slate-200 text-base font-bold"
+                className="text-stone-400 hover:text-stone-600 dark:hover:text-slate-200"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
 
@@ -534,9 +533,9 @@ Main ETP Sludge Centrifuge,Effluent Treatment,ETP Yard,45,42,1.8,91,Operational`
               </div>
               <button
                 onClick={() => setShowImportModal(false)}
-                className="text-stone-400 hover:text-stone-600 dark:hover:text-slate-200 text-base font-bold"
+                className="text-stone-400 hover:text-stone-600 dark:hover:text-slate-200"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
 
@@ -555,9 +554,10 @@ Main ETP Sludge Centrifuge,Effluent Treatment,ETP Yard,45,42,1.8,91,Operational`
                   <button
                     type="button"
                     onClick={() => setImportCsvText(sampleCsvTemplates[activeOrg?.type || 'HOSPITAL'] || sampleCsvTemplates.HOSPITAL)}
-                    className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-bold text-[10px] w-fit"
+                    className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-bold text-[10px] w-fit inline-flex items-center gap-1 cursor-pointer"
                   >
-                    ⚡ Load Sample Template
+                    <Zap className="w-3 h-3 text-emerald-500" />
+                    Load Sample Template
                   </button>
                 </div>
 

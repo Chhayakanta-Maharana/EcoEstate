@@ -7,17 +7,17 @@ import EstateWorkspace from '@/components/EstateWorkspace';
 
 export default function UserPage() {
   const router = useRouter();
-  const { currentUser, activeOrg } = useAuth();
+  const { currentUser, isAuthReady, activeOrg } = useAuth();
 
   useEffect(() => {
-    if (!currentUser) {
+    if (isAuthReady && !currentUser) {
       router.push('/login');
     } else if (activeOrg?.id) {
       router.replace(`/user/${activeOrg.id}`);
     }
-  }, [currentUser, activeOrg, router]);
+  }, [isAuthReady, currentUser, activeOrg, router]);
 
-  if (!currentUser) {
+  if (!isAuthReady || !currentUser) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
         <span className="inline-block w-6 h-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />

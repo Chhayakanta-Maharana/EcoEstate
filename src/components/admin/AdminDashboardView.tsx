@@ -143,8 +143,11 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({ onNaviga
     { hour: '20:00', users: Math.max(50, Math.round(realUsersList.length * 11)) },
   ];
 
-  const totalUsersCount = dbAnalytics?.total_users || realUsersList.length;
-  const activeUsersCount = dbAnalytics?.active_users || realUsersList.length;
+  const institutionalUsersList = realUsersList.filter(
+    (u: any) => u.role !== 'SUPERADMIN' && u.id !== 'user-superadmin' && u.id !== 'user-superadmin-01'
+  );
+  const totalUsersCount = dbAnalytics?.total_users ?? institutionalUsersList.length;
+  const activeUsersCount = dbAnalytics?.active_users ?? institutionalUsersList.filter((u: any) => (u.status || 'Active') === 'Active').length;
   const totalOrgsCount = dbAnalytics?.total_organizations || organizations.length;
 
   return (

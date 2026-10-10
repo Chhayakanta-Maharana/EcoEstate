@@ -7,15 +7,15 @@ import SuperAdminPortal from '@/components/SuperAdminPortal';
 
 export default function AdminSettingsPage() {
   const router = useRouter();
-  const { currentUser } = useAuth();
+  const { currentUser, isAuthReady } = useAuth();
 
   useEffect(() => {
-    if (!currentUser) {
+    if (isAuthReady && !currentUser) {
       router.push('/login');
     }
-  }, [currentUser, router]);
+  }, [isAuthReady, currentUser, router]);
 
-  if (!currentUser) {
+  if (!isAuthReady || !currentUser) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-900 text-white">
         <span className="inline-block w-6 h-6 border-2 border-cyan-500 border-t-transparent rounded-full animate-spin" />

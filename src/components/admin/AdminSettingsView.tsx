@@ -43,6 +43,33 @@ export const AdminSettingsView: React.FC = () => {
   const [profileNewPassword, setProfileNewPassword] = useState('');
   const [profileConfirmPassword, setProfileConfirmPassword] = useState('');
   const [showProfilePassword, setShowProfilePassword] = useState(false);
+  const [currentAccountPassword, setCurrentAccountPassword] = useState('admin123');
+
+  // Load current active password from localStorage or backend
+  React.useEffect(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saCfg = JSON.parse(localStorage.getItem('ecoestate-superadmin-config') || '{}');
+        if (saCfg.password) {
+          setCurrentAccountPassword(saCfg.password);
+        }
+      } catch (e) {}
+    }
+    DjangoApi.getSuperAdminProfile().then((res: any) => {
+      if (res?.success && res.user?.current_password) {
+        setCurrentAccountPassword(res.user.current_password);
+      }
+    }).catch(() => {});
+  }, []);
+
+  // Sync profile form when currentUser changes
+  React.useEffect(() => {
+    if (currentUser) {
+      setProfileName(currentUser.name || '');
+      setProfileEmail(currentUser.email || '');
+      setProfileTitle(currentUser.title || '');
+    }
+  }, [currentUser]);
 
   const triggerSavedNotice = (msg: string) => {
     setSavedNotice(msg);
@@ -55,11 +82,16 @@ export const AdminSettingsView: React.FC = () => {
       triggerSavedNotice('⚠️ Passwords do not match!');
       return;
     }
+    const cleanNewPwd = profileNewPassword.trim();
     updateProfile({
       name: profileName.trim(),
       email: profileEmail.trim().toLowerCase(),
       title: profileTitle.trim(),
+      ...(cleanNewPwd ? { password: cleanNewPwd } : {}),
     });
+    if (cleanNewPwd) {
+      setCurrentAccountPassword(cleanNewPwd);
+    }
     setProfileNewPassword('');
     setProfileConfirmPassword('');
     triggerSavedNotice('✅ Profile & credentials updated and saved to database!');
@@ -98,7 +130,7 @@ export const AdminSettingsView: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-200">
+    <div className="space-y-6">
       {/* Toast Alert */}
       {savedNotice && (
         <div className="fixed top-20 right-6 z-50 p-4 rounded-2xl bg-slate-900 text-white border border-cyan-500/50 shadow-2xl flex items-center gap-3 animate-in slide-in-from-top-4">
@@ -160,7 +192,7 @@ export const AdminSettingsView: React.FC = () => {
 
       {/* TAB: MY PROFILE & SECURITY */}
       {activeTab === 'profile' && (
-        <form onSubmit={handleSaveProfile} className="p-6 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-sm dark:shadow-xl space-y-5 text-xs animate-in fade-in duration-150">
+        <form onSubmit={handleSaveProfile} className="p-6 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-sm dark:shadow-xl space-y-5 text-xs">
           <div className="flex items-center gap-3 pb-3 border-b border-[#ece3d6] dark:border-[#151722]">
             <div className="w-10 h-10 rounded-2xl bg-cyan-500/20 text-cyan-500 font-extrabold flex items-center justify-center text-sm border border-cyan-500/30">
               {currentUser?.name?.slice(0, 2).toUpperCase() || 'AD'}
@@ -208,37 +240,64 @@ export const AdminSettingsView: React.FC = () => {
           </div>
 
           <div className="p-4 rounded-2xl bg-[#f8f4ed] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#181a28] space-y-3">
-            <p className="font-bold text-stone-800 dark:text-slate-200 flex items-center justify-between">
-              <span>Change Account Password</span>
+            <div className="flex items-center justify-between">
+              <span className="font-bold text-stone-800 dark:text-slate-200">Account Password &amp; Security</span>
               <button
                 type="button"
                 onClick={() => setShowProfilePassword(!showProfilePassword)}
-                className="text-[11px] text-cyan-600 dark:text-cyan-400 font-bold hover:underline flex items-center gap-1 cursor-pointer"
+                className="text-[11px] text-cyan-600 dark:text-cyan-400 font-bold hover:underline flex items-center gap-1.5 cursor-pointer px-2.5 py-1 rounded-lg bg-cyan-500/10 hover:bg-cyan-500/20 transition-colors"
               >
                 {showProfilePassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                {showProfilePassword ? 'Hide' : 'Show'}
+                {showProfilePassword ? 'Hide Password' : 'Show Password'}
               </button>
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div className="space-y-1">
-                <label className="text-[11px] text-stone-500 dark:text-slate-400">New Password (leave blank to keep current):</label>
-                <input
-                  type={showProfilePassword ? 'text' : 'password'}
-                  placeholder="••••••••"
-                  value={profileNewPassword}
-                  onChange={(e) => setProfileNewPassword(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-white dark:bg-[#07080e] text-stone-900 dark:text-white font-mono"
-                />
+            </div>
+
+            {/* Current Active Password Display */}
+            <div className="p-3 rounded-xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#181a28] flex items-center justify-between">
+              <div>
+                <span className="text-[11px] text-stone-500 dark:text-slate-400 block font-medium">Current Active Password:</span>
+                <span className="font-mono text-sm font-bold text-stone-900 dark:text-cyan-300 tracking-wider">
+                  {showProfilePassword ? currentAccountPassword : '••••••••••••'}
+                </span>
               </div>
-              <div className="space-y-1">
-                <label className="text-[11px] text-stone-500 dark:text-slate-400">Confirm New Password:</label>
-                <input
-                  type={showProfilePassword ? 'text' : 'password'}
-                  placeholder="••••••••"
-                  value={profileConfirmPassword}
-                  onChange={(e) => setProfileConfirmPassword(e.target.value)}
-                  className="w-full px-3 py-2 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-white dark:bg-[#07080e] text-stone-900 dark:text-white font-mono"
-                />
+              {showProfilePassword && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(currentAccountPassword);
+                    triggerSavedNotice('📋 Password copied to clipboard!');
+                  }}
+                  className="text-[11px] text-stone-600 hover:text-stone-900 dark:text-slate-400 dark:hover:text-white px-2.5 py-1 rounded-lg bg-[#f8f4ed] dark:bg-[#12141f] border border-[#ece3d6] dark:border-[#1d2030] cursor-pointer font-semibold"
+                >
+                  Copy
+                </button>
+              )}
+            </div>
+
+            {/* Change Password Inputs */}
+            <div className="pt-1 space-y-2">
+              <p className="text-[11px] font-semibold text-stone-600 dark:text-slate-400">Set New Password (leave blank to keep current):</p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="text-[11px] text-stone-500 dark:text-slate-400">New Password:</label>
+                  <input
+                    type={showProfilePassword ? 'text' : 'password'}
+                    placeholder={showProfilePassword ? 'Enter new password' : '••••••••'}
+                    value={profileNewPassword}
+                    onChange={(e) => setProfileNewPassword(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-white dark:bg-[#07080e] text-stone-900 dark:text-white font-mono text-xs placeholder:text-stone-400 dark:placeholder:text-slate-600 focus:border-cyan-500 outline-none"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[11px] text-stone-500 dark:text-slate-400">Confirm New Password:</label>
+                  <input
+                    type={showProfilePassword ? 'text' : 'password'}
+                    placeholder={showProfilePassword ? 'Confirm new password' : '••••••••'}
+                    value={profileConfirmPassword}
+                    onChange={(e) => setProfileConfirmPassword(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-white dark:bg-[#07080e] text-stone-900 dark:text-white font-mono text-xs placeholder:text-stone-400 dark:placeholder:text-slate-600 focus:border-cyan-500 outline-none"
+                  />
+                </div>
               </div>
             </div>
           </div>

@@ -18,12 +18,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
-.Python
-env/
-venv/
-ENV/
-env.bak/
-venv.bak/
+.venv/
+.venv*/
+backend/superadmin_config.json
 
 # Django staticfiles collected & sqlite
 backend/staticfiles/

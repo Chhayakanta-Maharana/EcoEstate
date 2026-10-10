@@ -69,9 +69,6 @@ export const WasteTab: React.FC<WasteTabProps> = ({ org }) => {
             <Trash2 className="w-4 h-4" /> Ultrasonic Level Sensors & AI Overflow Prediction
           </div>
           <h1 className="text-2xl font-extrabold">Smart Waste Management & Segregation</h1>
-          <p className="text-xs text-slate-300 mt-1">
-            Real-time fill telemetry, CPCB bio-medical tracking, and dynamic vehicle collection dispatch for {activeOrg?.name}
-          </p>
         </div>
 
         <div className="flex items-center gap-2 bg-purple-500/20 px-4 py-2 rounded-2xl border border-purple-500/30 text-xs font-bold text-purple-300">

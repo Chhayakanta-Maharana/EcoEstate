@@ -78,9 +78,6 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
             <Droplets className="w-4 h-4" /> Smart Water Metering & Circular STP Recycling
           </div>
           <h1 className="text-2xl font-extrabold">Water Intelligence & Zero Liquid Discharge</h1>
-          <p className="text-xs text-slate-300 mt-1">
-            Live acoustic flowmeters, level transducers, and water quality telemetry across {activeOrg?.name}
-          </p>
         </div>
 
         <div className="flex items-center gap-4 bg-white/5 p-3 rounded-2xl border border-white/10">
@@ -173,9 +170,6 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
             <h2 className="font-bold text-sm text-stone-900 dark:text-white">
               7-Day Water Balance: Municipal Freshwater vs STP Recycled (kL)
             </h2>
-            <p className="text-xs text-stone-500 dark:text-slate-400">
-              Recycled water redirected for cooling towers, flush systems, and horticulture.
-            </p>
           </div>
         </div>
 

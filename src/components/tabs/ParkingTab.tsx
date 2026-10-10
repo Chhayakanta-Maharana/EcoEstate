@@ -76,9 +76,6 @@ export const ParkingTab: React.FC<ParkingTabProps> = ({ org }) => {
             <Car className="w-4 h-4" /> Automated Ultrasonic Bay Sensors & EV Fast Charging Network
           </div>
           <h1 className="text-2xl font-extrabold">Smart Parking & Traffic Intelligence</h1>
-          <p className="text-xs text-slate-300 mt-1">
-            Real-time bay occupancy, EV charging status, and gateway congestion hotspots for {activeOrg?.name}
-          </p>
         </div>
 
         <div className="flex items-center gap-4 bg-white/5 p-3 rounded-2xl border border-white/10">

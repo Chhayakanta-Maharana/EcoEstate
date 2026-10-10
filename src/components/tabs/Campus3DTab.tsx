@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import {
-  Layers,
   Sparkles,
   Upload,
   PlusCircle,
@@ -12,16 +11,16 @@ import {
   Move,
   CheckCircle2,
   RefreshCw,
-  Compass,
   Maximize2,
   Sliders,
   Calendar,
-  Clock,
   Wind,
   Droplets,
   Zap,
   Activity,
   X,
+  Cloud,
+  Thermometer,
   Camera,
   ZoomIn,
   ZoomOut,
@@ -31,6 +30,13 @@ import {
   Network,
   Wifi,
   Radio,
+  Car,
+  Sun,
+  Gauge,
+  Waves,
+  BatteryCharging,
+  Scale,
+  Truck,
 } from 'lucide-react';
 import IoTGatewayModal from '@/components/IoTGatewayModal';
 import { DjangoApi } from '@/services/api';
@@ -39,7 +45,7 @@ export interface CampusNode {
   id: string;
   name: string;
   locationLabel: string;
-  type: 'aqi' | 'water' | 'energy' | 'weather' | 'general';
+  type: 'aqi' | 'water' | 'energy' | 'parking' | 'waste' | 'weather' | 'general';
   interfaceType?: 'LAN' | 'WIFI';
   xPct: number; // 0 to 100 percentage
   yPct: number; // 0 to 100 percentage
@@ -50,6 +56,14 @@ export interface CampusNode {
   humidity: number;
   secondaryLabel?: string;
   secondaryValue?: string;
+  metric1Label?: string;
+  metric1Value?: string;
+  metric2Label?: string;
+  metric2Value?: string;
+  metric3Label?: string;
+  metric3Value?: string;
+  metric4Label?: string;
+  metric4Value?: string;
   status: 'optimal' | 'moderate' | 'warning';
 }
 
@@ -156,40 +170,25 @@ export const Campus3DTab: React.FC = () => {
 
     return [
       {
-        id: 'node-gate',
-        name: 'Main Campus Entrance Gate',
-        locationLabel: 'At Main Gate',
+        id: 'node-quarters',
+        name: 'Senior Faculty Residential Enclave',
+        locationLabel: 'At Faculty Quarters',
         type: 'aqi',
         interfaceType: 'WIFI',
-        xPct: 55.5,
-        yPct: 84.0,
-        stemHeightPx: 55,
-        pm25: 20,
-        pm10: 40,
-        temp: 33,
-        humidity: 47,
+        xPct: 15.0,
+        yPct: 55.0,
+        stemHeightPx: 60,
+        pm25: 39,
+        pm10: 48,
+        temp: 28,
+        humidity: 87,
         status: 'optimal',
       },
       {
-        id: 'node-library',
-        name: 'Central University Library & Innovation Hub',
-        locationLabel: 'Near Library entrance',
-        type: 'aqi',
-        interfaceType: 'WIFI',
-        xPct: 69.0,
-        yPct: 62.0,
-        stemHeightPx: 70,
-        pm25: 60,
-        pm10: 91,
-        temp: 21,
-        humidity: 99,
-        status: 'moderate',
-      },
-      {
         id: 'node-academic',
-        name: 'Central Academic Block & Computer Science Labs',
+        name: 'Central Academic Block & Solar Rooftop',
         locationLabel: 'Behind Academic Wing',
-        type: 'aqi',
+        type: 'energy',
         interfaceType: 'WIFI',
         xPct: 38.0,
         yPct: 55.0,
@@ -198,21 +197,16 @@ export const Campus3DTab: React.FC = () => {
         pm10: 51,
         temp: 30,
         humidity: 86,
-        status: 'optimal',
-      },
-      {
-        id: 'node-sports',
-        name: 'Athletic Track & Sports Complex',
-        locationLabel: 'Football ground',
-        type: 'weather',
-        interfaceType: 'WIFI',
-        xPct: 82.0,
-        yPct: 52.0,
-        stemHeightPx: 60,
-        pm25: 22,
-        pm10: 35,
-        temp: 38,
-        humidity: 69,
+        secondaryLabel: 'Solar Gen',
+        secondaryValue: '185 kW',
+        metric1Label: 'Solar Gen',
+        metric1Value: '185 kW',
+        metric2Label: 'Grid Load',
+        metric2Value: '280 kVA',
+        metric3Label: 'Daily Yield',
+        metric3Value: '910 kWh',
+        metric4Label: 'Power Factor',
+        metric4Value: '0.99 PF',
         status: 'optimal',
       },
       {
@@ -230,13 +224,21 @@ export const Campus3DTab: React.FC = () => {
         humidity: 73,
         secondaryLabel: 'STP Flow',
         secondaryValue: '550 kL',
+        metric1Label: 'STP Flow',
+        metric1Value: '550 kL',
+        metric2Label: 'Tank Level',
+        metric2Value: '84%',
+        metric3Label: 'Pressure',
+        metric3Value: '4.2 bar',
+        metric4Label: 'TDS Purity',
+        metric4Value: '142 ppm',
         status: 'optimal',
       },
       {
         id: 'node-guest',
-        name: 'Executive Guest House & Faculty Quarters',
+        name: 'Executive Guest House & Waste Logistics',
         locationLabel: 'at guest house',
-        type: 'aqi',
+        type: 'waste',
         interfaceType: 'WIFI',
         xPct: 58.0,
         yPct: 40.0,
@@ -245,39 +247,151 @@ export const Campus3DTab: React.FC = () => {
         pm10: 46,
         temp: 29,
         humidity: 65,
+        secondaryLabel: 'Bin Fill',
+        secondaryValue: '38%',
+        metric1Label: 'Fill Level',
+        metric1Value: '38%',
+        metric2Label: 'Bin Weight',
+        metric2Value: '14 kg',
+        metric3Label: 'Odor / VOC',
+        metric3Value: 'Clean',
+        metric4Label: 'Pickup',
+        metric4Value: 'Scheduled',
         status: 'optimal',
       },
       {
-        id: 'node-quarters',
-        name: 'Senior Faculty Residential Enclave',
-        locationLabel: 'At Faculty Quarters',
-        type: 'aqi',
+        id: 'node-gate',
+        name: 'Main Campus Entrance Gate & Smart EV Parking',
+        locationLabel: 'At Main Gate',
+        type: 'parking',
         interfaceType: 'WIFI',
-        xPct: 15.0,
-        yPct: 55.0,
-        stemHeightPx: 60,
-        pm25: 39,
-        pm10: 48,
-        temp: 28,
-        humidity: 87,
+        xPct: 55.5,
+        yPct: 84.0,
+        stemHeightPx: 55,
+        pm25: 20,
+        pm10: 40,
+        temp: 33,
+        humidity: 47,
+        secondaryLabel: 'EV Slots',
+        secondaryValue: '18 / 28',
+        metric1Label: 'Slots Avail',
+        metric1Value: '18 / 28',
+        metric2Label: 'EV Fast',
+        metric2Value: '4 Active',
+        metric3Label: 'Occupancy',
+        metric3Value: '64%',
+        metric4Label: 'Gate Status',
+        metric4Value: 'OPEN',
         status: 'optimal',
       },
       {
-        id: 'node-hostel',
-        name: 'Student Residential Hostels',
-        locationLabel: 'In OBH',
+        id: 'node-library',
+        name: 'Central University Library & Innovation Hub',
+        locationLabel: 'Near Library entrance',
         type: 'aqi',
         interfaceType: 'WIFI',
-        xPct: 83.0,
-        yPct: 32.0,
-        stemHeightPx: 65,
-        pm25: 30,
-        pm10: 38,
+        xPct: 69.0,
+        yPct: 62.0,
+        stemHeightPx: 70,
+        pm25: 38,
+        pm10: 69,
         temp: 31,
-        humidity: 64,
+        humidity: 50,
+        status: 'optimal',
+      },
+      {
+        id: 'node-sports',
+        name: 'Athletic Track & Sports Complex',
+        locationLabel: 'Football ground',
+        type: 'weather',
+        interfaceType: 'WIFI',
+        xPct: 82.0,
+        yPct: 52.0,
+        stemHeightPx: 60,
+        pm25: 32,
+        pm10: 49,
+        temp: 41,
+        humidity: 61,
         status: 'optimal',
       },
     ];
+  };
+
+  const enrichWithDomainDefaults = (nodeList: CampusNode[]): CampusNode[] => {
+    return nodeList.map((n) => {
+      let t = n.type;
+      if (t === 'aqi') {
+        const loc = (n.locationLabel || '').toLowerCase();
+        const nm = (n.name || '').toLowerCase();
+        if (loc.includes('pump') || n.secondaryLabel?.toLowerCase().includes('stp')) {
+          t = 'water';
+        } else if (loc.includes('academic') || nm.includes('solar') || n.secondaryLabel?.toLowerCase().includes('power') || n.secondaryLabel?.toLowerCase().includes('solar')) {
+          t = 'energy';
+        } else if (loc.includes('guest') || nm.includes('waste')) {
+          t = 'waste';
+        } else if (loc.includes('gate') || nm.includes('parking')) {
+          t = 'parking';
+        }
+      }
+
+      if (t === 'water') {
+        return {
+          ...n,
+          type: 'water',
+          metric1Label: n.metric1Label || 'STP Flow',
+          metric1Value: n.metric1Value || n.secondaryValue || '550 kL',
+          metric2Label: n.metric2Label || 'Tank Level',
+          metric2Value: n.metric2Value || '84%',
+          metric3Label: n.metric3Label || 'Pressure',
+          metric3Value: n.metric3Value || '4.2 bar',
+          metric4Label: n.metric4Label || 'TDS Purity',
+          metric4Value: n.metric4Value || '142 ppm',
+        };
+      }
+      if (t === 'energy') {
+        return {
+          ...n,
+          type: 'energy',
+          metric1Label: n.metric1Label || 'Solar Gen',
+          metric1Value: n.metric1Value || n.secondaryValue || '185 kW',
+          metric2Label: n.metric2Label || 'Grid Load',
+          metric2Value: n.metric2Value || '280 kVA',
+          metric3Label: n.metric3Label || 'Daily Yield',
+          metric3Value: n.metric3Value || '910 kWh',
+          metric4Label: n.metric4Label || 'Power Factor',
+          metric4Value: n.metric4Value || '0.99 PF',
+        };
+      }
+      if (t === 'parking') {
+        return {
+          ...n,
+          type: 'parking',
+          metric1Label: n.metric1Label || 'Slots Avail',
+          metric1Value: n.metric1Value || '18 / 28',
+          metric2Label: n.metric2Label || 'EV Fast',
+          metric2Value: n.metric2Value || '4 Active',
+          metric3Label: n.metric3Label || 'Occupancy',
+          metric3Value: n.metric3Value || '64%',
+          metric4Label: n.metric4Label || 'Gate Status',
+          metric4Value: n.metric4Value || 'OPEN',
+        };
+      }
+      if (t === 'waste') {
+        return {
+          ...n,
+          type: 'waste',
+          metric1Label: n.metric1Label || 'Fill Level',
+          metric1Value: n.metric1Value || '38%',
+          metric2Label: n.metric2Label || 'Bin Weight',
+          metric2Value: n.metric2Value || '14 kg',
+          metric3Label: n.metric3Label || 'Odor / VOC',
+          metric3Value: n.metric3Value || 'Clean',
+          metric4Label: n.metric4Label || 'Pickup',
+          metric4Value: n.metric4Value || 'Scheduled',
+        };
+      }
+      return { ...n, type: t };
+    });
   };
 
   const [nodes, setNodes] = useState<CampusNode[]>(() => {
@@ -286,13 +400,15 @@ export const Campus3DTab: React.FC = () => {
       if (saved) {
         try {
           const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            return enrichWithDomainDefaults(parsed);
+          }
         } catch (e) {
           // fallback
         }
       }
     }
-    return generateAutoNodes(activeOrg?.type === 'HOSPITAL');
+    return enrichWithDomainDefaults(generateAutoNodes(activeOrg?.type === 'HOSPITAL'));
   });
 
   // Sync 3D nodes with real NeonDB PostgreSQL telemetry
@@ -364,7 +480,7 @@ export const Campus3DTab: React.FC = () => {
 
   // Top Bar Filters
   const [timelineHour, setTimelineHour] = useState<number>(13);
-  const [activeFilter, setActiveFilter] = useState<'ALL' | 'aqi' | 'water' | 'energy' | 'weather'>('ALL');
+  const [activeFilter, setActiveFilter] = useState<'ALL' | 'aqi' | 'water' | 'energy' | 'parking' | 'waste'>('ALL');
   const [showPm25, setShowPm25] = useState(true);
   const [showPm10, setShowPm10] = useState(true);
   const [showTemp, setShowTemp] = useState(true);
@@ -444,7 +560,7 @@ export const Campus3DTab: React.FC = () => {
         x: e.clientX - panStart.x,
         y: e.clientY - panStart.y,
       });
-    } else if (draggingNodeId && canvasRef.current) {
+    } else if (isCalibrateMode && draggingNodeId && canvasRef.current) {
       const rect = canvasRef.current.getBoundingClientRect();
       const clickX = e.clientX - rect.left;
       const clickY = e.clientY - rect.top;
@@ -461,12 +577,23 @@ export const Campus3DTab: React.FC = () => {
         )
       );
     }
-  }, [isPanning, panStart, draggingNodeId]);
+  }, [isPanning, panStart, isCalibrateMode, draggingNodeId]);
 
   const handleMouseUp = useCallback(() => {
     setIsPanning(false);
+    if (draggingNodeId && activeOrg?.id) {
+      setNodes((currentNodes) => {
+        DjangoApi.updateCampusTwin(activeOrg.id, {
+          campus_nodes_json: JSON.stringify(currentNodes),
+        });
+        if (typeof window !== 'undefined') {
+          localStorage.setItem(`ecoestate-campus-nodes-${orgKey}`, JSON.stringify(currentNodes));
+        }
+        return currentNodes;
+      });
+    }
     setDraggingNodeId(null);
-  }, []);
+  }, [draggingNodeId, activeOrg?.id, orgKey]);
 
   useEffect(() => {
     window.addEventListener('mouseup', handleMouseUp);
@@ -475,9 +602,9 @@ export const Campus3DTab: React.FC = () => {
     };
   }, [handleMouseUp]);
 
-  // Click on Canvas to add or calibrate a point
+  // Click on Canvas to add or calibrate a point (only in Edit mode)
   const handleCanvasDoubleClick = (e: React.MouseEvent) => {
-    if (!canvasRef.current) return;
+    if (!isCalibrateMode || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
     const clickY = e.clientY - rect.top;
@@ -601,82 +728,183 @@ export const Campus3DTab: React.FC = () => {
   // Filter nodes according to selected category
   const filteredNodes = nodes.filter((n) => {
     if (activeFilter === 'ALL') return true;
+    if (activeFilter === 'aqi') return n.type === 'aqi' || n.type === 'weather';
     return n.type === activeFilter;
   });
+
+  const getDomainTheme = (type: string) => {
+    switch (type) {
+      case 'water':
+        return {
+          cardBorder: 'border-cyan-500/50 hover:border-cyan-400',
+          cardSelected: 'border-cyan-400 ring-2 ring-cyan-500/50 shadow-[0_0_25px_rgba(6,182,212,0.45)]',
+          cardGlow: 'hover:shadow-[0_0_20px_rgba(6,182,212,0.25)]',
+          cardBg: 'bg-[#030d17]/95',
+          channelBadge: 'text-cyan-400',
+          stem: 'from-cyan-400 to-blue-500 shadow-[0_0_8px_#06b6d4]',
+          beacon: 'bg-cyan-400 shadow-[0_0_15px_#06b6d4]',
+          beaconHalo: 'bg-cyan-400/40',
+          pillBorder: 'hover:border-cyan-400',
+        };
+      case 'energy':
+        return {
+          cardBorder: 'border-amber-500/50 hover:border-amber-400',
+          cardSelected: 'border-amber-400 ring-2 ring-amber-500/50 shadow-[0_0_25px_rgba(245,158,11,0.45)]',
+          cardGlow: 'hover:shadow-[0_0_20px_rgba(245,158,11,0.25)]',
+          cardBg: 'bg-[#150e04]/95',
+          channelBadge: 'text-amber-400',
+          stem: 'from-amber-400 to-yellow-500 shadow-[0_0_8px_#f59e0b]',
+          beacon: 'bg-amber-400 shadow-[0_0_15px_#f59e0b]',
+          beaconHalo: 'bg-amber-400/40',
+          pillBorder: 'hover:border-amber-400',
+        };
+      case 'parking':
+        return {
+          cardBorder: 'border-emerald-500/50 hover:border-emerald-400',
+          cardSelected: 'border-emerald-400 ring-2 ring-emerald-500/50 shadow-[0_0_25px_rgba(16,185,129,0.45)]',
+          cardGlow: 'hover:shadow-[0_0_20px_rgba(16,185,129,0.25)]',
+          cardBg: 'bg-[#04140b]/95',
+          channelBadge: 'text-emerald-400',
+          stem: 'from-emerald-400 to-teal-500 shadow-[0_0_8px_#10b981]',
+          beacon: 'bg-emerald-400 shadow-[0_0_15px_#10b981]',
+          beaconHalo: 'bg-emerald-400/40',
+          pillBorder: 'hover:border-emerald-400',
+        };
+      case 'waste':
+        return {
+          cardBorder: 'border-purple-500/50 hover:border-purple-400',
+          cardSelected: 'border-purple-400 ring-2 ring-purple-500/50 shadow-[0_0_25px_rgba(168,85,247,0.45)]',
+          cardGlow: 'hover:shadow-[0_0_20px_rgba(168,85,247,0.25)]',
+          cardBg: 'bg-[#120519]/95',
+          channelBadge: 'text-purple-400',
+          stem: 'from-purple-400 to-indigo-500 shadow-[0_0_8px_#a855f7]',
+          beacon: 'bg-purple-400 shadow-[0_0_15px_#a855f7]',
+          beaconHalo: 'bg-purple-400/40',
+          pillBorder: 'hover:border-purple-400',
+        };
+      case 'aqi':
+      case 'weather':
+      default:
+        return {
+          cardBorder: 'border-sky-500/50 hover:border-sky-400',
+          cardSelected: 'border-sky-400 ring-2 ring-sky-500/50 shadow-[0_0_25px_rgba(14,165,233,0.45)]',
+          cardGlow: 'hover:shadow-[0_0_20px_rgba(14,165,233,0.25)]',
+          cardBg: 'bg-[#060c15]/95',
+          channelBadge: 'text-sky-400',
+          stem: 'from-sky-400 to-blue-500 shadow-[0_0_8px_#0ea5e9]',
+          beacon: 'bg-sky-400 shadow-[0_0_15px_#0ea5e9]',
+          beaconHalo: 'bg-sky-400/40',
+          pillBorder: 'hover:border-sky-400',
+        };
+    }
+  };
 
   return (
     <div className="space-y-3.5 animate-in fade-in duration-300 select-none pb-12">
       {/* 1. TOP CONTROL BAR (Compact, responsive, aligned with reference photo) */}
       <div className="p-3.5 sm:p-4 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-sm flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        {/* Left: Branding & Status */}
-        <div className="flex flex-wrap items-center gap-2.5">
-          <div className="flex items-center gap-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-ping" />
-            <h1 className="font-black text-sm sm:text-base text-stone-900 dark:text-white tracking-tight flex items-center gap-1.5">
-              <span className="text-cyan-600 dark:text-cyan-400 font-mono">:::</span> {activeOrg?.name || 'Smart Campus'}
-            </h1>
+        {/* Left: Quick Domain Filters ("in short") */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Quick Domain Filter Buttons ("in short") */}
+          <div className="flex items-center gap-1 bg-[#f8f5ee] dark:bg-[#0a0b12] p-1 rounded-2xl border border-[#ece3d6] dark:border-[#151722] text-[11px] font-bold">
+            {[
+              { id: 'aqi', label: 'AQI', icon: Wind, color: 'text-amber-500' },
+              { id: 'water', label: 'Water', icon: Droplets, color: 'text-cyan-400' },
+              { id: 'energy', label: 'Energy', icon: Zap, color: 'text-amber-400' },
+              { id: 'parking', label: 'EV Parking', icon: Car, color: 'text-emerald-400' },
+              { id: 'waste', label: 'Waste', icon: Trash2, color: 'text-purple-400' },
+            ].map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeFilter === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveFilter(activeFilter === tab.id ? 'ALL' : (tab.id as any))}
+                  className={`px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-xl transition-all cursor-pointer flex items-center gap-1 text-[11px] ${
+                    isActive
+                      ? 'bg-white dark:bg-stone-800 text-cyan-600 dark:text-cyan-400 shadow-sm font-extrabold border border-cyan-500/30 ring-1 ring-cyan-500/20'
+                      : 'text-stone-500 hover:text-stone-900 dark:hover:text-stone-200'
+                  }`}
+                  title={`Filter pins by ${tab.label}`}
+                >
+                  <Icon className={`w-3 h-3 ${tab.color || ''}`} />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
           </div>
-          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#f5efe6] dark:bg-[#0a0b12] text-cyan-700 dark:text-cyan-400 border border-[#ece3d6] dark:border-[#151722]">
-            Spatial 3D Mesh
-          </span>
-          <span className="text-[11px] text-stone-400 dark:text-slate-500 hidden sm:inline">
-            • {nodes.length} Nodes Online
-          </span>
         </div>
 
-        {/* Center: Timeline Scrubber & Parameter Filters */}
+        {/* Center: Parameter Filters & Contextual Indicators */}
         <div className="flex flex-wrap items-center gap-2 text-xs">
-          {/* Time Scrubber */}
-          <div className="flex items-center gap-2 px-2.5 py-1 rounded-xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
-            <Clock className="w-3.5 h-3.5 text-amber-500" />
-            <span className="font-mono font-bold text-stone-900 dark:text-white min-w-[38px] text-[11px]">
-              {String(timelineHour).padStart(2, '0')}:00
-            </span>
-            <input
-              type="range"
-              min="0"
-              max="23"
-              value={timelineHour}
-              onChange={(e) => setTimelineHour(Number(e.target.value))}
-              className="w-20 sm:w-24 h-1.5 bg-stone-300 dark:bg-stone-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
-            />
-          </div>
 
-          {/* Metric Parameter Toggles */}
-          <div className="flex items-center gap-1 bg-[#f8f5ee] dark:bg-[#0a0b12] p-1 rounded-xl border border-[#ece3d6] dark:border-[#151722] text-[11px] font-bold">
-            <button
-              onClick={() => setShowPm25(!showPm25)}
-              className={`px-2 py-0.5 rounded-lg transition-colors cursor-pointer ${
-                showPm25 ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 font-extrabold' : 'text-stone-400'
-              }`}
-            >
-              PM2.5
-            </button>
-            <button
-              onClick={() => setShowPm10(!showPm10)}
-              className={`px-2 py-0.5 rounded-lg transition-colors cursor-pointer ${
-                showPm10 ? 'bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 font-extrabold' : 'text-stone-400'
-              }`}
-            >
-              PM10
-            </button>
-            <button
-              onClick={() => setShowTemp(!showTemp)}
-              className={`px-2 py-0.5 rounded-lg transition-colors cursor-pointer ${
-                showTemp ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-extrabold' : 'text-stone-400'
-              }`}
-            >
-              Temp
-            </button>
-            <button
-              onClick={() => setShowHumidity(!showHumidity)}
-              className={`px-2 py-0.5 rounded-lg transition-colors cursor-pointer ${
-                showHumidity ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400 font-extrabold' : 'text-stone-400'
-              }`}
-            >
-              Humidity
-            </button>
-          </div>
+          {/* Metric Parameter Toggles - Only visible for Air (AQI) */}
+          {activeFilter === 'aqi' && (
+            <div className="flex items-center gap-1 bg-[#f8f5ee] dark:bg-[#0a0b12] p-1 rounded-xl border border-[#ece3d6] dark:border-[#151722] text-[11px] font-bold animate-in fade-in duration-200">
+              <button
+                onClick={() => setShowPm25(!showPm25)}
+                className={`px-2 py-0.5 rounded-lg transition-colors cursor-pointer ${
+                  showPm25 ? 'bg-amber-500/20 text-amber-600 dark:text-amber-400 font-extrabold' : 'text-stone-400'
+                }`}
+                title="Toggle PM2.5 visibility"
+              >
+                PM2.5
+              </button>
+              <button
+                onClick={() => setShowPm10(!showPm10)}
+                className={`px-2 py-0.5 rounded-lg transition-colors cursor-pointer ${
+                  showPm10 ? 'bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 font-extrabold' : 'text-stone-400'
+                }`}
+                title="Toggle PM10 visibility"
+              >
+                PM10
+              </button>
+              <button
+                onClick={() => setShowTemp(!showTemp)}
+                className={`px-2 py-0.5 rounded-lg transition-colors cursor-pointer ${
+                  showTemp ? 'bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 font-extrabold' : 'text-stone-400'
+                }`}
+                title="Toggle Temperature visibility"
+              >
+                Temp
+              </button>
+              <button
+                onClick={() => setShowHumidity(!showHumidity)}
+                className={`px-2 py-0.5 rounded-lg transition-colors cursor-pointer ${
+                  showHumidity ? 'bg-blue-500/20 text-blue-600 dark:text-blue-400 font-extrabold' : 'text-stone-400'
+                }`}
+                title="Toggle Humidity visibility"
+              >
+                Humidity
+              </button>
+            </div>
+          )}
+
+          {/* Contextual Metric Indicators for other categories */}
+          {activeFilter === 'water' && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-600 dark:text-cyan-400 text-[11px] font-bold animate-in fade-in duration-200">
+              <Droplets className="w-3.5 h-3.5" />
+              <span>STP Flow • Tank Level • Pressure • TDS</span>
+            </div>
+          )}
+          {activeFilter === 'energy' && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-[11px] font-bold animate-in fade-in duration-200">
+              <Zap className="w-3.5 h-3.5" />
+              <span>Solar Gen • Grid Load • Daily Yield • PF</span>
+            </div>
+          )}
+          {activeFilter === 'parking' && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-600 dark:text-emerald-400 text-[11px] font-bold animate-in fade-in duration-200">
+              <Car className="w-3.5 h-3.5" />
+              <span>Slots Avail • EV Fast • Occupancy • Gate</span>
+            </div>
+          )}
+          {activeFilter === 'waste' && (
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-purple-500/10 border border-purple-500/30 text-purple-600 dark:text-purple-400 text-[11px] font-bold animate-in fade-in duration-200">
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Fill Level • Bin Weight • Odor VOC • Route</span>
+            </div>
+          )}
         </div>
 
         {/* Right: Key Actions */}
@@ -703,19 +931,6 @@ export const Campus3DTab: React.FC = () => {
             <span className="hidden sm:inline">{isAiScanning ? `Scanning Vision...` : 'AI Auto-Detect'}</span>
           </button>
 
-          {/* Add / Move Mode Indicator */}
-          <button
-            onClick={() => setIsCalibrateMode(!isCalibrateMode)}
-            className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 border transition-all cursor-pointer ${
-              isCalibrateMode
-                ? 'bg-amber-500 text-slate-950 border-amber-600 shadow-md animate-pulse'
-                : 'border-[#ece3d6] dark:border-[#151722] bg-[#f8f5ee] dark:bg-[#0a0b12] text-stone-700 dark:text-slate-300 hover:border-amber-500'
-            }`}
-          >
-            <Move className="w-3.5 h-3.5" />
-            <span>{isCalibrateMode ? 'Drag Pins to Position' : 'Move / Edit Pins'}</span>
-          </button>
-
           {/* Import Custom Campus Image */}
           <button
             onClick={() => setShowUploadModal(true)}
@@ -723,24 +938,6 @@ export const Campus3DTab: React.FC = () => {
           >
             <Upload className="w-3.5 h-3.5 text-cyan-500" />
             <span>Import Image</span>
-          </button>
-
-          {/* 3D Depth Toggle */}
-          <button
-            onClick={() => {
-              const next3D = !is3DMode;
-              setIs3DMode(next3D);
-              setTiltPitch(next3D ? 16 : 0);
-            }}
-            className={`p-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer flex items-center gap-1 ${
-              is3DMode
-                ? 'border-cyan-500 bg-cyan-500/10 text-cyan-600 dark:text-cyan-400'
-                : 'border-[#ece3d6] dark:border-[#151722] bg-[#f8f5ee] dark:bg-[#0a0b12] text-stone-600 dark:text-slate-400'
-            }`}
-            title="Toggle 3D Depth Elevation"
-          >
-            <Compass className={`w-4 h-4 ${is3DMode ? 'rotate-45 text-cyan-500' : ''}`} />
-            <span className="text-[10px] hidden sm:inline">{is3DMode ? '3D Tilt' : 'Upright'}</span>
           </button>
         </div>
       </div>
@@ -755,6 +952,89 @@ export const Campus3DTab: React.FC = () => {
       >
         {/* Subtle Ambient Vignette */}
         <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/40 pointer-events-none z-10" />
+
+        {/* Floating Edit Pins & Add Pin Controls on Top-Right Corner of Image */}
+        <div className="absolute top-4 right-4 z-30 flex items-center gap-2">
+          {/* Quick Add Pin button appears when Edit Mode is active */}
+          {isCalibrateMode && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                const defaultType = activeFilter === 'ALL' ? 'aqi' : activeFilter;
+                let metricsDefaults = {};
+                if (defaultType === 'water') {
+                  metricsDefaults = { metric1Label: 'STP Flow', metric1Value: '550 kL', metric2Label: 'Tank Level', metric2Value: '84%', metric3Label: 'Pressure', metric3Value: '4.2 bar', metric4Label: 'TDS Purity', metric4Value: '142 ppm' };
+                } else if (defaultType === 'energy') {
+                  metricsDefaults = { metric1Label: 'Solar Gen', metric1Value: '185 kW', metric2Label: 'Grid Load', metric2Value: '280 kVA', metric3Label: 'Daily Yield', metric3Value: '910 kWh', metric4Label: 'Power Factor', metric4Value: '0.99 PF' };
+                } else if (defaultType === 'parking') {
+                  metricsDefaults = { metric1Label: 'Slots Avail', metric1Value: '18 / 28', metric2Label: 'EV Fast', metric2Value: '4 Active', metric3Label: 'Occupancy', metric3Value: '64%', metric4Label: 'Gate Status', metric4Value: 'OPEN' };
+                } else if (defaultType === 'waste') {
+                  metricsDefaults = { metric1Label: 'Fill Level', metric1Value: '38%', metric2Label: 'Bin Weight', metric2Value: '14 kg', metric3Label: 'Odor / VOC', metric3Value: 'Clean', metric4Label: 'Pickup', metric4Value: 'Scheduled' };
+                }
+
+                const newNode: Partial<CampusNode> = {
+                  id: `node-${Date.now()}`,
+                  name: `New ${defaultType.toUpperCase()} Node #${nodes.length + 1}`,
+                  locationLabel: `Zone ${nodes.length + 1}`,
+                  type: defaultType as any,
+                  interfaceType: 'WIFI',
+                  xPct: 50,
+                  yPct: 50,
+                  stemHeightPx: 65,
+                  pm25: 25,
+                  pm10: 45,
+                  temp: 30,
+                  humidity: 55,
+                  status: 'optimal',
+                  ...metricsDefaults,
+                };
+                setEditingNode(newNode);
+                setShowNodeModal(true);
+              }}
+              className="p-2 sm:px-3 sm:py-2 rounded-2xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-extrabold text-xs shadow-xl flex items-center gap-1.5 cursor-pointer animate-in fade-in transition-all"
+              title="Add a new sensor pin"
+            >
+              <PlusCircle className="w-4 h-4" />
+              <span>+ Add Pin</span>
+            </button>
+          )}
+
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (isCalibrateMode) {
+                // Persist current node positions when user finishes editing
+                if (activeOrg?.id) {
+                  DjangoApi.updateCampusTwin(activeOrg.id, {
+                    campus_nodes_json: JSON.stringify(nodes),
+                  });
+                }
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem(`ecoestate-campus-nodes-${orgKey}`, JSON.stringify(nodes));
+                }
+              }
+              setIsCalibrateMode(!isCalibrateMode);
+            }}
+            title={isCalibrateMode ? 'Exit Pin Calibration (Done)' : 'Move & Edit Sensor Pins'}
+            className={`p-2.5 sm:px-3.5 sm:py-2 rounded-2xl backdrop-blur-md border shadow-2xl flex items-center gap-2 text-xs font-extrabold transition-all cursor-pointer ${
+              isCalibrateMode
+                ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-[0_0_25px_rgba(245,158,11,0.55)] ring-2 ring-amber-300'
+                : 'bg-slate-900/85 hover:bg-slate-900/95 text-white border-white/20 hover:border-cyan-400 hover:scale-105 shadow-xl'
+            }`}
+          >
+            {isCalibrateMode ? (
+              <>
+                <Check className="w-4 h-4 text-slate-950 stroke-[3]" />
+                <span className="hidden sm:inline">Done Editing</span>
+              </>
+            ) : (
+              <>
+                <Edit3 className="w-4 h-4 text-cyan-400" />
+                <span className="hidden sm:inline">Edit Pins</span>
+              </>
+            )}
+          </button>
+        </div>
 
         {/* AI Laser Scanline sweep overlay */}
         {isAiScanning && (
@@ -775,19 +1055,6 @@ export const Campus3DTab: React.FC = () => {
           </div>
         )}
 
-        {/* Calibration Helper Banner */}
-        {isCalibrateMode && (
-          <div className="absolute top-4 left-1/2 -translate-x-1/2 z-30 px-4 py-2 rounded-2xl bg-amber-500 text-slate-950 font-extrabold text-xs shadow-2xl flex items-center gap-2">
-            <Move className="w-4 h-4 animate-bounce" />
-            <span>Click & drag any yellow pin to reposition. Double-click anywhere to add a new sensor pin!</span>
-            <button
-              onClick={() => setIsCalibrateMode(false)}
-              className="ml-2 px-2 py-0.5 rounded bg-slate-950 text-white font-mono text-[10px] cursor-pointer"
-            >
-              Done
-            </button>
-          </div>
-        )}
 
         {/* Transformed Map & Spatial Layer Canvas */}
         <div
@@ -819,6 +1086,8 @@ export const Campus3DTab: React.FC = () => {
             const currentTemp = Math.round(node.temp + (hourDelta > 0 ? 3 : -2));
             const currentHumidity = Math.round(node.humidity - (hourDelta > 0 ? 8 : -5));
 
+            const theme = getDomainTheme(node.type);
+
             return (
               <div
                 key={node.id}
@@ -826,27 +1095,30 @@ export const Campus3DTab: React.FC = () => {
                   position: 'absolute',
                   left: `${node.xPct}%`,
                   top: `${node.yPct}%`,
-                  transform: 'translate(-50%, -100%)',
                   transformStyle: 'preserve-3d',
                   zIndex: isDragging ? 100 : isSelected ? 80 : 30,
                 }}
-                className="group flex flex-col items-center pointer-events-auto"
+                className="group pointer-events-auto"
               >
-                {/* 1. FLOATING TELEMETRY HUD CARD (Exact style of reference screenshot) */}
-                <div
+                {/* 1. FLOATING TELEMETRY HUD CARD & STEM (Extends upwards above pinpoint beacon) */}
+                <div className="absolute bottom-2 left-1/2 -translate-x-1/2 flex flex-col items-center pointer-events-auto">
+                  <div
                   onClick={(e) => {
                     e.stopPropagation();
                     setSelectedNode(node);
+                    setEditingNode({ ...node });
+                    setShowNodeModal(true);
                   }}
-                  className={`p-2.5 rounded-2xl bg-[#07080e]/95 backdrop-blur-md border shadow-2xl transition-all cursor-pointer select-none ${
+                  title="Click to customize and edit this sensor card"
+                  className={`p-2.5 rounded-2xl ${theme.cardBg} backdrop-blur-md border shadow-2xl transition-all cursor-pointer select-none group/card ${
                     isSelected
-                      ? 'border-cyan-400 ring-2 ring-cyan-500/50 shadow-[0_0_25px_rgba(6,182,212,0.4)]'
-                      : 'border-stone-800 hover:border-amber-400'
+                      ? theme.cardSelected
+                      : `${theme.cardBorder} ${theme.cardGlow} hover:scale-[1.02]`
                   }`}
-                  style={{ minWidth: '150px' }}
+                  style={{ minWidth: '155px' }}
                 >
-                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] font-mono font-bold leading-tight">
-                    {/* Top Ingestion Channel Badge */}
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] font-mono font-bold leading-tight">
+                    {/* Top Ingestion Channel Badge + Click to Edit Prompt */}
                     <div className="col-span-2 pb-1 border-b border-white/10 flex items-center justify-between text-[9px]">
                       <span className="flex items-center gap-1">
                         {node.interfaceType === 'LAN' ? (
@@ -859,106 +1131,197 @@ export const Campus3DTab: React.FC = () => {
                           </span>
                         )}
                       </span>
-                      <span className="text-stone-400 font-sans">{node.status.toUpperCase()}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-stone-400 font-sans">{node.status.toUpperCase()}</span>
+                        <Edit3 className="w-2.5 h-2.5 text-stone-500 group-hover/card:text-amber-400 transition-colors" />
+                      </div>
                     </div>
 
-                    {/* Row 1: PM2.5 (Amber) & PM10 (Cyan) */}
-                    {showPm25 && (
-                      <div className="flex items-center gap-1 text-amber-400">
-                        <span className="text-[12px]">☁️</span>
-                        <span>{currentPm25} <span className="text-[9px] text-amber-500/70 font-normal">µg/m³</span></span>
-                      </div>
-                    )}
-                    {showPm10 && (
-                      <div className="flex items-center gap-1 text-cyan-400">
-                        <span className="text-[12px]">☁️</span>
-                        <span>{currentPm10} <span className="text-[9px] text-cyan-500/70 font-normal">µg/m³</span></span>
-                      </div>
-                    )}
-
-                    {/* Row 2: Temp (Green) & Humidity (Blue) */}
-                    {showTemp && (
-                      <div className="flex items-center gap-1 text-emerald-400">
-                        <span className="text-[12px]">🌡️</span>
-                        <span>{currentTemp} <span className="text-[9px] text-emerald-500/70 font-normal">°C</span></span>
-                      </div>
-                    )}
-                    {showHumidity && (
-                      <div className="flex items-center gap-1 text-blue-400">
-                        <span className="text-[12px]">💧</span>
-                        <span>{currentHumidity} <span className="text-[9px] text-blue-500/70 font-normal">%</span></span>
-                      </div>
-                    )}
-
-                    {/* Secondary Value if specialized node */}
-                    {node.secondaryLabel && (
-                      <div className="col-span-2 pt-1 border-t border-white/10 flex justify-between text-[10px] text-purple-300">
-                        <span>{node.secondaryLabel}:</span>
-                        <span className="text-white font-bold">{node.secondaryValue}</span>
-                      </div>
+                    {/* Domain-Specific Metrics Content */}
+                    {node.type === 'water' ? (
+                      /* Water & STP Loop HUD */
+                      <>
+                        <div className="flex items-center gap-1 text-cyan-400">
+                          <Waves className="w-3 h-3 flex-shrink-0" />
+                          <span>{node.metric1Value || node.secondaryValue || '550 kL'} <span className="text-[9px] text-cyan-500/70 font-sans">{node.metric1Label || 'Flow'}</span></span>
+                        </div>
+                        <div className="flex items-center gap-1 text-blue-400">
+                          <Droplets className="w-3 h-3 flex-shrink-0" />
+                          <span>{node.metric2Value || '84%'} <span className="text-[9px] text-blue-500/70 font-sans">{node.metric2Label || 'Tank'}</span></span>
+                        </div>
+                        <div className="flex items-center gap-1 text-emerald-400">
+                          <Gauge className="w-3 h-3 flex-shrink-0" />
+                          <span>{node.metric3Value || '4.2 bar'} <span className="text-[9px] text-emerald-500/70 font-sans">{node.metric3Label || 'Press'}</span></span>
+                        </div>
+                        <div className="flex items-center gap-1 text-indigo-400">
+                          <Activity className="w-3 h-3 flex-shrink-0" />
+                          <span>{node.metric4Value || '142 ppm'} <span className="text-[9px] text-indigo-500/70 font-sans">{node.metric4Label || 'TDS'}</span></span>
+                        </div>
+                      </>
+                    ) : node.type === 'energy' ? (
+                      /* Energy & Solar Grid HUD */
+                      <>
+                        <div className="flex items-center gap-1 text-amber-400">
+                          <Sun className="w-3 h-3 flex-shrink-0" />
+                          <span>{node.metric1Value || node.secondaryValue || '185 kW'} <span className="text-[9px] text-amber-500/70 font-sans">{node.metric1Label || 'Solar'}</span></span>
+                        </div>
+                        <div className="flex items-center gap-1 text-orange-400">
+                          <Zap className="w-3 h-3 flex-shrink-0" />
+                          <span>{node.metric2Value || '280 kVA'} <span className="text-[9px] text-orange-500/70 font-sans">{node.metric2Label || 'Grid'}</span></span>
+                        </div>
+                        <div className="flex items-center gap-1 text-emerald-400">
+                          <BatteryCharging className="w-3 h-3 flex-shrink-0" />
+                          <span>{node.metric3Value || '910 kWh'} <span className="text-[9px] text-emerald-500/70 font-sans">{node.metric3Label || 'Yield'}</span></span>
+                        </div>
+                        <div className="flex items-center gap-1 text-cyan-400">
+                          <Gauge className="w-3 h-3 flex-shrink-0" />
+                          <span>{node.metric4Value || '0.99 PF'} <span className="text-[9px] text-cyan-500/70 font-sans">{node.metric4Label || 'PF'}</span></span>
+                        </div>
+                      </>
+                    ) : node.type === 'parking' ? (
+                      /* Smart EV Parking HUD */
+                      <>
+                        <div className="flex items-center gap-1 text-emerald-400">
+                          <Car className="w-3 h-3 flex-shrink-0" />
+                          <span>{node.metric1Value || '18 / 28'} <span className="text-[9px] text-emerald-500/70 font-sans">{node.metric1Label || 'Slots'}</span></span>
+                        </div>
+                        <div className="flex items-center gap-1 text-cyan-400">
+                          <BatteryCharging className="w-3 h-3 flex-shrink-0" />
+                          <span>{node.metric2Value || '4 Active'} <span className="text-[9px] text-cyan-500/70 font-sans">{node.metric2Label || 'EV'}</span></span>
+                        </div>
+                        <div className="flex items-center gap-1 text-amber-400">
+                          <Gauge className="w-3 h-3 flex-shrink-0" />
+                          <span>{node.metric3Value || '64%'} <span className="text-[9px] text-amber-500/70 font-sans">{node.metric3Label || 'Occ'}</span></span>
+                        </div>
+                        <div className="flex items-center gap-1 text-blue-400">
+                          <Activity className="w-3 h-3 flex-shrink-0" />
+                          <span>{node.metric4Value || 'OPEN'} <span className="text-[9px] text-blue-500/70 font-sans">{node.metric4Label || 'Gate'}</span></span>
+                        </div>
+                      </>
+                    ) : node.type === 'waste' ? (
+                      /* Waste Logistics HUD */
+                      <>
+                        <div className="flex items-center gap-1 text-purple-400">
+                          <Trash2 className="w-3 h-3 flex-shrink-0" />
+                          <span>{node.metric1Value || '38%'} <span className="text-[9px] text-purple-500/70 font-sans">{node.metric1Label || 'Fill'}</span></span>
+                        </div>
+                        <div className="flex items-center gap-1 text-indigo-400">
+                          <Scale className="w-3 h-3 flex-shrink-0" />
+                          <span>{node.metric2Value || '14 kg'} <span className="text-[9px] text-indigo-500/70 font-sans">{node.metric2Label || 'Weight'}</span></span>
+                        </div>
+                        <div className="flex items-center gap-1 text-emerald-400">
+                          <Activity className="w-3 h-3 flex-shrink-0" />
+                          <span>{node.metric3Value || 'Clean'} <span className="text-[9px] text-emerald-500/70 font-sans">{node.metric3Label || 'Odor'}</span></span>
+                        </div>
+                        <div className="flex items-center gap-1 text-cyan-400">
+                          <Truck className="w-3 h-3 flex-shrink-0" />
+                          <span>{node.metric4Value || 'Active'} <span className="text-[9px] text-cyan-500/70 font-sans">{node.metric4Label || 'Route'}</span></span>
+                        </div>
+                      </>
+                    ) : (
+                      /* AQI / Weather Station HUD */
+                      <>
+                        {showPm25 && (
+                          <div className="flex items-center gap-1 text-amber-400">
+                            <Cloud className="w-3 h-3 flex-shrink-0" />
+                            <span>{currentPm25} <span className="text-[9px] text-amber-500/70 font-normal">µg/m³</span></span>
+                          </div>
+                        )}
+                        {showPm10 && (
+                          <div className="flex items-center gap-1 text-cyan-400">
+                            <Cloud className="w-3 h-3 flex-shrink-0" />
+                            <span>{currentPm10} <span className="text-[9px] text-cyan-500/70 font-normal">µg/m³</span></span>
+                          </div>
+                        )}
+                        {showTemp && (
+                          <div className="flex items-center gap-1 text-emerald-400">
+                            <Thermometer className="w-3 h-3 flex-shrink-0" />
+                            <span>{currentTemp} <span className="text-[9px] text-emerald-500/70 font-normal">°C</span></span>
+                          </div>
+                        )}
+                        {showHumidity && (
+                          <div className="flex items-center gap-1 text-blue-400">
+                            <Droplets className="w-3 h-3 flex-shrink-0" />
+                            <span>{currentHumidity} <span className="text-[9px] text-blue-500/70 font-normal">%</span></span>
+                          </div>
+                        )}
+                        {node.secondaryLabel && (
+                          <div className="col-span-2 pt-1 border-t border-white/10 flex justify-between text-[10px] text-purple-300">
+                            <span>{node.secondaryLabel}:</span>
+                            <span className="text-white font-bold">{node.secondaryValue}</span>
+                          </div>
+                        )}
+                      </>
                     )}
                   </div>
                 </div>
 
-                {/* 2. VERTICAL LEADER STEM LINE (Connecting card to pinpoint) */}
-                <div
-                  style={{ height: `${node.stemHeightPx || 65}px` }}
-                  className="w-0.5 bg-gradient-to-b from-amber-400 to-amber-500 shadow-[0_0_8px_#f59e0b] relative"
-                />
+                  {/* 2. VERTICAL LEADER STEM LINE (Connecting card to pinpoint) */}
+                  <div
+                    style={{ height: `${node.stemHeightPx || 65}px` }}
+                    className={`w-0.5 bg-gradient-to-b ${theme.stem} relative`}
+                  />
+                </div>
 
-                {/* 3. PINPOINT GROUND BEACON (Yellow Dot with Glowing Halo - Drag Target) */}
+                {/* 3. PINPOINT GROUND BEACON (Centered directly at 0,0 = xPct%, yPct%) */}
                 <div
                   onMouseDown={(e) => {
                     e.stopPropagation();
-                    setDraggingNodeId(node.id);
+                    if (isCalibrateMode) {
+                      setDraggingNodeId(node.id);
+                    }
                     setSelectedNode(node);
                   }}
-                  className="relative flex items-center justify-center cursor-move p-1"
-                  title="Click & drag to move this sensor pin"
+                  className={`absolute left-0 top-0 -translate-x-1/2 -translate-y-1/2 flex items-center justify-center p-1.5 ${
+                    isCalibrateMode ? 'cursor-move' : 'cursor-pointer'
+                  }`}
+                  title={isCalibrateMode ? 'Click & drag to reposition this sensor pin' : node.name}
                 >
-                  <span className={`w-3.5 h-3.5 rounded-full border-2 border-white shadow-[0_0_15px_#f59e0b] ${
-                    isDragging ? 'bg-cyan-400 scale-125' : 'bg-amber-400'
+                  <span className={`w-3.5 h-3.5 rounded-full border-2 border-white ${
+                    isDragging ? 'bg-white scale-125 shadow-[0_0_20px_#ffffff]' : theme.beacon
                   }`} />
-                  <span className="absolute w-7 h-7 rounded-full bg-amber-400/40 animate-ping pointer-events-none" />
+                  <span className={`absolute w-7 h-7 rounded-full ${theme.beaconHalo} animate-ping pointer-events-none`} />
                 </div>
 
-                {/* 4. LOCATION LABEL PILL (Directly below pinpoint: e.g. "At Main Gate") */}
-                <div
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setSelectedNode(node);
-                  }}
-                  className="mt-1 px-2.5 py-0.5 rounded-full bg-white/95 dark:bg-[#07080e]/95 backdrop-blur-md border border-stone-200 dark:border-stone-800 text-stone-900 dark:text-white font-bold text-[10px] shadow-lg whitespace-nowrap cursor-pointer hover:border-amber-400"
-                >
-                  {node.locationLabel}
-                </div>
-
-                {/* Quick Edit/Delete buttons on hover/select */}
-                {(isSelected || isCalibrateMode) && (
-                  <div className="mt-1 flex items-center gap-1 bg-black/80 p-1 rounded-xl shadow-lg">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingNode(node);
-                        setShowNodeModal(true);
-                      }}
-                      className="p-1 rounded bg-amber-500 text-slate-950 hover:bg-amber-400 text-[10px]"
-                      title="Edit this sensor"
-                    >
-                      <Edit3 className="w-3 h-3" />
-                    </button>
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDeleteNode(node.id);
-                      }}
-                      className="p-1 rounded bg-rose-500 text-white hover:bg-rose-400 text-[10px]"
-                      title="Delete this sensor"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
+                {/* 4. LOCATION LABEL PILL & EDIT CONTROLS (Positioned directly below pinpoint beacon) */}
+                <div className="absolute top-2.5 left-1/2 -translate-x-1/2 flex flex-col items-center whitespace-nowrap">
+                  <div
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedNode(node);
+                    }}
+                    className={`px-2.5 py-0.5 rounded-full bg-white/95 dark:bg-[#07080e]/95 backdrop-blur-md border border-stone-200 dark:border-stone-800 text-stone-900 dark:text-white font-bold text-[10px] shadow-lg cursor-pointer ${theme.pillBorder}`}
+                  >
+                    {node.locationLabel}
                   </div>
-                )}
+
+                  {/* Quick Edit/Delete buttons (Only visible during Edit Mode) */}
+                  {isCalibrateMode && (
+                    <div className="mt-1 flex items-center gap-1 bg-black/80 p-1 rounded-xl shadow-lg">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingNode(node);
+                          setShowNodeModal(true);
+                        }}
+                        className="p-1 rounded bg-amber-500 text-slate-950 hover:bg-amber-400 text-[10px]"
+                        title="Edit this sensor"
+                      >
+                        <Edit3 className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteNode(node.id);
+                        }}
+                        className="p-1 rounded bg-rose-500 text-white hover:bg-rose-400 text-[10px]"
+                        title="Delete this sensor"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -1084,9 +1447,9 @@ export const Campus3DTab: React.FC = () => {
               </div>
               <button
                 onClick={() => setShowUploadModal(false)}
-                className="text-stone-400 hover:text-stone-600 dark:hover:text-white text-base font-bold"
+                className="text-stone-400 hover:text-stone-600 dark:hover:text-white"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
 
@@ -1129,30 +1492,30 @@ export const Campus3DTab: React.FC = () => {
 
       {/* 6. MODAL: EDIT / CONFIGURE SENSOR NODE */}
       {showNodeModal && editingNode && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150">
-          <div className="w-full max-w-md p-6 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-2xl space-y-4 text-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-in fade-in duration-150 overflow-y-auto">
+          <div className="w-full max-w-lg max-h-[92vh] overflow-y-auto p-5 sm:p-6 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-2xl space-y-4 text-xs">
             <div className="flex items-center justify-between pb-3 border-b border-[#ece3d6] dark:border-[#151722]">
               <div className="flex items-center gap-2">
-                <PlusCircle className="w-5 h-5 text-amber-500" />
+                <Edit3 className="w-5 h-5 text-amber-500" />
                 <h3 className="font-bold text-sm text-stone-900 dark:text-white">
-                  Configure Campus Sensor Pin
+                  Customize Campus Sensor Pin & Telemetry Card
                 </h3>
               </div>
               <button
                 onClick={() => setShowNodeModal(false)}
-                className="text-stone-400 hover:text-stone-600 text-sm font-bold"
+                className="text-stone-400 hover:text-stone-600 dark:hover:text-white p-1"
               >
-                ✕
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleSaveNode} className="space-y-3">
+            <form onSubmit={handleSaveNode} className="space-y-3.5">
               <div className="space-y-1">
                 <label className="font-bold text-stone-700 dark:text-slate-300">Sensor Facility Name:</label>
                 <input
                   type="text"
                   required
-                  placeholder="e.g. Near Library entrance or At Main Gate"
+                  placeholder="e.g. Central Water Reservoir & Pump House"
                   value={editingNode.name || ''}
                   onChange={(e) => setEditingNode({ ...editingNode, name: e.target.value })}
                   className="w-full px-3 py-2 rounded-xl border border-[#ece3d6] dark:border-[#151722] bg-[#f8f5ee] dark:bg-[#0a0b12] text-stone-900 dark:text-white"
@@ -1164,25 +1527,69 @@ export const Campus3DTab: React.FC = () => {
                 <input
                   type="text"
                   required
-                  placeholder="e.g. At Main Gate, Near Library entrance, Behind KRB"
+                  placeholder="e.g. at pump house, Behind Academic Wing, Football ground"
                   value={editingNode.locationLabel || ''}
                   onChange={(e) => setEditingNode({ ...editingNode, locationLabel: e.target.value })}
                   className="w-full px-3 py-2 rounded-xl border border-[#ece3d6] dark:border-[#151722] bg-[#f8f5ee] dark:bg-[#0a0b12] text-stone-900 dark:text-white"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              {/* Sensor Domain Type & Ingest Interface */}
+              <div className="grid grid-cols-2 gap-2.5">
                 <div className="space-y-1">
-                  <label className="font-bold text-stone-700 dark:text-slate-300">Sensor Type:</label>
+                  <label className="font-bold text-stone-700 dark:text-slate-300">Category / Domain:</label>
                   <select
                     value={editingNode.type || 'aqi'}
-                    onChange={(e) => setEditingNode({ ...editingNode, type: e.target.value as any })}
-                    className="w-full px-2.5 py-2 rounded-xl border border-[#ece3d6] dark:border-[#151722] bg-[#f8f5ee] dark:bg-[#0a0b12] text-stone-900 dark:text-white"
+                    onChange={(e) => {
+                      const newType = e.target.value as any;
+                      let updates: Partial<CampusNode> = { type: newType };
+                      if (newType === 'water' && !editingNode.metric1Value) {
+                        updates = { ...updates, metric1Label: 'STP Flow', metric1Value: '550 kL', metric2Label: 'Tank Level', metric2Value: '84%', metric3Label: 'Pressure', metric3Value: '4.2 bar', metric4Label: 'TDS Purity', metric4Value: '142 ppm' };
+                      } else if (newType === 'energy' && !editingNode.metric1Value) {
+                        updates = { ...updates, metric1Label: 'Solar Gen', metric1Value: '185 kW', metric2Label: 'Grid Load', metric2Value: '280 kVA', metric3Label: 'Daily Yield', metric3Value: '910 kWh', metric4Label: 'Power Factor', metric4Value: '0.99 PF' };
+                      } else if (newType === 'parking' && !editingNode.metric1Value) {
+                        updates = { ...updates, metric1Label: 'Slots Avail', metric1Value: '18 / 28', metric2Label: 'EV Fast', metric2Value: '4 Active', metric3Label: 'Occupancy', metric3Value: '64%', metric4Label: 'Gate Status', metric4Value: 'OPEN' };
+                      } else if (newType === 'waste' && !editingNode.metric1Value) {
+                        updates = { ...updates, metric1Label: 'Fill Level', metric1Value: '38%', metric2Label: 'Bin Weight', metric2Value: '14 kg', metric3Label: 'Odor / VOC', metric3Value: 'Clean', metric4Label: 'Pickup', metric4Value: 'Scheduled' };
+                      }
+                      setEditingNode({ ...editingNode, ...updates });
+                    }}
+                    className="w-full px-2.5 py-2 rounded-xl border border-[#ece3d6] dark:border-[#151722] bg-[#f8f5ee] dark:bg-[#0a0b12] text-stone-900 dark:text-white font-bold"
                   >
                     <option value="aqi">Air Quality (AQI)</option>
-                    <option value="water">Water & STP Pump</option>
-                    <option value="energy">Power & Solar Array</option>
-                    <option value="weather">Weather & Sports Area</option>
+                    <option value="water">Water & STP Loop</option>
+                    <option value="energy">Energy & Solar Grid</option>
+                    <option value="parking">Smart EV Parking</option>
+                    <option value="waste">Waste Logistics</option>
+                    <option value="weather">Weather Station</option>
+                  </select>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-bold text-stone-700 dark:text-slate-300">Ingestion Channel:</label>
+                  <select
+                    value={editingNode.interfaceType || 'WIFI'}
+                    onChange={(e) => setEditingNode({ ...editingNode, interfaceType: e.target.value as any })}
+                    className="w-full px-2.5 py-2 rounded-xl border border-[#ece3d6] dark:border-[#151722] bg-[#f8f5ee] dark:bg-[#0a0b12] text-stone-900 dark:text-white"
+                  >
+                    <option value="WIFI">WiFi (ESP32 Wireless)</option>
+                    <option value="LAN">LAN (RJ45 / Modbus Wired)</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Status & Leader Line */}
+              <div className="grid grid-cols-2 gap-2.5">
+                <div className="space-y-1">
+                  <label className="font-bold text-stone-700 dark:text-slate-300">Telemetry Status:</label>
+                  <select
+                    value={editingNode.status || 'optimal'}
+                    onChange={(e) => setEditingNode({ ...editingNode, status: e.target.value as any })}
+                    className="w-full px-2.5 py-2 rounded-xl border border-[#ece3d6] dark:border-[#151722] bg-[#f8f5ee] dark:bg-[#0a0b12] text-stone-900 dark:text-white"
+                  >
+                    <option value="optimal">OPTIMAL (Active / Normal)</option>
+                    <option value="moderate">MODERATE (Warning Threshold)</option>
+                    <option value="warning">CRITICAL (Action Required)</option>
                   </select>
                 </div>
 
@@ -1199,6 +1606,230 @@ export const Campus3DTab: React.FC = () => {
                 </div>
               </div>
 
+              {/* DYNAMIC DOMAIN-SPECIFIC METRIC INPUTS */}
+              <div className="p-3 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722] space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-black text-[11px] text-stone-800 dark:text-slate-200 tracking-wide uppercase flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500" /> Card Display Metrics ({editingNode.type?.toUpperCase()})
+                  </h4>
+                  <span className="text-[10px] text-stone-400">Customizable</span>
+                </div>
+
+                {editingNode.type === 'water' ? (
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Metric 1 (Flow):</label>
+                      <input
+                        type="text"
+                        value={editingNode.metric1Value ?? '550 kL'}
+                        onChange={(e) => setEditingNode({ ...editingNode, metric1Value: e.target.value, secondaryValue: e.target.value })}
+                        placeholder="e.g. 550 kL"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Metric 2 (Tank Level):</label>
+                      <input
+                        type="text"
+                        value={editingNode.metric2Value ?? '84%'}
+                        onChange={(e) => setEditingNode({ ...editingNode, metric2Value: e.target.value })}
+                        placeholder="e.g. 84%"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Metric 3 (Pressure):</label>
+                      <input
+                        type="text"
+                        value={editingNode.metric3Value ?? '4.2 bar'}
+                        onChange={(e) => setEditingNode({ ...editingNode, metric3Value: e.target.value })}
+                        placeholder="e.g. 4.2 bar"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Metric 4 (TDS / Purity):</label>
+                      <input
+                        type="text"
+                        value={editingNode.metric4Value ?? '142 ppm'}
+                        onChange={(e) => setEditingNode({ ...editingNode, metric4Value: e.target.value })}
+                        placeholder="e.g. 142 ppm"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                  </div>
+                ) : editingNode.type === 'energy' ? (
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Metric 1 (Solar Gen):</label>
+                      <input
+                        type="text"
+                        value={editingNode.metric1Value ?? '185 kW'}
+                        onChange={(e) => setEditingNode({ ...editingNode, metric1Value: e.target.value, secondaryValue: e.target.value })}
+                        placeholder="e.g. 185 kW"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Metric 2 (Grid Load):</label>
+                      <input
+                        type="text"
+                        value={editingNode.metric2Value ?? '280 kVA'}
+                        onChange={(e) => setEditingNode({ ...editingNode, metric2Value: e.target.value })}
+                        placeholder="e.g. 280 kVA"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Metric 3 (Daily Yield):</label>
+                      <input
+                        type="text"
+                        value={editingNode.metric3Value ?? '910 kWh'}
+                        onChange={(e) => setEditingNode({ ...editingNode, metric3Value: e.target.value })}
+                        placeholder="e.g. 910 kWh"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Metric 4 (Power Factor):</label>
+                      <input
+                        type="text"
+                        value={editingNode.metric4Value ?? '0.99 PF'}
+                        onChange={(e) => setEditingNode({ ...editingNode, metric4Value: e.target.value })}
+                        placeholder="e.g. 0.99 PF"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                  </div>
+                ) : editingNode.type === 'parking' ? (
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Metric 1 (Slots Avail):</label>
+                      <input
+                        type="text"
+                        value={editingNode.metric1Value ?? '18 / 28'}
+                        onChange={(e) => setEditingNode({ ...editingNode, metric1Value: e.target.value, secondaryValue: e.target.value })}
+                        placeholder="e.g. 18 / 28"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Metric 2 (EV Fast Chargers):</label>
+                      <input
+                        type="text"
+                        value={editingNode.metric2Value ?? '4 Active'}
+                        onChange={(e) => setEditingNode({ ...editingNode, metric2Value: e.target.value })}
+                        placeholder="e.g. 4 Active"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Metric 3 (Occupancy):</label>
+                      <input
+                        type="text"
+                        value={editingNode.metric3Value ?? '64%'}
+                        onChange={(e) => setEditingNode({ ...editingNode, metric3Value: e.target.value })}
+                        placeholder="e.g. 64%"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Metric 4 (Gate Status):</label>
+                      <input
+                        type="text"
+                        value={editingNode.metric4Value ?? 'OPEN'}
+                        onChange={(e) => setEditingNode({ ...editingNode, metric4Value: e.target.value })}
+                        placeholder="e.g. OPEN"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                  </div>
+                ) : editingNode.type === 'waste' ? (
+                  <div className="grid grid-cols-2 gap-2 text-[11px]">
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Metric 1 (Fill Level):</label>
+                      <input
+                        type="text"
+                        value={editingNode.metric1Value ?? '38%'}
+                        onChange={(e) => setEditingNode({ ...editingNode, metric1Value: e.target.value, secondaryValue: e.target.value })}
+                        placeholder="e.g. 38%"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Metric 2 (Bin Weight):</label>
+                      <input
+                        type="text"
+                        value={editingNode.metric2Value ?? '14 kg'}
+                        onChange={(e) => setEditingNode({ ...editingNode, metric2Value: e.target.value })}
+                        placeholder="e.g. 14 kg"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Metric 3 (Odor / VOC):</label>
+                      <input
+                        type="text"
+                        value={editingNode.metric3Value ?? 'Clean'}
+                        onChange={(e) => setEditingNode({ ...editingNode, metric3Value: e.target.value })}
+                        placeholder="e.g. Clean"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Metric 4 (Pickup Route):</label>
+                      <input
+                        type="text"
+                        value={editingNode.metric4Value ?? 'Scheduled'}
+                        onChange={(e) => setEditingNode({ ...editingNode, metric4Value: e.target.value })}
+                        placeholder="e.g. Scheduled"
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">PM2.5 (µg/m³):</label>
+                      <input
+                        type="number"
+                        value={editingNode.pm25 ?? 25}
+                        onChange={(e) => setEditingNode({ ...editingNode, pm25: Number(e.target.value) })}
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">PM10 (µg/m³):</label>
+                      <input
+                        type="number"
+                        value={editingNode.pm10 ?? 45}
+                        onChange={(e) => setEditingNode({ ...editingNode, pm10: Number(e.target.value) })}
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Temp (°C):</label>
+                      <input
+                        type="number"
+                        value={editingNode.temp ?? 30}
+                        onChange={(e) => setEditingNode({ ...editingNode, temp: Number(e.target.value) })}
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-stone-500 font-bold">Humidity (%):</label>
+                      <input
+                        type="number"
+                        value={editingNode.humidity ?? 60}
+                        onChange={(e) => setEditingNode({ ...editingNode, humidity: Number(e.target.value) })}
+                        className="w-full px-2.5 py-1.5 rounded-lg border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-stone-900 text-stone-900 dark:text-white font-mono"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Position coordinates */}
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <label className="font-bold text-stone-700 dark:text-slate-300">X Position (%):</label>
@@ -1222,19 +1853,35 @@ export const Campus3DTab: React.FC = () => {
                 </div>
               </div>
 
-              <div className="pt-2 flex gap-2">
+              {/* Action Buttons */}
+              <div className="pt-2 flex items-center gap-2">
+                {editingNode.id && nodes.some((n) => n.id === editingNode.id) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (editingNode.id) {
+                        handleDeleteNode(editingNode.id);
+                        setShowNodeModal(false);
+                      }
+                    }}
+                    className="px-3 py-2 rounded-xl border border-rose-500/30 text-rose-500 hover:bg-rose-500/10 font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>Delete</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setShowNodeModal(false)}
-                  className="flex-1 py-2 rounded-xl border border-[#ece3d6] dark:border-[#151722] font-bold"
+                  className="flex-1 py-2 rounded-xl border border-[#ece3d6] dark:border-[#151722] font-bold text-stone-700 dark:text-slate-300 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold shadow-md"
+                  className="flex-1 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-extrabold shadow-md cursor-pointer transition-all"
                 >
-                  Save Pin
+                  Save Pin & Telemetry
                 </button>
               </div>
             </form>

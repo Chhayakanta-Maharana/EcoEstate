@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '@/context/AuthContext';
-import { getSustainabilityScorecard } from '@/data/mockData';
+import { getSustainabilityScorecard, INITIAL_ORGANIZATIONS } from '@/data/mockData';
 import { DjangoApi } from '@/services/api';
 import {
   Award,
@@ -33,7 +33,7 @@ interface ScorecardTabProps {
 
 export const ScorecardTab: React.FC<ScorecardTabProps> = ({ org }) => {
   const { activeOrg: contextOrg } = useAuth();
-  const activeOrg = org || contextOrg;
+  const activeOrg = org || contextOrg || INITIAL_ORGANIZATIONS[0];
   const [dbEnergy, setDbEnergy] = useState<any>(null);
   const [dbWater, setDbWater] = useState<any>(null);
 
@@ -48,8 +48,6 @@ export const ScorecardTab: React.FC<ScorecardTabProps> = ({ org }) => {
     });
   }, [activeOrg?.id]);
 
-  if (!activeOrg) return null;
-
   const baseCard = getSustainabilityScorecard(activeOrg);
   const renewableEnergySharePct = dbEnergy
     ? Math.round((dbEnergy.solar_rooftop_kw / (dbEnergy.current_load_kw || 1)) * 100)
@@ -58,9 +56,12 @@ export const ScorecardTab: React.FC<ScorecardTabProps> = ({ org }) => {
     ? dbWater.stp_recycle_rate_pct
     : baseCard.waterNeutralityPct;
 
+  const starsCount = Math.max(1, Math.min(5, Math.round(Number(baseCard.grihaStars) || 4)));
+
   const card = {
     ...baseCard,
-    overallScore: activeOrg.sustainabilityScore,
+    grihaStars: starsCount,
+    overallScore: activeOrg.sustainabilityScore || baseCard.overallScore || 88,
     renewableEnergySharePct,
     waterNeutralityPct,
     breakdown: [
@@ -82,21 +83,18 @@ export const ScorecardTab: React.FC<ScorecardTabProps> = ({ org }) => {
             <Award className="w-4 h-4" /> National Green Estate Rating (GRIHA / LEED / BEE Star Protocol)
           </div>
           <h1 className="text-2xl font-extrabold">ESG Sustainability Scorecard & Compliance</h1>
-          <p className="text-xs text-slate-300 mt-1">
-            Certified sustainability performance benchmarks for {activeOrg.name}
-          </p>
         </div>
 
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1 p-3 rounded-2xl bg-white/10 border border-white/15 text-amber-300">
-            {[...Array(card.grihaStars)].map((_, i) => (
+            {[...Array(starsCount)].map((_, i) => (
               <Star key={i} className="w-5 h-5 fill-amber-400 text-amber-400" />
             ))}
-            <span className="text-xs font-bold text-white ml-1">{card.grihaStars}-Star GRIHA</span>
+            <span className="text-xs font-bold text-white ml-1">{starsCount}-Star GRIHA</span>
           </div>
 
           <button
-            onClick={() => alert('Exporting Certified ESG Audit Report PDF for ' + activeOrg.name)}
+            onClick={() => alert('Exporting Certified ESG Audit Report PDF for ' + (activeOrg?.name || 'Estate'))}
             className="px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-2 transition-all shadow-md shadow-emerald-600/30"
           >
             <Download className="w-4 h-4" /> Export ESG Audit PDF
@@ -142,20 +140,35 @@ export const ScorecardTab: React.FC<ScorecardTabProps> = ({ org }) => {
           </p>
         </div>
 
-        <div className="h-80 w-full">
+        <div className="h-[430px] w-full">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={card.breakdown} layout="vertical">
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} />
-              <XAxis type="number" domain={[0, 100]} stroke="#94a3b8" fontSize={11} />
-              <YAxis dataKey="category" type="category" width={180} stroke="#94a3b8" fontSize={11} />
+            <BarChart
+              data={card.breakdown}
+              layout="vertical"
+              margin={{ top: 10, right: 30, left: 10, bottom: 10 }}
+              barGap={4}
+              barCategoryGap="20%"
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} horizontal={false} />
+              <XAxis type="number" domain={[0, 100]} stroke="#94a3b8" fontSize={11} unit=" / 100" />
+              <YAxis
+                dataKey="category"
+                type="category"
+                width={250}
+                stroke="#94a3b8"
+                fontSize={11}
+                tickLine={false}
+                axisLine={{ stroke: '#334155', opacity: 0.3 }}
+              />
               <Tooltip
                 contentStyle={{ backgroundColor: '#07080e', borderRadius: '12px', border: '1px solid #151722', color: '#ffffff' }}
                 itemStyle={{ color: '#ffffff', fontWeight: 700 }}
                 labelStyle={{ color: '#38bdf8', fontWeight: 700 }}
+                formatter={(value: any) => [`${value} / 100`, '']}
               />
-              <Legend />
-              <Bar dataKey="score" name="Estate Score" fill="#10b981" radius={[0, 6, 6, 0]} />
-              <Bar dataKey="benchmarkIndiaAvg" name="Indian National Average" fill="#64748b" radius={[0, 6, 6, 0]} />
+              <Legend verticalAlign="top" height={36} />
+              <Bar dataKey="score" name="Estate Score" fill="#10b981" barSize={13} radius={[0, 6, 6, 0]} />
+              <Bar dataKey="benchmarkIndiaAvg" name="Indian National Average" fill="#64748b" barSize={13} radius={[0, 6, 6, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>

@@ -52,16 +52,37 @@ export const SuperAdminPortal: React.FC<SuperAdminPortalProps> = ({
     }
   }, [initialTab]);
 
+  // Support instant browser back/forward buttons without full page reloads
+  useEffect(() => {
+    const handlePopState = () => {
+      if (typeof window !== 'undefined') {
+        const path = window.location.pathname;
+        const match = path.match(/\/admin\/([a-z]+)/);
+        if (match && match[1]) {
+          setActiveNav(match[1]);
+        }
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
+
   const handleTabChange = (tabId: string) => {
     setActiveNav(tabId);
-    if (onNavigateTab) {
-      onNavigateTab(tabId);
+    if (typeof window !== 'undefined') {
+      try {
+        window.history.pushState(null, '', `/admin/${tabId}`);
+      } catch (e) {
+        // fallback
+      }
     }
   };
 
+  const institutionalUsersCount = users.filter((u) => u.role !== 'SUPERADMIN' && u.id !== 'user-superadmin').length;
+
   const navItems = [
     { id: 'dashboard', label: 'Dashboard & Analytics', icon: LayoutDashboard },
-    { id: 'users', label: 'Users & Roles', icon: Users, badge: `${users.length}` },
+    { id: 'users', label: 'Users & Roles', icon: Users, badge: `${institutionalUsersCount}` },
     { id: 'facilities', label: 'Estates Directory', icon: Building2, badge: `${organizations.length}` },
     { id: 'settings', label: 'Platform Settings', icon: Settings },
   ];

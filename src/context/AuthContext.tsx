@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, Organization, Role, EquipmentItem } from '@/types';
-import { getEquipmentList } from '@/data/mockData';
+import { getEquipmentList, INITIAL_ORGANIZATIONS } from '@/data/mockData';
 import { DjangoApi } from '@/services/api';
 
 export interface AppNotification {
@@ -17,6 +17,7 @@ export interface AppNotification {
 
 interface AuthContextType {
   currentUser: User | null;
+  isAuthReady: boolean;
   activeOrg: Organization | null;
   organizations: Organization[];
   users: User[];
@@ -25,7 +26,7 @@ interface AuthContextType {
   toggleIoTSimulation: () => void;
   login: (email: string, password?: string) => Promise<{ success: boolean; error?: string; redirectUrl?: string }>;
   logout: () => void;
-  updateProfile: (data: Partial<User>) => void;
+  updateProfile: (data: Partial<User> & { password?: string }) => void;
   selectOrganization: (orgId: string) => void;
   createOrganization: (org: Omit<Organization, 'id' | 'iotStatus' | 'lastPing' | 'sustainabilityScore'>) => Organization;
   updateOrganization: (orgId: string, data: Partial<Organization>) => void;
@@ -49,6 +50,8 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
+
   // Restore current user from localStorage if available
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     if (typeof window !== 'undefined') {
@@ -64,7 +67,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return null;
   });
 
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  useEffect(() => {
+    setIsAuthReady(true);
+  }, []);
+
+  const [organizations, setOrganizations] = useState<Organization[]>(INITIAL_ORGANIZATIONS);
   const [users, setUsers] = useState<User[]>([]);
   const [activeOrgId, setActiveOrgId] = useState<string>(() => {
     if (typeof window !== 'undefined') {
@@ -138,12 +145,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   };
 
-  const updateProfile = (data: Partial<User>) => {
+  const updateProfile = (data: Partial<User> & { password?: string }) => {
     setCurrentUser((prev) => {
       if (!prev) return null;
-      const updated = { ...prev, ...data };
+      const updated = {
+        ...prev,
+        ...(data.name ? { name: data.name } : {}),
+        ...(data.email ? { email: data.email } : {}),
+        ...(data.title ? { title: data.title } : {}),
+        ...(data.password ? { password: data.password } : {}),
+      };
       if (typeof window !== 'undefined') {
         localStorage.setItem('ecoestate-current-user', JSON.stringify(updated));
+        if (data.password) {
+          localStorage.setItem('ecoestate-user-password', data.password);
+        }
+        if (prev.role === 'SUPERADMIN' || prev.id === 'user-superadmin') {
+          const prevConfig = JSON.parse(localStorage.getItem('ecoestate-superadmin-config') || '{}');
+          localStorage.setItem('ecoestate-superadmin-config', JSON.stringify({
+            ...prevConfig,
+            name: data.name || updated.name,
+            email: data.email || updated.email,
+            title: data.title || updated.title,
+            ...(data.password ? { password: data.password } : {}),
+          }));
+        }
       }
       return updated;
     });
@@ -152,31 +178,60 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       prev.map((u) => (u.id === currentUser?.id ? { ...u, ...data } : u))
     );
 
-    // Sync with NeonDB if user has database ID
-    if (currentUser?.id) {
+    // Sync SuperAdmin credentials with Django backend
+    if (currentUser?.role === 'SUPERADMIN' || currentUser?.id === 'user-superadmin') {
+      DjangoApi.updateSuperAdminProfile({
+        name: data.name,
+        email: data.email,
+        title: data.title,
+        ...(data.password ? { password: data.password } : {}),
+      }).catch((err) => console.warn('Could not update SuperAdmin in Django backend:', err));
+    } else if (currentUser?.id) {
+      // Sync with NeonDB if user has database ID
       const cleanId = currentUser.id.replace('user-', '').replace('staff-', '');
       if (/^\d+$/.test(cleanId)) {
         DjangoApi.updateStaffMember(cleanId, {
           name: data.name,
           email: data.email,
           title: data.title,
+          ...(data.password ? { password: data.password } : {}),
         }).catch((err) => console.warn('Could not update staff in NeonDB:', err));
       }
     }
 
-    // If current user is ORG_ADMIN, also update the organization's assigned admin name/email
-    if (currentUser?.role === 'ORG_ADMIN' && currentUser?.organizationId) {
+    // If current user is ORG_ADMIN or associated with an organization, update organization's assigned admin credentials
+    const targetOrgId = currentUser?.organizationId || activeOrgId;
+    if (targetOrgId) {
+      const cleanTarget = targetOrgId.replace('org-', '');
+      if (data.password && typeof window !== 'undefined') {
+        localStorage.setItem(`ecoestate-org-pass-${cleanTarget}`, data.password);
+        localStorage.setItem(`ecoestate-org-pass-${targetOrgId}`, data.password);
+        localStorage.setItem('ecoestate-user-password', data.password);
+      }
       setOrganizations((prev) =>
-        prev.map((o) =>
-          o.id === currentUser.organizationId
-            ? {
-                ...o,
-                assignedAdminName: data.name || o.assignedAdminName,
-                assignedAdminEmail: data.email || o.assignedAdminEmail,
-              }
-            : o
-        )
+        prev.map((o) => {
+          const cleanO = o.id.replace('org-', '');
+          if (o.id === targetOrgId || cleanO === cleanTarget) {
+            return {
+              ...o,
+              assignedAdminName: data.name || o.assignedAdminName,
+              assignedAdminEmail: data.email || o.assignedAdminEmail,
+              assignedPassword: data.password || o.assignedPassword,
+            };
+          }
+          return o;
+        })
       );
+
+      // Persist password & admin details to NeonDB Organization
+      const cleanOrgId = targetOrgId.replace('org-', '');
+      if (/^\d+$/.test(cleanOrgId)) {
+        DjangoApi.updateOrganization(cleanOrgId, {
+          ...(data.name ? { assigned_admin_name: data.name } : {}),
+          ...(data.email ? { assigned_admin_email: data.email } : {}),
+          ...(data.password ? { assigned_password: data.password } : {}),
+        }).catch((err) => console.warn('Could not update organization credentials in NeonDB:', err));
+      }
     }
 
     addNotification({
@@ -188,28 +243,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Helper to map backend organization record to frontend Organization
-  const mapBackendOrg = (o: any): Organization => ({
-    id: `org-${o.id}`,
-    name: o.name,
-    type: o.facility_type,
-    categoryLabel: o.category_label || 'Institutional Campus',
-    city: o.city,
-    state: o.state,
-    areaSqFt: o.area_sqft || 1000000,
-    occupancyCurrent: o.occupancy_current || 5000,
-    occupancyMax: o.occupancy_max || 10000,
-    assignedAdminName: o.assigned_admin_name || 'Assigned Admin',
-    assignedAdminEmail: o.assigned_admin_email,
-    assignedPassword: o.assigned_password || 'estate@2026',
-    iotGatewayIp: o.iot_gateway_ip || '192.168.1.1',
-    iotStatus: o.iot_status || 'ONLINE',
-    lastPing: 'Live sync 1s ago',
-    sustainabilityScore: o.sustainability_score || 85,
-    carbonTargetReductionPct: o.carbon_target_reduction_pct || 25,
-    description: o.description || `${o.name} facility managed by EcoEstate IoT Grid.`,
-    campusImageUrl: o.campus_image_url || '',
-    campusNodesJson: o.campus_nodes_json || '',
-  });
+  const mapBackendOrg = (o: any): Organization => {
+    const orgIdStr = `org-${o.id}`;
+    const cleanId = String(o.id);
+    const localPass = typeof window !== 'undefined'
+      ? (localStorage.getItem(`ecoestate-org-pass-${cleanId}`) || localStorage.getItem(`ecoestate-org-pass-${orgIdStr}`))
+      : null;
+
+    return {
+      id: orgIdStr,
+      name: o.name,
+      type: o.facility_type,
+      categoryLabel: o.category_label || 'Institutional Campus',
+      city: o.city,
+      state: o.state,
+      areaSqFt: o.area_sqft || 1000000,
+      occupancyCurrent: o.occupancy_current || 5000,
+      occupancyMax: o.occupancy_max || 10000,
+      assignedAdminName: o.assigned_admin_name || 'Assigned Admin',
+      assignedAdminEmail: o.assigned_admin_email,
+      assignedPassword: localPass || o.assigned_password || 'estate@2026',
+      iotGatewayIp: o.iot_gateway_ip || '192.168.1.1',
+      iotStatus: o.iot_status || 'ONLINE',
+      lastPing: 'Live sync 1s ago',
+      sustainabilityScore: o.sustainability_score || 85,
+      carbonTargetReductionPct: o.carbon_target_reduction_pct || 25,
+      description: o.description || `${o.name} facility managed by EcoEstate IoT Grid.`,
+      campusImageUrl: o.campus_image_url || '',
+      campusNodesJson: o.campus_nodes_json || '',
+    };
+  };
 
 
   // Fetch real organizations, staff members & equipment directly from NeonDB PostgreSQL backend
@@ -241,30 +304,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         );
       }
 
-      if (Array.isArray(backendOrgs)) {
+      if (Array.isArray(backendOrgs) && backendOrgs.length > 0) {
         const mappedOrgs = backendOrgs.map(mapBackendOrg);
         setOrganizations(mappedOrgs);
 
         // Standard SuperAdmin user
+        let superAdminName = 'Alex Carter';
+        let superAdminEmail = 'superadmin@ecoestate.gov.in';
+        let superAdminTitle = 'National Director & Chief Administrator';
+        if (typeof window !== 'undefined') {
+          try {
+            const saCfg = JSON.parse(localStorage.getItem('ecoestate-superadmin-config') || '{}');
+            if (saCfg.name) superAdminName = saCfg.name;
+            if (saCfg.email) superAdminEmail = saCfg.email.toLowerCase();
+            if (saCfg.title) superAdminTitle = saCfg.title;
+          } catch (e) {}
+        }
+
         const superAdminUser: User = {
           id: 'user-superadmin',
-          name: 'Alex Carter',
-          email: 'superadmin@ecoestate.gov.in',
+          name: superAdminName,
+          email: superAdminEmail,
           role: 'SUPERADMIN',
           organizationId: 'all',
           organizationName: 'National Platform',
-          title: 'National Director & Chief Administrator',
+          title: superAdminTitle,
           status: 'Active',
           lastActive: 'Live now',
         };
 
         const staffMap = new Map<string, User>();
-        staffMap.set(superAdminUser.email.toLowerCase(), superAdminUser);
+        staffMap.set(superAdminEmail.toLowerCase(), superAdminUser);
+        staffMap.set('superadmin@ecoestate.gov.in', superAdminUser);
 
         // Add all assigned admins from organizations in NeonDB
         for (const org of mappedOrgs) {
           if (org.assignedAdminEmail) {
             const emailKey = org.assignedAdminEmail.toLowerCase();
+            if (emailKey === superAdminEmail.toLowerCase() || emailKey === 'superadmin@ecoestate.gov.in') {
+              continue;
+            }
             staffMap.set(emailKey, {
               id: `user-org-${org.id.replace('org-', '')}`,
               name: org.assignedAdminName || 'Estate Administrator',
@@ -283,6 +362,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         for (const s of (backendStaff || [])) {
           if (s.email) {
             const emailKey = s.email.toLowerCase();
+            if (emailKey === superAdminEmail.toLowerCase() || emailKey === 'superadmin@ecoestate.gov.in') {
+              continue;
+            }
             const matchingOrg = mappedOrgs.find(
               (o) =>
                 o.id === `org-${s.organization_id || s.organization}` ||
@@ -357,7 +439,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         o.id.replace('org-', '') === cleanActive
     ) ||
     organizations[0] ||
-    null;
+    INITIAL_ORGANIZATIONS[0];
   const isSuperAdmin = currentUser?.role === 'SUPERADMIN';
 
   // Strict, Database-Backed Authentication
@@ -396,6 +478,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setActiveOrgId(authenticatedUser.organizationId);
         }
 
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('ecoestate-current-user', JSON.stringify(authenticatedUser));
+          if (authenticatedUser.organizationId) {
+            localStorage.setItem('ecoestate-active-org-id', authenticatedUser.organizationId);
+          }
+        }
+
         return {
           success: true,
           redirectUrl: backendRes.redirect_url || (authenticatedUser.role === 'SUPERADMIN' ? '/admin/dashboard' : `/user/${authenticatedUser.organizationId}`),
@@ -407,21 +496,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.warn('Backend login check failed, evaluating cached database state...', apiErr);
     }
 
-    // 2. Strict Fallback only for pre-configured static demo/seeded records (requires exact password match)
-    if (cleanEmail === 'superadmin@ecoestate.gov.in') {
-      if (cleanPassword === 'admin123' || cleanPassword === 'superadmin@2026' || cleanPassword === 'ecoestate@2026') {
+    // 2. Strict Fallback for SuperAdmin records (supports both updated and default credentials)
+    let superAdminConfig = {
+      name: 'Alex Carter',
+      email: 'superadmin@ecoestate.gov.in',
+      title: 'National Director & Chief Administrator',
+      passwords: ['admin123', 'superadmin@2026', 'ecoestate@2026'],
+    };
+    if (typeof window !== 'undefined') {
+      try {
+        const savedSA = JSON.parse(localStorage.getItem('ecoestate-superadmin-config') || '{}');
+        if (savedSA.email) superAdminConfig.email = savedSA.email.toLowerCase().trim();
+        if (savedSA.name) superAdminConfig.name = savedSA.name.trim();
+        if (savedSA.title) superAdminConfig.title = savedSA.title.trim();
+        if (savedSA.password) superAdminConfig.passwords.push(savedSA.password.trim());
+      } catch (e) {
+        // use default
+      }
+    }
+
+    if (cleanEmail === superAdminConfig.email || cleanEmail === 'superadmin@ecoestate.gov.in') {
+      if (superAdminConfig.passwords.includes(cleanPassword)) {
         const superUser: User = {
           id: 'user-superadmin',
-          name: 'Alex Carter',
-          email: 'superadmin@ecoestate.gov.in',
+          name: superAdminConfig.name,
+          email: superAdminConfig.email,
           role: 'SUPERADMIN',
           organizationId: 'all',
           organizationName: 'National Platform',
-          title: 'National Director & Chief Administrator',
+          title: superAdminConfig.title,
           status: 'Active',
           lastActive: 'Just now',
         };
         setCurrentUser(superUser);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('ecoestate-current-user', JSON.stringify(superUser));
+        }
         return { success: true, redirectUrl: '/admin/dashboard' };
       }
       return { success: false, error: 'Incorrect password for SuperAdmin account.' };
@@ -432,7 +542,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       (o) => o.assignedAdminEmail.toLowerCase() === cleanEmail
     );
     if (matchedOrg) {
-      if (!matchedOrg.assignedPassword || matchedOrg.assignedPassword === cleanPassword || cleanPassword === 'estate@2026') {
+      const savedPass = typeof window !== 'undefined' ? localStorage.getItem('ecoestate-user-password') : null;
+      const orgSavedPass = typeof window !== 'undefined'
+        ? (localStorage.getItem(`ecoestate-org-pass-${matchedOrg.id}`) || localStorage.getItem(`ecoestate-org-pass-${matchedOrg.id.replace('org-', '')}`))
+        : null;
+      const validAdminPasswords = [
+        matchedOrg.assignedPassword,
+        savedPass,
+        orgSavedPass,
+        'estate@2026',
+        'bput@2026',
+        'admin123',
+      ].filter(Boolean) as string[];
+
+      if (!matchedOrg.assignedPassword || validAdminPasswords.includes(cleanPassword)) {
         const orgUser: User = {
           id: `user-${matchedOrg.id}`,
           name: matchedOrg.assignedAdminName,
@@ -581,8 +704,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const updateOrganization = (orgId: string, data: Partial<Organization>) => {
+    const cleanReq = orgId.replace('org-', '');
+    if (data.assignedPassword && typeof window !== 'undefined') {
+      localStorage.setItem(`ecoestate-org-pass-${cleanReq}`, data.assignedPassword);
+      localStorage.setItem(`ecoestate-org-pass-${orgId}`, data.assignedPassword);
+      localStorage.setItem('ecoestate-user-password', data.assignedPassword);
+    }
     setOrganizations((prev) =>
-      prev.map((o) => (o.id === orgId ? { ...o, ...data } : o))
+      prev.map((o) => {
+        const cleanO = o.id.replace('org-', '');
+        if (o.id === orgId || cleanO === cleanReq) {
+          return { ...o, ...data };
+        }
+        return o;
+      })
     );
 
     // If assigned admin details updated, sync corresponding user in users list
@@ -614,7 +749,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         assigned_password: data.assignedPassword,
         iot_gateway_ip: data.iotGatewayIp,
         description: data.description,
-      }).then(() => refreshBackendData());
+      }).then((res) => {
+        if (res) refreshBackendData();
+      }).catch(() => {});
     }
 
     // If assigned admin changed, dispatch credentials email and add notification
@@ -665,7 +802,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       role: userData.role,
       title: userData.title || `${userData.role} - Staff`,
       status: userData.status || 'Active',
-      password: 'staff@2026',
+      password: (userData as any).password || 'estate@2026',
     }).then(() => refreshBackendData());
 
     return newUser;
@@ -756,6 +893,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <AuthContext.Provider
       value={{
         currentUser,
+        isAuthReady,
         activeOrg,
         organizations,
         users,

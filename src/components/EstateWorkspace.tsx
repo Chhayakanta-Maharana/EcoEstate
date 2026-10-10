@@ -59,6 +59,7 @@ import ScorecardTab from '@/components/tabs/ScorecardTab';
 import Campus3DTab from '@/components/tabs/Campus3DTab';
 import CampusStaffTab from '@/components/tabs/CampusStaffTab';
 import IoTGatewayModal from '@/components/IoTGatewayModal';
+import { INITIAL_ORGANIZATIONS } from '@/data/mockData';
 
 interface EstateWorkspaceProps {
   orgId?: string;
@@ -171,7 +172,10 @@ export const EstateWorkspace: React.FC<EstateWorkspaceProps> = ({
         o.id === orgId ||
         o.id === `org-${cleanParam}` ||
         o.id.replace('org-', '') === cleanParam
-    ) || activeOrg;
+    ) ||
+    activeOrg ||
+    organizations[0] ||
+    INITIAL_ORGANIZATIONS[0];
 
   // If orgId is provided in URL, sync it with AuthContext
   useEffect(() => {
@@ -241,7 +245,7 @@ export const EstateWorkspace: React.FC<EstateWorkspaceProps> = ({
       case 'equipment':
         return <EquipmentTab org={displayOrg || undefined} />;
       case 'simulator':
-        return <AiSimulatorTab />;
+        return <AiSimulatorTab org={displayOrg || undefined} />;
       case 'scorecard':
         return <ScorecardTab org={displayOrg || undefined} />;
       case '3d':
@@ -310,15 +314,18 @@ export const EstateWorkspace: React.FC<EstateWorkspaceProps> = ({
                 <button
                   key={item.id}
                   onClick={() => setCurrentView(item.id)}
-                  className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-semibold transition-all cursor-pointer ${
+                  className={`relative w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs transition-all duration-200 ease-out cursor-pointer active:scale-[0.98] border ${
                     isActive
-                      ? 'bg-[#f5efe6] dark:bg-[#0f111d] text-cyan-800 dark:text-cyan-400 border border-cyan-500/40 shadow-sm dark:shadow-[0_0_15px_rgba(6,182,212,0.12)] font-bold'
-                      : 'text-stone-600 dark:text-slate-400 hover:text-stone-900 dark:hover:text-slate-200 hover:bg-[#f8f4ed] dark:hover:bg-[#0a0b12]'
+                      ? 'bg-[#f5efe6] dark:bg-[#0f111d] text-cyan-800 dark:text-cyan-400 border-cyan-500/50 shadow-sm dark:shadow-[0_0_16px_rgba(6,182,212,0.18)] font-bold'
+                      : 'border-transparent text-stone-600 dark:text-slate-400 hover:text-stone-900 dark:hover:text-slate-200 hover:bg-[#f8f4ed] dark:hover:bg-[#0a0b12] font-semibold'
                   }`}
                 >
-                  <div className="flex items-center gap-3 min-w-0">
+                  {isActive && (
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-5 rounded-r-full bg-cyan-500 shadow-[0_0_8px_#06b6d4] animate-in fade-in zoom-in-50 duration-200" />
+                  )}
+                  <div className="flex items-center gap-3 min-w-0 pl-1">
                     <Icon
-                      className={`w-4 h-4 flex-shrink-0 ${
+                      className={`w-4 h-4 flex-shrink-0 transition-colors duration-200 ${
                         isActive
                           ? 'text-cyan-600 dark:text-cyan-400'
                           : 'text-stone-400 dark:text-slate-500'
@@ -328,9 +335,9 @@ export const EstateWorkspace: React.FC<EstateWorkspaceProps> = ({
                   </div>
                   {item.badge && (
                     <span
-                      className={`text-[9px] px-1.5 py-0.5 rounded-md font-mono flex-shrink-0 ${
+                      className={`text-[9px] px-1.5 py-0.5 rounded-md font-mono flex-shrink-0 transition-colors duration-200 ${
                         isActive
-                          ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-400 font-bold'
+                          ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-400 font-bold border border-cyan-500/30'
                           : 'bg-[#ece3d6] dark:bg-[#121422] text-stone-500 dark:text-slate-400'
                       }`}
                     >
@@ -557,16 +564,23 @@ export const EstateWorkspace: React.FC<EstateWorkspaceProps> = ({
 
 
         {/* Dynamic Main Workspace Content */}
-        <main className="p-4 sm:p-6 lg:p-8 flex-1 max-w-7xl w-full mx-auto">
-          {renderActiveView()}
+        <main className="p-4 sm:p-6 lg:p-8 flex-1 max-w-7xl w-full mx-auto overflow-hidden">
+          <div key={currentView} className="animate-in fade-in duration-200 ease-out">
+            {renderActiveView()}
+          </div>
         </main>
       </div>
 
       {/* Dual-Channel Hardware IoT Gateway Monitor (LAN & WiFi) */}
       <IoTGatewayModal isOpen={isIotModalOpen} onClose={() => setIsIotModalOpen(false)} />
 
-      {/* Universal Profile & Password Edit Modal */}
-      <UserProfileModal isOpen={isProfileModalOpen} onClose={() => setIsProfileModalOpen(false)} />
+      {/* Universal Profile & Password Edit Modal with Assigned Facility Post Context */}
+      <UserProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        facilityOrg={displayOrg}
+        mode="TENANT"
+      />
     </div>
   );
 };

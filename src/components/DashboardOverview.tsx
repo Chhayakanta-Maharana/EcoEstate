@@ -9,6 +9,7 @@ import {
   getParkingData,
   getDustbins,
   getAiRecommendations,
+  INITIAL_ORGANIZATIONS,
 } from '@/data/mockData';
 import {
   Wind,
@@ -58,7 +59,7 @@ interface DashboardOverviewProps {
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigateTab, org }) => {
   const { activeOrg: contextOrg, isSimulatingIoT, equipmentList: contextEquipments } = useAuth();
-  const activeOrg = org || contextOrg;
+  const activeOrg = org || contextOrg || INITIAL_ORGANIZATIONS[0];
   const [timeRange, setTimeRange] = useState('7D');
   const [isShapModalOpen, setIsShapModalOpen] = useState(false);
 
@@ -99,20 +100,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
     return () => { isMounted = false; };
   }, [activeOrg?.id]);
 
-  if (!activeOrg) {
-    return (
-      <div className="p-8 text-center text-slate-500 font-bold">
-        No active estate selected. Please select a facility from the top menu.
-      </div>
-    );
-  }
-
   // Base fallback data structure
-  const fallbackAqi = getAqiData(activeOrg.type);
-  const fallbackWater = getWaterData(activeOrg.type);
-  const fallbackEnergy = getEnergyData(activeOrg.type);
-  const fallbackParking = getParkingData(activeOrg.type);
-  const fallbackRecs = getAiRecommendations(activeOrg.type);
+  const orgType = activeOrg?.type || 'COLLEGE';
+  const fallbackAqi = getAqiData(orgType);
+  const fallbackWater = getWaterData(orgType);
+  const fallbackEnergy = getEnergyData(orgType);
+  const fallbackParking = getParkingData(orgType);
+  const fallbackRecs = getAiRecommendations(orgType);
 
   // Merged live database values (prioritizing NeonDB data)
   const aqi = {
@@ -197,7 +191,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
   const facilityZones = [
     {
       id: 'zone-1',
-      name: `${activeOrg.name.split(' ')[0] || 'Central'} Environmental CAAQMS Node`,
+      name: `${(activeOrg?.name || 'Central').split(' ')[0] || 'Central'} Environmental CAAQMS Node`,
       metric: `AQI ${aqi.overallAqi} (${aqi.status})`,
       status: aqi.overallAqi < 100 ? 'normal' : 'warning',
       color: aqi.overallAqi < 100 ? 'text-emerald-500' : 'text-amber-500',
@@ -233,22 +227,22 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
         <div className="space-y-2 max-w-3xl">
           <div className="flex flex-wrap items-center gap-2">
             <span className="px-3 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wider bg-cyan-50 dark:bg-cyan-500/10 text-cyan-700 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-500/30">
-              {activeOrg.type} FACILITY
+              {activeOrg?.type || 'CAMPUS'} FACILITY
             </span>
-            <span className="px-3 py-0.5 rounded-full text-[10px] font-semibold bg-[#f5efe6] dark:bg-[#0a0b12] text-stone-700 dark:text-slate-300 border border-[#ece3d6] dark:border-[#181a28]">
-              📍 {activeOrg.city}, {activeOrg.state}
+            <span className="px-3 py-0.5 rounded-full text-[10px] font-semibold bg-[#f5efe6] dark:bg-[#0a0b12] text-stone-700 dark:text-slate-300 border border-[#ece3d6] dark:border-[#181a28] inline-flex items-center gap-1">
+              <MapPin className="w-3 h-3 text-cyan-600 dark:text-cyan-400" /> {activeOrg?.city || 'Campus'}, {activeOrg?.state || 'India'}
             </span>
             <span className="flex items-center gap-1.5 px-3 py-0.5 rounded-full text-[10px] font-mono font-bold bg-emerald-50 dark:bg-[#0a1f1a] text-emerald-700 dark:text-emerald-400 border border-emerald-500/30">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
-              Gateway: {activeOrg.iotGatewayIp}
+              Gateway: {activeOrg?.iotGatewayIp || '192.168.1.1'}
             </span>
           </div>
 
           <h1 className="text-2xl sm:text-3xl font-black text-stone-900 dark:text-white tracking-tight">
-            {activeOrg.name}
+            {activeOrg?.name || 'Smart Campus Facility'}
           </h1>
           <p className="text-xs sm:text-sm text-stone-500 dark:text-slate-300 leading-relaxed">
-            {activeOrg.description}
+            {activeOrg?.description || 'Smart facility management'}
           </p>
         </div>
 
@@ -548,7 +542,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
           </div>
 
           <div className="p-3.5 rounded-2xl bg-[#f8f4ed] dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#181a28] flex items-center justify-between text-xs text-stone-500 dark:text-slate-400 font-mono">
-            <span>📍 CPCB / GRIHA Telemetry Nodes: 100% Synced</span>
+            <span className="flex items-center gap-1.5"><MapPin className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400" /> CPCB / GRIHA Telemetry Nodes: 100% Synced</span>
             <span className="text-cyan-600 dark:text-cyan-400 font-bold">Latency: 8ms</span>
           </div>
         </div>

@@ -79,9 +79,6 @@ export const EnergyTab: React.FC<EnergyTabProps> = ({ org }) => {
             <Zap className="w-4 h-4" /> Smart Grid, Solar Rooftop Microgrid & Power Quality
           </div>
           <h1 className="text-2xl font-extrabold">Energy Telemetry & Carbon Accounting</h1>
-          <p className="text-xs text-slate-300 mt-1">
-            Real-time multi-function meters, solar inverter telemetry, and peak tariff shaving for {activeOrg?.name}
-          </p>
         </div>
 
         <div className="flex items-center gap-4 bg-white/5 p-3 rounded-2xl border border-white/10">

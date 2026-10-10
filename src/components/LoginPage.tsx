@@ -176,7 +176,7 @@ export const LoginPage: React.FC = () => {
                   required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
+                  placeholder={showPassword ? 'Enter your password' : '••••••••••••'}
                   className="w-full pl-10 pr-10 py-2.5 rounded-xl border border-[#ece3d6] dark:border-[#181a28] bg-[#f8f4ed] dark:bg-[#030408] text-stone-900 dark:text-white text-xs placeholder:text-stone-400 dark:placeholder:text-slate-600 focus:ring-2 focus:ring-cyan-500 dark:focus:ring-cyan-400 focus:outline-none transition-all font-mono"
                 />
                 <button

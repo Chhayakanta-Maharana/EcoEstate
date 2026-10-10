@@ -27,6 +27,7 @@ from .views import (
     assign_user_role_and_notify_view,
     shap_sensor_explain_view,
     list_sensor_anomalies_shap_view,
+    superadmin_profile_update_view,
 )
 
 router = DefaultRouter()
@@ -45,6 +46,7 @@ urlpatterns = [
     
     # Strict Authentication & Password Recovery Endpoints
     path('auth/login/', api_login_view, name='api_login'),
+    path('auth/superadmin/profile/', superadmin_profile_update_view, name='superadmin_profile_update'),
     path('auth/forgot-password/', forgot_password_request_view, name='forgot_password_request'),
     path('auth/reset-password/', reset_password_confirm_view, name='reset_password_confirm'),
 
