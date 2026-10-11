@@ -465,28 +465,107 @@ def seed_initial_data_view(request):
             'sustainability_score': 81,
             'carbon_target_reduction_pct': 40,
             'description': 'Integrated manufacturing zone monitoring blast furnace emissions, heavy transport logistics, industrial water recycling, and slag processing.'
+        },
+        {
+            'name': 'Government College of Engineering Kalahandi (GCEK)',
+            'facility_type': 'COLLEGE',
+            'category_label': 'Government Engineering College',
+            'city': 'Bhawanipatna',
+            'state': 'Odisha',
+            'area_sqft': 1500000,
+            'occupancy_current': 3200,
+            'occupancy_max': 5000,
+            'assigned_admin_name': 'Hari Pangi',
+            'assigned_admin_email': 'haripangi335@gmail.com',
+            'assigned_password': 'Hari@335',
+            'iot_gateway_ip': '192.168.0.191',
+            'sustainability_score': 83,
+            'carbon_target_reduction_pct': 28,
+            'description': 'Constituent college of BPUT featuring continuous optical CAAQMS, rooftop solar PV microgrid, and smart waste segregation.'
+        },
+        {
+            'name': 'BPUT Smart Engineering Campus',
+            'facility_type': 'COLLEGE',
+            'category_label': 'Technical University',
+            'city': 'Rourkela',
+            'state': 'Odisha',
+            'area_sqft': 2100000,
+            'occupancy_current': 7500,
+            'occupancy_max': 10000,
+            'assigned_admin_name': 'Dr. Chhayakanta Maharan',
+            'assigned_admin_email': 'chhayakanta.bput@gmail.com',
+            'assigned_password': 'BputSecure@2026',
+            'iot_gateway_ip': '192.168.20.10',
+            'sustainability_score': 86,
+            'carbon_target_reduction_pct': 32,
+            'description': 'Smart digital campus testbed.'
+        },
+        {
+            'name': 'Odisha',
+            'facility_type': 'HOSPITAL',
+            'category_label': 'State Healthcare Complex',
+            'city': 'Bhubaneswar',
+            'state': 'Odisha',
+            'area_sqft': 1950000,
+            'occupancy_current': 12000,
+            'occupancy_max': 16000,
+            'assigned_admin_name': 'Hari Pangi',
+            'assigned_admin_email': 'chhayakantamaharan@gmail.com',
+            'assigned_password': 'superadmin',
+            'iot_gateway_ip': '192.168.50.1',
+            'sustainability_score': 89,
+            'carbon_target_reduction_pct': 30,
+            'description': 'Odisha state health and bio-sanitation facility.'
         }
     ]
     
     created_orgs = []
     for d in orgs_data:
-        o = Organization.objects.create(**d)
+        o, _ = Organization.objects.get_or_create(name=d['name'], defaults=d)
         created_orgs.append(o.name)
         
+        # Ensure staff member exists
+        if o.assigned_admin_email:
+            StaffMember.objects.get_or_create(
+                email__iexact=o.assigned_admin_email.strip().lower(),
+                defaults={
+                    'name': o.assigned_admin_name or f"Admin of {o.name}",
+                    'email': o.assigned_admin_email.strip().lower(),
+                    'organization': o,
+                    'role': 'ORG_ADMIN',
+                    'title': f"Estate Administrator - {o.name}",
+                    'password': o.assigned_password or 'estate@2026',
+                    'status': 'Active'
+                }
+            )
+
         # Add basic equipment
-        Equipment.objects.create(
-            organization=o,
+        Equipment.objects.get_or_create(
             equipment_code=f"EQ-{o.facility_type}-01",
-            name=f"Primary Substation Chiller & HVAC for {o.name}",
-            category="HVAC & Thermal",
-            location="Utility Sector 1",
-            power_rating_kw=150,
-            operating_temp_c=42,
-            vibration_mm_per_sec=1.2,
-            health_score=94
+            defaults={
+                'organization': o,
+                'name': f"Primary Substation Chiller & HVAC for {o.name}",
+                'category': "HVAC & Thermal",
+                'location': "Utility Sector 1",
+                'power_rating_kw': 150,
+                'operating_temp_c': 42,
+                'vibration_mm_per_sec': 1.2,
+                'health_score': 94
+            }
         )
+
+    # Ensure SuperAdmin exists
+    from .models import SuperAdminAccount
+    SuperAdminAccount.objects.get_or_create(
+        email='superadmin@ecoestate.gov.in',
+        defaults={
+            'name': 'Alex Carter',
+            'password': 'admin123',
+            'title': 'National Estate SuperAdmin'
+        }
+    )
         
-    return Response({'message': 'Successfully seeded NeonDB', 'created': created_orgs}, status=status.HTTP_201_CREATED)
+    return Response({'message': 'Successfully seeded NeonDB/Cloud database', 'created': created_orgs}, status=status.HTTP_201_CREATED)
 
 
 # ==============================================================================

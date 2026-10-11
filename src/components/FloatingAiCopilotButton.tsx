@@ -239,8 +239,11 @@ export const FloatingAiCopilotButton: React.FC = () => {
     }
   }, [messages, isLoading, isWidgetOpen]);
 
-  // Hidden for unauthenticated users and on login page
-  if (!isAuthReady || !currentUser || pathname === '/login') {
+  // Hidden for unauthenticated users, auth pages, and completely removed for Admin / SuperAdmin in Admin Portal
+  const isSuperAdmin = currentUser?.role === 'SUPERADMIN' || (currentUser as any)?.role === 'superadmin';
+  const isAdminPath = pathname?.startsWith('/admin');
+
+  if (!isAuthReady || !currentUser || pathname === '/login' || pathname === '/reset-password' || isSuperAdmin || isAdminPath) {
     return null;
   }
 
