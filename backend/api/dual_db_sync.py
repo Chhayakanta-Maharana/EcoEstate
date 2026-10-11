@@ -46,11 +46,36 @@ def async_replicate_organization_to_neondb(org_data):
                     if k != 'id' and hasattr(existing, k) and v is not None:
                         setattr(existing, k, v)
                 existing.save(using='neondb')
+                target_org = existing
                 logger.info(f"[DUAL_DB] Updated organization '{name}' in NeonDB.")
             else:
                 create_kwargs = {k: v for k, v in org_data.items() if k != 'id'}
-                Organization.objects.using('neondb').create(**create_kwargs)
+                target_org = Organization.objects.using('neondb').create(**create_kwargs)
                 logger.info(f"[DUAL_DB] Created new organization '{name}' in NeonDB.")
+
+            # Automatically sync assigned admin into NeonDB StaffMember table
+            if email and target_org:
+                from .models import StaffMember
+                admin_name = org_data.get('assigned_admin_name') or f"Admin of {name}"
+                admin_pass = org_data.get('assigned_password') or 'estate@2026'
+                s = StaffMember.objects.using('neondb').filter(email__iexact=email).first()
+                if s:
+                    s.name = admin_name
+                    s.password = admin_pass
+                    s.role = 'ORG_ADMIN'
+                    s.organization = target_org
+                    s.save(using='neondb')
+                else:
+                    StaffMember.objects.using('neondb').create(
+                        name=admin_name,
+                        email=email,
+                        role='ORG_ADMIN',
+                        title=f"Estate Administrator - {name}",
+                        password=admin_pass,
+                        organization=target_org,
+                        status='Active'
+                    )
+                logger.info(f"[DUAL_DB] Synced assigned admin '{email}' to NeonDB StaffMember.")
         except Exception as e:
             logger.warning(f"[DUAL_DB] Failed to replicate organization to NeonDB: {e}")
 
