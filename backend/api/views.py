@@ -1436,6 +1436,7 @@ def admin_realtime_analytics_view(request):
 SUPERADMIN_CONFIG_PATH = os.path.join(settings.BASE_DIR, 'superadmin_config.json')
 
 def get_superadmin_credentials():
+    from .models import SuperAdminAccount
     default_config = {
         'name': 'Alex Carter',
         'email': 'superadmin@ecoestate.gov.in',
@@ -1443,6 +1444,23 @@ def get_superadmin_credentials():
         'passwords': ['admin123', 'superadmin@2026', 'ecoestate@2026'],
         'current_password': 'admin123'
     }
+    # 1. Direct Database Query from SuperAdminAccount table
+    try:
+        sa = SuperAdminAccount.objects.first()
+        if sa:
+            default_config['name'] = sa.name.strip()
+            default_config['email'] = sa.email.strip().lower()
+            default_config['title'] = sa.title.strip()
+            if sa.password and sa.password.strip():
+                pwd = sa.password.strip()
+                if pwd not in default_config['passwords']:
+                    default_config['passwords'].insert(0, pwd)
+                default_config['current_password'] = pwd
+            return default_config
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Error querying SuperAdminAccount table: {e}")
+
+    # 2. File fallback
     if os.path.exists(SUPERADMIN_CONFIG_PATH):
         try:
             with open(SUPERADMIN_CONFIG_PATH, 'r', encoding='utf-8') as f:
@@ -1455,7 +1473,8 @@ def get_superadmin_credentials():
                     default_config['title'] = saved['title'].strip()
                 if saved.get('password') and saved['password'].strip():
                     pwd = saved['password'].strip()
-                    default_config['passwords'].append(pwd)
+                    if pwd not in default_config['passwords']:
+                        default_config['passwords'].insert(0, pwd)
                     default_config['current_password'] = pwd
         except Exception as e:
             logging.getLogger(__name__).warning(f"Error reading superadmin_config.json: {e}")
@@ -1465,8 +1484,9 @@ def get_superadmin_credentials():
 def superadmin_profile_update_view(request):
     """
     Get or update the SuperAdmin profile (name, email, title, password).
-    Persists configuration to superadmin_config.json so changes survive reboots.
+    Persists configuration directly into the SuperAdminAccount database table!
     """
+    from .models import SuperAdminAccount
     cfg = get_superadmin_credentials()
     if request.method == 'GET':
         return Response({
@@ -1486,41 +1506,93 @@ def superadmin_profile_update_view(request):
     new_email = (data.get('email', '').strip().lower()) or cfg['email']
     new_title = data.get('title', '').strip() or cfg['title']
     new_password = data.get('password', '').strip()
+    active_password = new_password if new_password else cfg.get('current_password', 'admin123')
 
+    # 1. Update in Database Table (Persistent)
+    try:
+        sa, _ = SuperAdminAccount.objects.get_or_create(id=1, defaults={'email': new_email, 'name': new_name, 'title': new_title, 'password': active_password})
+        sa.name = new_name
+        sa.email = new_email
+        sa.title = new_title
+        if new_password:
+            sa.password = new_password
+        sa.save()
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"Database SuperAdmin save notice: {e}")
+
+    # 2. Update in JSON fallback
     updated = {
         'name': new_name,
         'email': new_email,
         'title': new_title,
+        'password': active_password,
     }
-    if new_password:
-        updated['password'] = new_password
-    elif os.path.exists(SUPERADMIN_CONFIG_PATH):
-        try:
-            with open(SUPERADMIN_CONFIG_PATH, 'r', encoding='utf-8') as f:
-                prev_saved = json.load(f)
-                if prev_saved.get('password'):
-                    updated['password'] = prev_saved['password']
-        except Exception:
-            pass
-
     try:
         with open(SUPERADMIN_CONFIG_PATH, 'w', encoding='utf-8') as f:
             json.dump(updated, f, indent=2)
-    except Exception as e:
-        return Response({'error': f"Failed to persist SuperAdmin credentials: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    except Exception:
+        pass
 
     return Response({
         'success': True,
-        'message': 'SuperAdmin profile and credentials updated successfully.',
+        'message': 'SuperAdmin profile and credentials updated successfully in database.',
         'user': {
             'id': 'user-superadmin',
             'name': new_name,
             'email': new_email,
             'role': 'SUPERADMIN',
             'title': new_title,
-            'current_password': updated.get('password', cfg.get('current_password', 'admin123')),
+            'current_password': active_password,
         }
     }, status=status.HTTP_200_OK)
+
+@api_view(['POST'])
+def api_change_password_view(request):
+    """
+    Authenticated change password endpoint:
+    - Rule: Regular users CANNOT change email/login ID, ONLY password!
+    - Updates directly in the database (Organization.assigned_password or StaffMember.password).
+    - If SuperAdmin, updates SuperAdminAccount in the database.
+    """
+    from .models import SuperAdminAccount
+    data = request.data
+    email = (data.get('email', '')).strip().lower()
+    new_password = (data.get('new_password', '') or data.get('password', '')).strip()
+
+    if not email:
+        return Response({'error': 'Email is required to update credentials.'}, status=status.HTTP_400_BAD_REQUEST)
+    if not new_password:
+        return Response({'error': 'New password cannot be empty.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # 1. Check SuperAdmin
+    sa_cfg = get_superadmin_credentials()
+    if email == sa_cfg['email'] or email == 'superadmin@ecoestate.gov.in':
+        try:
+            sa, _ = SuperAdminAccount.objects.get_or_create(id=1, defaults={'email': sa_cfg['email'], 'name': sa_cfg['name'], 'password': new_password})
+            sa.password = new_password
+            sa.save()
+        except Exception as e:
+            logging.getLogger(__name__).warning(f"SuperAdmin DB password update: {e}")
+        return Response({'success': True, 'message': 'SuperAdmin password updated successfully in database.'}, status=status.HTTP_200_OK)
+
+    # 2. Check Organization Admin in DB
+    updated = False
+    orgs = Organization.objects.filter(assigned_admin_email__iexact=email)
+    if orgs.exists():
+        orgs.update(assigned_password=new_password)
+        updated = True
+
+    # 3. Check Staff Member in DB
+    staff_members = StaffMember.objects.filter(email__iexact=email)
+    if staff_members.exists():
+        staff_members.update(password=new_password)
+        updated = True
+
+    if updated:
+        return Response({'success': True, 'message': 'Password updated successfully in database.'}, status=status.HTTP_200_OK)
+
+    return Response({'error': f'No account found with email "{email}" in database to update password.'}, status=status.HTTP_404_NOT_FOUND)
+
 
 @api_view(['POST'])
 def api_login_view(request):

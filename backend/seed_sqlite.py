@@ -6,8 +6,20 @@ django.setup()
 
 from api.models import (
     Organization, StaffMember, AqiTelemetry, WaterTelemetry,
-    EnergyTelemetry, ParkingTelemetry, Dustbin, Equipment, AiRecommendation
+    EnergyTelemetry, ParkingTelemetry, Dustbin, Equipment, AiRecommendation,
+    SuperAdminAccount
 )
+
+# 1. Seed or preserve SuperAdminAccount in database
+superadmin, s_created = SuperAdminAccount.objects.get_or_create(
+    email='superadmin@ecoestate.gov.in',
+    defaults={
+        'name': 'Alex Carter',
+        'password': 'admin123',
+        'title': 'National Estate SuperAdmin'
+    }
+)
+print(f" -> SuperAdminAccount '{superadmin.email}' {'created' if s_created else 'exists'} in database.")
 
 print("[SQLite Seed] Initializing local database with standard campus and facility nodes...")
 
@@ -22,8 +34,8 @@ orgs_data = [
         'occupancy_current': 3200,
         'occupancy_max': 5000,
         'assigned_admin_name': 'Hari Pangi',
-        'assigned_admin_email': 'hari.pangi@gcek.ac.in',
-        'assigned_password': 'college@2026',
+        'assigned_admin_email': 'haripangi335@gmail.com',
+        'assigned_password': 'Hari@335',
         'iot_gateway_ip': '192.168.0.191',
         'sustainability_score': 83,
         'carbon_target_reduction_pct': 28,
@@ -101,7 +113,13 @@ orgs_data = [
 
 for d in orgs_data:
     org, created = Organization.objects.get_or_create(name=d['name'], defaults=d)
-    print(f" -> Org '{org.name}' (ID: {org.id}) {'created' if created else 'exists'}")
+    if not created and d.get('assigned_admin_email'):
+        if d['name'] == 'Government College of Engineering Kalahandi (GCEK)':
+            org.assigned_admin_name = d.get('assigned_admin_name', org.assigned_admin_name)
+            org.assigned_admin_email = d.get('assigned_admin_email', org.assigned_admin_email)
+            org.assigned_password = d.get('assigned_password', org.assigned_password)
+            org.save()
+    print(f" -> Org '{org.name}' (ID: {org.id}) [Admin: {org.assigned_admin_email}] {'created' if created else 'exists'}")
 
     # Seed baseline initial telemetry for each organization
     if not AqiTelemetry.objects.filter(organization=org).exists():

@@ -816,6 +816,20 @@ export const DjangoApi = {
     }
   },
 
+  async changePassword(email: string, newPassword: string): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/auth/change-password/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, new_password: newPassword }),
+      });
+      return await res.json();
+    } catch (err) {
+      console.warn('Change password API error', err);
+      return { error: 'Backend unreachable' };
+    }
+  },
+
   // Multi-Behavior Organization-Adaptive Groq AI Copilot
   async queryOrgCopilot(params: OrgCopilotRequest): Promise<OrgCopilotResponse> {
     try {

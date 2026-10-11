@@ -76,7 +76,7 @@ export const AdminSettingsView: React.FC = () => {
     setTimeout(() => setSavedNotice(null), 3500);
   };
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (profileNewPassword && profileNewPassword !== profileConfirmPassword) {
       triggerSavedNotice('⚠️ Passwords do not match!');
@@ -89,6 +89,15 @@ export const AdminSettingsView: React.FC = () => {
       title: profileTitle.trim(),
       ...(cleanNewPwd ? { password: cleanNewPwd } : {}),
     });
+
+    // Persist directly to SuperAdminAccount in backend database
+    await DjangoApi.updateSuperAdminProfile({
+      name: profileName.trim(),
+      email: profileEmail.trim().toLowerCase(),
+      title: profileTitle.trim(),
+      ...(cleanNewPwd ? { password: cleanNewPwd } : {}),
+    }).catch(console.error);
+
     if (cleanNewPwd) {
       setCurrentAccountPassword(cleanNewPwd);
     }

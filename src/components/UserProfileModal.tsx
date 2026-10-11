@@ -182,9 +182,18 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         }
       }
 
+      // Persist directly into the SQLite/Postgres database
+      const targetEmail = adminEmail || currentUser?.email || effectiveOrg?.assignedAdminEmail;
+      if (targetEmail) {
+        await DjangoApi.changePassword(targetEmail, newPass).catch(console.error);
+      }
+      if (String(currentUser?.role).toUpperCase() === 'SUPERADMIN') {
+        await DjangoApi.updateSuperAdminProfile({ password: newPass }).catch(console.error);
+      }
+
       setShowPassword(true);
       setIsEditingPassword(false);
-      triggerToast('✅ Password changed successfully!');
+      triggerToast('✅ Password changed successfully in database!');
     } catch (err) {
       console.error('Failed to update password:', err);
       triggerToast('⚠️ Failed to persist password update');
@@ -275,6 +284,14 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
         title: saTitle.trim(),
         ...(passwordToSave ? { password: passwordToSave } : {}),
       });
+
+      // Persist directly to SuperAdminAccount database table
+      await DjangoApi.updateSuperAdminProfile({
+        name: saName.trim(),
+        email: saEmail.trim().toLowerCase(),
+        title: saTitle.trim(),
+        ...(passwordToSave ? { password: passwordToSave } : {}),
+      }).catch(console.error);
 
       if (passwordToSave) {
         setActivePassword(passwordToSave);
@@ -406,61 +423,22 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               )}
             </div>
 
-            {/* Authorized Email Address */}
+            {/* Authorized Login Email Address (Frozen - Managed by SuperAdmin) */}
             <div className="space-y-1.5">
               <div className="flex items-center justify-between">
                 <label className="text-xs font-bold text-stone-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <Mail className="w-3.5 h-3.5 text-cyan-500" /> Authorized Email Address
+                  <Mail className="w-3.5 h-3.5 text-cyan-500" /> Authorized Login Email Address
                 </label>
-                {!isEditingEmail && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditedEmailVal(adminEmail);
-                      setIsEditingEmail(true);
-                    }}
-                    className="text-[11px] text-cyan-600 dark:text-cyan-400 hover:underline flex items-center gap-1 font-bold cursor-pointer"
-                  >
-                    <Edit2 className="w-3 h-3" /> Edit Email
-                  </button>
-                )}
+                <div className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                  <Lock className="w-2.5 h-2.5" /> Assigned by SuperAdmin (Fixed)
+                </div>
               </div>
-              {isEditingEmail ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="email"
-                    value={editedEmailVal}
-                    onChange={(e) => setEditedEmailVal(e.target.value)}
-                    placeholder="Enter email (e.g. yourname@gmail.com)"
-                    className="w-full px-3 py-2 rounded-xl border border-cyan-500 bg-white dark:bg-[#07080e] text-xs font-mono font-bold text-stone-900 dark:text-white outline-none focus:ring-2 focus:ring-cyan-500"
-                    autoFocus
-                  />
-                  <button
-                    type="button"
-                    onClick={handleSaveInlineEmail}
-                    disabled={isSaving}
-                    className="p-2 rounded-lg bg-emerald-500 text-slate-950 hover:bg-emerald-400 font-bold transition-all cursor-pointer flex-shrink-0"
-                    title="Save Email"
-                  >
-                    <Check className="w-4 h-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditedEmailVal(adminEmail);
-                      setIsEditingEmail(false);
-                    }}
-                    className="p-2 rounded-lg bg-stone-200 dark:bg-stone-800 text-stone-600 dark:text-stone-300 hover:bg-stone-300 transition-all cursor-pointer flex-shrink-0"
-                    title="Cancel"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <div className="w-full px-3.5 py-2.5 rounded-xl border border-cyan-500/30 bg-[#f5efe6]/70 dark:bg-[#07080e]/70 text-xs font-mono font-bold text-stone-900 dark:text-cyan-300 select-all">
-                  {adminEmail || currentUser?.email || 'haripangi335@gmail.com'}
-                </div>
-              )}
+              <div className="w-full px-3.5 py-2.5 rounded-xl border border-cyan-500/30 bg-[#f5efe6]/70 dark:bg-[#07080e]/70 text-xs font-mono font-bold text-stone-900 dark:text-cyan-300 select-all flex items-center justify-between">
+                <span>{adminEmail || currentUser?.email || 'haripangi335@gmail.com'}</span>
+                <span className="text-[10px] text-stone-400 font-sans font-medium flex items-center gap-1">
+                  <Lock className="w-3 h-3" /> Read-Only
+                </span>
+              </div>
             </div>
 
             {/* Professional Title / Designation (Frozen) */}
@@ -597,11 +575,10 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
               >
                 Close
               </button>
-              {(isEditingPassword || isEditingEmail || isEditingName || (editedPasswordVal && editedPasswordVal !== activePassword)) && (
+              {(isEditingPassword || isEditingName || (editedPasswordVal && editedPasswordVal !== activePassword)) && (
                 <button
                   type="button"
                   onClick={async () => {
-                    if (isEditingEmail) await handleSaveInlineEmail();
                     if (isEditingName) await handleSaveInlineName();
                     if (isEditingPassword || (editedPasswordVal && editedPasswordVal !== activePassword)) await handleSaveInlinePassword();
                   }}

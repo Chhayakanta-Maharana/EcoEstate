@@ -138,3 +138,13 @@ class StaffMember(models.Model):
     def __str__(self):
         return f"{self.name} ({self.role}) - {self.organization.name}"
 
+class SuperAdminAccount(models.Model):
+    name = models.CharField(max_length=255, default='Alex Carter')
+    email = models.EmailField(unique=True, default='superadmin@ecoestate.gov.in')
+    password = models.CharField(max_length=255, default='admin123')
+    title = models.CharField(max_length=255, default='National Estate SuperAdmin')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"SuperAdmin: {self.name} ({self.email})"
+

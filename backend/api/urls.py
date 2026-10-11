@@ -31,6 +31,7 @@ from .views import (
     shap_sensor_explain_view,
     list_sensor_anomalies_shap_view,
     superadmin_profile_update_view,
+    api_change_password_view,
     org_copilot_ai_view,
     configure_parking_capacity_view,
 )
@@ -55,6 +56,7 @@ urlpatterns = [
     # Strict Authentication & Password Recovery Endpoints
     path('auth/login/', api_login_view, name='api_login'),
     path('auth/superadmin/profile/', superadmin_profile_update_view, name='superadmin_profile_update'),
+    path('auth/change-password/', api_change_password_view, name='api_change_password'),
     path('auth/forgot-password/', forgot_password_request_view, name='forgot_password_request'),
     path('auth/reset-password/', reset_password_confirm_view, name='reset_password_confirm'),
 
