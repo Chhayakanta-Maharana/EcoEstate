@@ -101,8 +101,104 @@ def async_replicate_staff_to_neondb(staff_data):
                     status=staff_data.get('status', 'Active')
                 )
                 logger.info(f"[DUAL_DB] Replicated staff '{email}' to NeonDB.")
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+def async_delete_organization_from_neondb(org_id=None, org_name=None, org_email=None):
+    """
+    Deletes an organization and its associated telemetry/staff from NeonDB cloud.
+    """
+    def _worker():
+        if not is_neondb_configured():
+            return
+        try:
+            from .models import Organization
+            q = Organization.objects.using('neondb')
+            targets = []
+            if org_id:
+                try:
+                    t = q.filter(id=int(org_id)).first()
+                    if t:
+                        targets.append(t)
+                except Exception:
+                    pass
+            if not targets and org_email:
+                targets = list(q.filter(assigned_admin_email__iexact=org_email.strip()))
+            if not targets and org_name:
+                targets = list(q.filter(name__iexact=org_name.strip()))
+
+            for target in targets:
+                target_name = target.name
+                target.delete(using='neondb')
+                logger.info(f"[DUAL_DB] Deleted organization '{target_name}' from NeonDB.")
         except Exception as e:
-            logger.warning(f"[DUAL_DB] Failed to replicate staff to NeonDB: {e}")
+            logger.warning(f"[DUAL_DB] Failed to delete organization from NeonDB: {e}")
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+def async_delete_staff_from_neondb(staff_id=None, staff_email=None):
+    """
+    Deletes a staff member from NeonDB cloud.
+    """
+    def _worker():
+        if not is_neondb_configured():
+            return
+        try:
+            from .models import StaffMember
+            q = StaffMember.objects.using('neondb')
+            targets = []
+            if staff_id:
+                try:
+                    t = q.filter(id=int(staff_id)).first()
+                    if t:
+                        targets.append(t)
+                except Exception:
+                    pass
+            if not targets and staff_email:
+                targets = list(q.filter(email__iexact=staff_email.strip()))
+
+            for target in targets:
+                target_email = target.email
+                target.delete(using='neondb')
+                logger.info(f"[DUAL_DB] Deleted staff member '{target_email}' from NeonDB.")
+        except Exception as e:
+            logger.warning(f"[DUAL_DB] Failed to delete staff member from NeonDB: {e}")
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
+def async_replicate_superadmin_to_neondb(sa_data):
+    """
+    Replicates SuperAdmin updated credentials to NeonDB cloud SuperAdminAccount table.
+    """
+    def _worker():
+        if not is_neondb_configured():
+            return
+        try:
+            from .models import SuperAdminAccount
+            sa = SuperAdminAccount.objects.using('neondb').first()
+            if sa:
+                if sa_data.get('name'):
+                    sa.name = sa_data['name'].strip()
+                if sa_data.get('email'):
+                    sa.email = sa_data['email'].strip().lower()
+                if sa_data.get('title'):
+                    sa.title = sa_data['title'].strip()
+                if sa_data.get('password'):
+                    sa.password = sa_data['password'].strip()
+                sa.save(using='neondb')
+                logger.info("[DUAL_DB] Replicated updated SuperAdmin credentials to NeonDB.")
+            else:
+                SuperAdminAccount.objects.using('neondb').create(
+                    name=sa_data.get('name', 'Alex Carter'),
+                    email=sa_data.get('email', 'superadmin@ecoestate.gov.in').strip().lower(),
+                    title=sa_data.get('title', 'National Director & Chief Administrator'),
+                    password=sa_data.get('password', 'admin123')
+                )
+                logger.info("[DUAL_DB] Created SuperAdmin credentials in NeonDB.")
+        except Exception as e:
+            logger.warning(f"[DUAL_DB] Failed to replicate SuperAdmin to NeonDB: {e}")
 
     threading.Thread(target=_worker, daemon=True).start()
 

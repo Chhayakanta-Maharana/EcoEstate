@@ -516,17 +516,54 @@ export const Campus3DTab: React.FC = () => {
         // Dynamic 3D Pin Generation: Match live hardware nodes streaming from IoT sender
         if (liveNodesData && Array.isArray(liveNodesData.nodes) && liveNodesData.nodes.length > 0) {
           setNodes((prevNodes) => {
-            const posMap = new Map<string, { xPct: number; yPct: number }>();
-            prevNodes.forEach((pn) => posMap.set(pn.id, { xPct: pn.xPct, yPct: pn.yPct }));
+            const merged = [...prevNodes];
+            const nodeMap = new Map<string, number>();
+            merged.forEach((n, idx) => nodeMap.set(n.id, idx));
 
-            return liveNodesData.nodes.map((ln: any) => {
-              const saved = posMap.get(ln.id);
-              return {
-                ...ln,
-                xPct: isCalibrateMode && saved ? saved.xPct : (ln.xPct ?? (saved ? saved.xPct : 50)),
-                yPct: isCalibrateMode && saved ? saved.yPct : (ln.yPct ?? (saved ? saved.yPct : 50)),
-              };
+            liveNodesData.nodes.forEach((ln: any) => {
+              const existingIdx = nodeMap.get(ln.id);
+              if (existingIdx !== undefined) {
+                // Node already exists: update telemetry metrics & live status
+                merged[existingIdx] = {
+                  ...merged[existingIdx],
+                  ...ln,
+                  // Keep user's calibrated/dragged coordinates if user calibrated or dragged it
+                  xPct: isCalibrateMode ? merged[existingIdx].xPct : (ln.xPct ?? merged[existingIdx].xPct),
+                  yPct: isCalibrateMode ? merged[existingIdx].yPct : (ln.yPct ?? merged[existingIdx].yPct),
+                };
+              } else {
+                // New hardware node arrived! Dynamically generate pin for 3D digital twin
+                const newNode: CampusNode = {
+                  id: ln.id || ln.device_id,
+                  name: ln.name || `${(ln.type || 'aqi').toUpperCase()} Sensor Node`,
+                  locationLabel: ln.locationLabel || ln.location || 'Campus Facility Node',
+                  type: ln.type || 'aqi',
+                  interfaceType: ln.interfaceType || 'WIFI',
+                  xPct: ln.xPct ?? 50.0,
+                  yPct: ln.yPct ?? 50.0,
+                  stemHeightPx: ln.stemHeightPx || 60,
+                  pm25: ln.pm25 ?? 0,
+                  pm10: ln.pm10 ?? 0,
+                  temp: ln.temp ?? 28,
+                  humidity: ln.humidity ?? 50,
+                  secondaryLabel: ln.secondaryLabel || `${(ln.type || 'aqi').toUpperCase()} Value`,
+                  secondaryValue: ln.secondaryValue || '',
+                  metric1Label: ln.metric1Label || '',
+                  metric1Value: ln.metric1Value || '',
+                  metric2Label: ln.metric2Label || '',
+                  metric2Value: ln.metric2Value || '',
+                  metric3Label: ln.metric3Label || '',
+                  metric3Value: ln.metric3Value || '',
+                  metric4Label: ln.metric4Label || '',
+                  metric4Value: ln.metric4Value || '',
+                  status: ln.status || 'optimal',
+                };
+                merged.push(newNode);
+                nodeMap.set(newNode.id, merged.length - 1);
+              }
             });
+
+            return merged;
           });
         }
       });

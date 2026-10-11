@@ -643,7 +643,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     const cleanId = id.replace('org-', '');
     if (/^\d+$/.test(cleanId)) {
-      DjangoApi.deleteOrganization(cleanId);
+      DjangoApi.deleteOrganization(cleanId).then(() => {
+        refreshBackendData();
+      });
     }
   };
 
@@ -685,7 +687,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     const cleanId = userId.replace('user-', '');
     if (/^\d+$/.test(cleanId)) {
-      DjangoApi.updateStaffMember(cleanId, { role: newRole });
+      DjangoApi.updateStaffMember(cleanId, { role: newRole }).then(() => refreshBackendData());
     }
   };
 
@@ -695,15 +697,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     );
     const cleanId = userId.replace('user-', '');
     if (/^\d+$/.test(cleanId)) {
-      DjangoApi.updateStaffMember(cleanId, { status: newStatus });
+      DjangoApi.updateStaffMember(cleanId, { status: newStatus }).then(() => refreshBackendData());
     }
   };
 
   const deleteUser = (userId: string) => {
+    const targetUser = users.find((u) => u.id === userId);
     setUsers((prev) => prev.filter((u) => u.id !== userId));
+
     const cleanId = userId.replace('user-', '');
     if (/^\d+$/.test(cleanId)) {
-      DjangoApi.deleteStaffMember(cleanId);
+      DjangoApi.deleteStaffMember(cleanId).then(() => refreshBackendData());
+    } else if (cleanId.startsWith('org-') || targetUser?.role === 'ORG_ADMIN') {
+      const orgNumeric = (targetUser?.organizationId || cleanId).replace('org-', '');
+      if (/^\d+$/.test(orgNumeric)) {
+        DjangoApi.updateOrganization(orgNumeric, {
+          assigned_admin_name: '',
+          assigned_admin_email: '',
+          assigned_password: '',
+        }).then(() => refreshBackendData());
+      }
     }
   };
 

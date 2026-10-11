@@ -750,7 +750,7 @@ def send_packet_wifi_http(url: str, payload: dict) -> tuple[bool, str]:
             data=data_bytes,
             headers={'Content-Type': 'application/json', 'User-Agent': 'ESP32-WiFi-Node/1.0'}
         )
-        with urllib.request.urlopen(req, timeout=0.8) as resp:
+        with urllib.request.urlopen(req, timeout=2.5) as resp:
             status_code = resp.getcode()
             body = resp.read().decode('utf-8', errors='ignore')
             return True, f"HTTP {status_code} Created: Synced with Twin Buffer"
@@ -1666,8 +1666,32 @@ class IoTSenderGui:
                 # Standard single sensor or non-water fleet
                 d_id = tmpl.get("device_id") if n_count == 1 else f"{dev_prefix}-{i:02d}"
                 loc = tmpl.get("location") if n_count == 1 else campus_locations[(i - 1) % len(campus_locations)]
-                x_pct = tmpl.get("xPct", 50.0)
-                y_pct = tmpl.get("yPct", 50.0)
+                
+                # Distinct spatial campus positions so 8 nodes never stack on top of each other
+                if key == "AIR_QUALITY_STATION":
+                    aqi_spread_coords = [
+                        (25.0, 32.0, "Hostel Quad & North Green Walkway"),
+                        (42.0, 26.0, "Science & Engineering Lab Wing"),
+                        (68.0, 28.0, "Library Lawn & Reading Pavilion"),
+                        (78.0, 48.0, "Administrative Tower & Central Plaza"),
+                        (64.0, 72.0, "Sports Complex & Athletic Ground"),
+                        (38.0, 76.0, "Student Canteen & Food Court"),
+                        (18.0, 62.0, "Research Innovation & Incubation Block"),
+                        (52.0, 52.0, "Central Academic Plaza & Fountain"),
+                    ]
+                    sp_x, sp_y, sp_loc = aqi_spread_coords[(i - 1) % len(aqi_spread_coords)]
+                    x_pct = sp_x
+                    y_pct = sp_y
+                    if n_count > 1:
+                        loc = sp_loc
+                elif n_count > 1:
+                    import math
+                    angle = ((i - 1) * 2 * math.pi) / max(1, n_count)
+                    x_pct = round(50.0 + 28.0 * math.cos(angle), 1)
+                    y_pct = round(50.0 + 24.0 * math.sin(angle), 1)
+                else:
+                    x_pct = tmpl.get("xPct", 50.0)
+                    y_pct = tmpl.get("yPct", 50.0)
 
                 # Natural per-sensor variance (±5%) around slider baseline so nodes aren't carbon copies
                 node_metrics = {}
@@ -1731,13 +1755,30 @@ class IoTSenderGui:
                     ok, msg = send_packet_lan_tcp(host, port, payload)
                 else:
                     ok, msg = send_packet_lan_udp(host, port, payload)
+                    if host != "127.0.0.1":
+                        send_packet_lan_udp("127.0.0.1", port, payload)
+                
+                # Also deliver to local Django REST backend to guarantee ingestion
+                send_packet_wifi_http("http://127.0.0.1:8000/api/iot/ingest/", payload)
                 last_proto = proto
                 last_msg = msg
             else:
                 raw_url = self.wifi_url_var.get().strip() or DEFAULT_HTTP_URL
                 url = normalize_ingest_url(raw_url)
-                udp_ok, udp_msg = send_packet_lan_udp("255.255.255.255", 5005, payload)
+                
+                # Primary HTTP POST
                 http_ok, http_msg = send_packet_wifi_http(url, payload)
+                
+                # Parallel local delivery to ensure twin receives packets on localhost / shared WiFi
+                if "127.0.0.1" not in url and "localhost" not in url:
+                    local_ok, _ = send_packet_wifi_http("http://127.0.0.1:8000/api/iot/ingest/", payload)
+                    if local_ok:
+                        http_ok = True
+                
+                # Subnet UDP Broadcast (255.255.255.255) + Local loopback UDP (127.0.0.1)
+                udp_ok, udp_msg = send_packet_lan_udp("255.255.255.255", 5005, payload)
+                send_packet_lan_udp("127.0.0.1", 5005, payload)
+                
                 ok = http_ok or udp_ok
                 last_proto = "WiFi-HTTP" if http_ok else "UDP-Broadcast"
                 last_msg = f"Delivered {payload['device_id']}"

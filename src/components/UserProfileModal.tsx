@@ -35,9 +35,10 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
 }) => {
   const { currentUser, updateProfile, activeOrg, updateOrganization } = useAuth();
 
-  // Resolve target organization for facility context
+  // Resolve user role & target organization for facility context
+  const isSuperAdmin = currentUser?.role === 'SUPERADMIN' || mode === 'SUPERADMIN';
   const targetOrg = facilityOrg || activeOrg;
-  const isTenantView = Boolean(targetOrg && (mode === 'TENANT' || targetOrg.id));
+  const isTenantView = !isSuperAdmin && Boolean(targetOrg && (mode === 'TENANT' || currentUser?.role === 'ORG_ADMIN'));
 
   // Facility Admin frozen details
   const [adminName, setAdminName] = useState('');
@@ -118,15 +119,17 @@ export const UserProfileModal: React.FC<UserProfileModalProps> = ({
       setSaEmail(currentUser.email || 'superadmin@ecoestate.gov.in');
       setSaTitle(currentUser.title || 'National Director & Chief Administrator');
       if (!isTenantView) {
-        const cleanOrgId = targetOrg ? targetOrg.id.replace('org-', '') : '';
-        const localOrgPass = typeof window !== 'undefined' && cleanOrgId
-          ? (localStorage.getItem(`ecoestate-org-pass-${cleanOrgId}`) || localStorage.getItem(`ecoestate-org-pass-${targetOrg?.id}`))
-          : null;
-        const rawPass = targetOrg?.assignedPassword;
-        const isBulletMasked = !rawPass || rawPass.includes('•');
-        const pass = localOrgPass || localSavedPass || (currentUser as any)?.password || (!isBulletMasked ? rawPass : '') || 'estate@2026';
-        setActivePassword(pass);
-        setEditedPasswordVal(pass);
+        // Accurately display SuperAdmin's single active root password from database
+        DjangoApi.getSuperAdminProfile().then((res) => {
+          if (res?.user?.current_password) {
+            setActivePassword(res.user.current_password);
+            setEditedPasswordVal(res.user.current_password);
+          }
+        }).catch(() => {
+          const pass = (currentUser as any)?.password || localSavedPass || 'admin123';
+          setActivePassword(pass);
+          setEditedPasswordVal(pass);
+        });
         setIsEditingPassword(false);
       }
       setSaNewPassword('');

@@ -66,8 +66,8 @@ def auto_seed_cloud_if_empty():
     automatically populates the standard national organizations, staff members,
     and SuperAdmin credentials so no user or laptop ever sees 0 estates or 0 users.
     """
-    if Organization.objects.count() > 0:
-        return
+    # Permanently disabled to respect user/superadmin deletions
+    return
 
     orgs_data = [
         {
@@ -346,6 +346,19 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 
+    def perform_destroy(self, instance):
+        org_id = instance.id
+        org_name = instance.name
+        org_email = instance.assigned_admin_email
+        # Delete related staff members in SQLite
+        StaffMember.objects.filter(organization=instance).delete()
+        instance.delete()
+        try:
+            from .dual_db_sync import async_delete_organization_from_neondb
+            async_delete_organization_from_neondb(org_id=org_id, org_name=org_name, org_email=org_email)
+        except Exception:
+            pass
+
 def resolve_org_from_param(org_id_param):
     if not org_id_param:
         return None
@@ -365,6 +378,48 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
             if org:
                 return StaffMember.objects.filter(organization=org).order_by('-created_at')
         return super().get_queryset()
+
+    def perform_create(self, serializer):
+        staff = serializer.save()
+        try:
+            from .dual_db_sync import async_replicate_staff_to_neondb
+            async_replicate_staff_to_neondb({
+                'name': staff.name,
+                'email': staff.email,
+                'role': staff.role,
+                'password': staff.password,
+                'title': staff.title,
+                'organization_id': staff.organization.id if staff.organization else None,
+                'status': staff.status,
+            })
+        except Exception:
+            pass
+
+    def perform_update(self, serializer):
+        staff = serializer.save()
+        try:
+            from .dual_db_sync import async_replicate_staff_to_neondb
+            async_replicate_staff_to_neondb({
+                'name': staff.name,
+                'email': staff.email,
+                'role': staff.role,
+                'password': staff.password,
+                'title': staff.title,
+                'organization_id': staff.organization.id if staff.organization else None,
+                'status': staff.status,
+            })
+        except Exception:
+            pass
+
+    def perform_destroy(self, instance):
+        staff_id = instance.id
+        staff_email = instance.email
+        instance.delete()
+        try:
+            from .dual_db_sync import async_delete_staff_from_neondb
+            async_delete_staff_from_neondb(staff_id=staff_id, staff_email=staff_email)
+        except Exception:
+            pass
 
 class EquipmentViewSet(viewsets.ModelViewSet):
     queryset = Equipment.objects.all().order_by('id')
@@ -1732,7 +1787,6 @@ def get_superadmin_credentials():
         'name': 'Alex Carter',
         'email': 'superadmin@ecoestate.gov.in',
         'title': 'National Director & Chief Administrator',
-        'passwords': ['admin123', 'superadmin@2026', 'ecoestate@2026'],
         'current_password': 'admin123'
     }
     # 1. Direct Database Query from SuperAdminAccount table
@@ -1743,10 +1797,7 @@ def get_superadmin_credentials():
             default_config['email'] = sa.email.strip().lower()
             default_config['title'] = sa.title.strip()
             if sa.password and sa.password.strip():
-                pwd = sa.password.strip()
-                if pwd not in default_config['passwords']:
-                    default_config['passwords'].insert(0, pwd)
-                default_config['current_password'] = pwd
+                default_config['current_password'] = sa.password.strip()
             return default_config
     except Exception as e:
         logging.getLogger(__name__).warning(f"Error querying SuperAdminAccount table: {e}")
@@ -1763,10 +1814,7 @@ def get_superadmin_credentials():
                 if saved.get('title'):
                     default_config['title'] = saved['title'].strip()
                 if saved.get('password') and saved['password'].strip():
-                    pwd = saved['password'].strip()
-                    if pwd not in default_config['passwords']:
-                        default_config['passwords'].insert(0, pwd)
-                    default_config['current_password'] = pwd
+                    default_config['current_password'] = saved['password'].strip()
         except Exception as e:
             logging.getLogger(__name__).warning(f"Error reading superadmin_config.json: {e}")
     return default_config
@@ -1775,7 +1823,7 @@ def get_superadmin_credentials():
 def superadmin_profile_update_view(request):
     """
     Get or update the SuperAdmin profile (name, email, title, password).
-    Persists configuration directly into the SuperAdminAccount database table!
+    Persists configuration directly into the SuperAdminAccount database table and syncs to NeonDB!
     """
     from .models import SuperAdminAccount
     cfg = get_superadmin_credentials()
@@ -1824,6 +1872,13 @@ def superadmin_profile_update_view(request):
     except Exception:
         pass
 
+    # 3. Asynchronously sync to NeonDB cloud
+    try:
+        from .dual_db_sync import async_replicate_superadmin_to_neondb
+        async_replicate_superadmin_to_neondb(updated)
+    except Exception:
+        pass
+
     return Response({
         'success': True,
         'message': 'SuperAdmin profile and credentials updated successfully in database.',
@@ -1843,7 +1898,7 @@ def api_change_password_view(request):
     Authenticated change password endpoint:
     - Rule: Regular users CANNOT change email/login ID, ONLY password!
     - Updates directly in the database (Organization.assigned_password or StaffMember.password).
-    - If SuperAdmin, updates SuperAdminAccount in the database.
+    - If SuperAdmin, updates SuperAdminAccount in the database and replicates to NeonDB.
     """
     from .models import SuperAdminAccount
     data = request.data
@@ -1862,6 +1917,8 @@ def api_change_password_view(request):
             sa, _ = SuperAdminAccount.objects.get_or_create(id=1, defaults={'email': sa_cfg['email'], 'name': sa_cfg['name'], 'password': new_password})
             sa.password = new_password
             sa.save()
+            from .dual_db_sync import async_replicate_superadmin_to_neondb
+            async_replicate_superadmin_to_neondb({'password': new_password, 'email': sa_cfg['email']})
         except Exception as e:
             logging.getLogger(__name__).warning(f"SuperAdmin DB password update: {e}")
         return Response({'success': True, 'message': 'SuperAdmin password updated successfully in database.'}, status=status.HTTP_200_OK)
@@ -1872,12 +1929,24 @@ def api_change_password_view(request):
     if orgs.exists():
         orgs.update(assigned_password=new_password)
         updated = True
+        try:
+            from .dual_db_sync import async_replicate_organization_to_neondb
+            for o in orgs:
+                async_replicate_organization_to_neondb({'name': o.name, 'assigned_admin_email': o.assigned_admin_email, 'assigned_password': new_password})
+        except Exception:
+            pass
 
     # 3. Check Staff Member in DB
     staff_members = StaffMember.objects.filter(email__iexact=email)
     if staff_members.exists():
         staff_members.update(password=new_password)
         updated = True
+        try:
+            from .dual_db_sync import async_replicate_staff_to_neondb
+            for sm in staff_members:
+                async_replicate_staff_to_neondb({'email': sm.email, 'password': new_password})
+        except Exception:
+            pass
 
     if updated:
         return Response({'success': True, 'message': 'Password updated successfully in database.'}, status=status.HTTP_200_OK)
@@ -1889,7 +1958,7 @@ def api_change_password_view(request):
 def api_login_view(request):
     """
     Strict authentication against NeonDB PostgreSQL & SuperAdmin credentials.
-    Rejects any unassigned or non-existent accounts.
+    Rejects any unassigned or non-existent accounts, and enforces single active password match.
     """
     data = request.data
     email = data.get('email', '').strip().lower()
@@ -1900,10 +1969,10 @@ def api_login_view(request):
     if not password:
         return Response({'error': 'Password is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    # 1. SuperAdmin Login Check (checks both dynamic updated credentials and default fallback)
+    # 1. SuperAdmin Login Check: ONLY match current active password
     superadmin_cfg = get_superadmin_credentials()
     if email == superadmin_cfg['email'] or email == 'superadmin@ecoestate.gov.in':
-        if password in superadmin_cfg['passwords']:
+        if password == superadmin_cfg.get('current_password'):
             return Response({
                 'success': True,
                 'user': {
@@ -1918,15 +1987,14 @@ def api_login_view(request):
         else:
             return Response({'error': 'Incorrect password for SuperAdmin account.'}, status=status.HTTP_401_UNAUTHORIZED)
 
-    # 2. Check Estate Admin assigned to an Organization in NeonDB
+    # 2. Check Estate Admin assigned to an Organization in NeonDB: ONLY match current active password
     matching_orgs = Organization.objects.filter(assigned_admin_email__iexact=email).order_by('-id')
-    # First, test each matching organization for exact password match
     for o in matching_orgs:
-        org_passwords = {(o.assigned_password or '').strip()}
+        active_pass = (o.assigned_password or '').strip()
         s_match = StaffMember.objects.filter(email__iexact=email, organization=o).first()
-        if s_match and s_match.password:
-            org_passwords.add(s_match.password.strip())
-        if password in {p for p in org_passwords if p}:
+        if s_match and s_match.password and s_match.password.strip():
+            active_pass = s_match.password.strip()
+        if active_pass and password == active_pass:
             return Response({
                 'success': True,
                 'user': {
@@ -1942,51 +2010,11 @@ def api_login_view(request):
                 'redirect_url': f"/user/org-{o.id}",
             }, status=status.HTTP_200_OK)
 
-    # 3. Check Institutional Staff Member in NeonDB
+    # 3. Check Institutional Staff Member in NeonDB: ONLY match current active password
     matching_staff = StaffMember.objects.filter(email__iexact=email).order_by('-id')
     for s in matching_staff:
-        staff_passwords = {(s.password or '').strip()}
-        if s.organization and s.organization.assigned_password:
-            staff_passwords.add(s.organization.assigned_password.strip())
-        if password in {p for p in staff_passwords if p}:
-            org_id = s.organization.id if s.organization else 1
-            org_name = s.organization.name if s.organization else "Campus"
-            return Response({
-                'success': True,
-                'user': {
-                    'id': f"user-staff-{s.id}",
-                    'name': s.name,
-                    'email': s.email,
-                    'role': s.role,
-                    'organizationId': f"org-{org_id}",
-                    'organizationName': org_name,
-                    'title': s.title or f"{s.role} - {org_name}",
-                    'status': s.status,
-                },
-                'redirect_url': f"/user/org-{org_id}",
-            }, status=status.HTTP_200_OK)
-
-    # 4. Check fallback default passwords if account exists (e.g. 'estate@2026', 'admin123', 'staff@2026')
-    fallback_defaults = {'estate@2026', 'admin123', 'staff@2026'}
-    if password in fallback_defaults:
-        if matching_orgs.exists():
-            o = matching_orgs.first()
-            return Response({
-                'success': True,
-                'user': {
-                    'id': f"user-org-{o.id}",
-                    'name': o.assigned_admin_name or f"Admin of {o.name}",
-                    'email': o.assigned_admin_email,
-                    'role': 'ORG_ADMIN',
-                    'organizationId': f"org-{o.id}",
-                    'organizationName': o.name,
-                    'title': f"Estate Administrator - {o.name}",
-                    'status': 'Active',
-                },
-                'redirect_url': f"/user/org-{o.id}",
-            }, status=status.HTTP_200_OK)
-        if matching_staff.exists():
-            s = matching_staff.first()
+        staff_pass = (s.password or '').strip()
+        if staff_pass and password == staff_pass:
             org_id = s.organization.id if s.organization else 1
             org_name = s.organization.name if s.organization else "Campus"
             return Response({
