@@ -8,10 +8,25 @@ import os
 import json
 import urllib.request
 import urllib.error
+from pathlib import Path
 from typing import Dict, Any, Optional
 from .shap_explainer import compute_exact_shap_values, SENSOR_BENCHMARKS
 
-DEFAULT_GROQ_KEY = os.environ.get("GROQ_API_KEY", "")
+# Load key from backend/.env if not present in os.environ
+try:
+    env_file = Path(__file__).resolve().parent.parent / '.env'
+    if env_file.exists():
+        with open(env_file, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith('GROQ_API_KEY='):
+                    k = line.split('=', 1)[1].strip().strip('"').strip("'")
+                    if k and not os.environ.get('GROQ_API_KEY'):
+                        os.environ['GROQ_API_KEY'] = k
+except Exception:
+    pass
+
+DEFAULT_GROQ_KEY = os.environ.get("GROQ_API_KEY", "").strip()
 GROQ_MODELS = [
     "openai/gpt-oss-120b",
     "openai/gpt-oss-20b",
@@ -252,7 +267,9 @@ def query_groq_copilot(
         cluster=cluster_clean,
         telemetry=numeric_telemetry,
         shap_result=shap_result,
-        error_reason=last_error or "Network failure"
+        error_reason=last_error or "Network failure",
+        user_query=user_query,
+        org_name=org_name
     )
 
 
@@ -261,13 +278,35 @@ def generate_local_fallback_diagnosis(
     cluster: str,
     telemetry: Dict[str, float],
     shap_result: Dict[str, Any],
-    error_reason: str = ""
+    error_reason: str = "",
+    user_query: Optional[str] = None,
+    org_name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Offline Rule-Based Diagnostic Generator that matches the exact response schema.
     Ensures uninterrupted operation even during internet disruption.
     """
     persona = ORGANIZATION_PERSONAS.get(org_type, ORGANIZATION_PERSONAS['COLLEGE'])
+
+    # Handle conversational queries and greetings naturally
+    if user_query:
+        uq_clean = user_query.strip().lower()
+        if uq_clean in ['hi', 'hello', 'hey', 'greetings', 'help', 'namaste', 'hola'] or len(uq_clean) <= 4:
+            return {
+                "persona_summary": f"{persona['badge']}: Infrastructure active & nominal.",
+                "urgency": "NORMAL",
+                "domain": "ESTATE_OPERATIONS",
+                "answer": f"Hello! 👋 I am your **{persona['name']}** for **{org_name or org_type}**.\n\nAll campus facilities (Water & STP, Rooftop Solar, 11kV Substation, Air Quality, Waste, and HVAC) are operating normally. How can I assist you with your campus infrastructure today?",
+                "sensor_evaluations": [],
+                "immediate_actions": [],
+                "maintenance_steps": [],
+                "spare_parts": [],
+                "compliance_standards": [persona['compliance_framework']],
+                "shap_contributions": [],
+                "source": "ECO_COPILOT_STANDBY",
+                "note": "All systems nominal (conversational greeting)"
+            }
+
     fault_prob = shap_result.get('anomaly_prediction_score', 0.15)
     dominant = shap_result.get('dominant_root_cause', {})
     dominant_key = dominant.get('feature_key', 'general')

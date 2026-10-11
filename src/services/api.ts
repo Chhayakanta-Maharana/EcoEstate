@@ -12,13 +12,16 @@ export function getApiBaseUrl(): string {
     const hostname = window.location.hostname;
     const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
 
-    // In browser in production (e.g. on eco-estate-delta.vercel.app or any domain other than localhost)
-    if (!isLocal) {
-      if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
-        return envUrl;
-      }
-      return 'https://ecoestate.onrender.com/api';
+    // In browser on local machine, always connect directly to local Django backend!
+    if (isLocal) {
+      return 'http://127.0.0.1:8000/api';
     }
+
+    // In browser in production (e.g. on eco-estate-delta.vercel.app)
+    if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
+      return envUrl;
+    }
+    return 'https://ecoestate.onrender.com/api';
   }
 
   if (envUrl) {
