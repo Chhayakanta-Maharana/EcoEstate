@@ -34,6 +34,8 @@ from .views import (
     api_change_password_view,
     org_copilot_ai_view,
     configure_parking_capacity_view,
+    camera_frame_ingest_view,
+    camera_latest_feed_view,
 )
 
 router = DefaultRouter()
@@ -88,8 +90,9 @@ urlpatterns = [
     path('iot/packets/', iot_packets_stream_view, name='iot_packets'),
     path('iot/nodes/live/', iot_live_nodes_view, name='iot_live_nodes'),
     path('iot/nodes/update-positions/', iot_update_node_positions_view, name='iot_update_node_positions'),
-    path('iot/simulate/', iot_simulate_packet_view, name='iot_simulate'),
     path('iot/gateway-config/', iot_gateway_config_view, name='iot_gateway_config'),
+    path('iot/camera/frame/', camera_frame_ingest_view, name='camera_frame_ingest'),
+    path('iot/camera/latest/', camera_latest_feed_view, name='camera_latest_feed'),
 ]
 
 

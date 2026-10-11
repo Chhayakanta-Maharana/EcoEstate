@@ -518,6 +518,16 @@ export const DjangoApi = {
     }
   },
 
+  async getLatestCameraFeed(): Promise<any> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/iot/camera/latest/`, { cache: 'no-store' });
+      if (!res.ok) throw new Error('Failed to fetch latest camera feed');
+      return await res.json();
+    } catch (err) {
+      return null;
+    }
+  },
+
   async getDustbins(orgId?: string): Promise<any[]> {
     try {
       const url = new URL(`${API_BASE_URL}/dustbins/`);

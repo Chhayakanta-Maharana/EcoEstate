@@ -32,6 +32,7 @@ if sys.stderr is not None and hasattr(sys.stderr, 'reconfigure'):
 
 import json
 import time
+import base64
 import socket
 import urllib.request
 import urllib.error
@@ -233,6 +234,14 @@ class ParkingVisionProcessor:
         flow_movement = cv2.countNonZero(transit_corridor) / float(max(1, transit_corridor.size))
         entry_flow = max(10, min(120, int(flow_movement * 250) + 15))
 
+        # Encode frame to JPEG for Edge AI ONNX transmission
+        frame_b64 = None
+        try:
+            _, enc_jpg = cv2.imencode(".jpg", resized, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
+            frame_b64 = base64.b64encode(enc_jpg.tobytes()).decode("ascii")
+        except Exception:
+            pass
+
         return {
             "total_slots": self.total_slots,
             "occupied_slots": occupied_slots,
@@ -245,7 +254,8 @@ class ParkingVisionProcessor:
             "frame_idx": self.current_frame_idx,
             "total_frames": self.total_frames,
             "detected_vehicles": detected_vehicles,
-            "model_status": "OpenCV MOG2 Vision Active"
+            "model_status": "OpenCV MOG2 Vision Active",
+            "frame_base64": frame_b64
         }
 
     def _fallback_metrics(self):
@@ -2000,6 +2010,7 @@ class IoTSenderGui:
                             "ip_address": self.detected_ip,
                             "mac_address": "00:1B:44:11:3A:B7",
                             "signal_dbm": None,
+                            "frame_base64": v_metrics.get("frame_base64"),
                             "metrics": {
                                 "total_slots": total_cap,
                                 "occupied_slots": curr_occ,
@@ -2012,18 +2023,31 @@ class IoTSenderGui:
                                 "frame_idx": f_idx,
                                 "total_frames": tot_f,
                                 "source_video": source_name,
-                                "vision_pipeline": pipeline_status
+                                "vision_pipeline": pipeline_status,
+                                "frame_base64": v_metrics.get("frame_base64")
                             },
                             "timestamp": datetime.now().strftime("%H:%M:%S")
                         }
 
                         # Dual-Delivery over Ethernet & Wi-Fi:
-                        # 1. UDP Broadcast on 5005 (Ethernet / WiFi Low-Latency Datagram)
-                        send_packet_lan_udp("255.255.255.255", 5005, payload)
+                        # 1. UDP Broadcast on 5005 (send lean metrics without base64 to avoid datagram buffer overrun)
+                        udp_payload = {k: v for k, v in payload.items() if k != "frame_base64"}
+                        udp_metrics = {k: v for k, v in payload["metrics"].items() if k != "frame_base64"}
+                        udp_payload["metrics"] = udp_metrics
+                        send_packet_lan_udp("255.255.255.255", 5005, udp_payload)
 
-                        # 2. HTTP POST on 8000
+                        # 2. HTTP POST on 8000 (Sends full payload with frame_base64)
                         http_target = self.wifi_url_var.get().strip() or "http://127.0.0.1:8000/api/iot/ingest/"
                         send_packet_wifi_http(http_target, payload)
+
+                        # 3. Dedicated Camera Frame Ingest (Runs YOLOv8 ONNX BPUT/best.onnx Inference)
+                        if v_metrics.get("frame_base64"):
+                            cam_endpoint = http_target.replace("/iot/ingest/", "/iot/camera/frame/").rstrip("/") + "/"
+                            send_packet_wifi_http(cam_endpoint, {
+                                "frame_base64": v_metrics["frame_base64"],
+                                "total_slots": total_cap,
+                                "org_id": "org-bput"
+                            })
 
                         self.packet_count += 1
                         self.root.after(0, lambda: self.stat_tx_label.config(text=f"Packets Sent: {self.packet_count}"))

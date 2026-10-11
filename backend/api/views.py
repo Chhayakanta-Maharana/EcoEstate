@@ -1253,6 +1253,25 @@ def iot_ingest_view(request):
         else:
             interface_label = f"WiFi 802.11 b/g/n (ESP32 Node via {protocol})"
 
+    # Process video frame with Edge ONNX Vision Engine if frame_base64 is present
+    frame_b64 = data.get('frame_base64') or (metrics.get('frame_base64') if isinstance(metrics, dict) else None)
+    if frame_b64:
+        try:
+            from .parking_onnx_engine import process_incoming_frame
+            total_bays = int(metrics.get('total_slots', 80)) if isinstance(metrics, dict) else 80
+            onnx_res = process_incoming_frame(frame_b64, total_slots=total_bays)
+            if onnx_res.get('success'):
+                if isinstance(metrics, dict):
+                    metrics['occupied_slots'] = onnx_res['occupied_slots']
+                    metrics['available_slots'] = onnx_res['available_slots']
+                    metrics['total_slots'] = onnx_res['total_slots']
+                    metrics['occupancy_rate_pct'] = onnx_res['occupancy_rate_pct']
+                    metrics['detected_empty'] = onnx_res['detected_empty']
+                    metrics['detected_occupied'] = onnx_res['detected_occupied']
+                    metrics['vision_pipeline'] = onnx_res['model_name']
+        except Exception as e:
+            print(f"[ONNX_INGEST_ERROR] {e}")
+
     new_packet = {
         'id': f"pkt-{int(time.time() * 1000) % 100000}",
         'source': source,
@@ -1293,6 +1312,59 @@ def iot_ingest_view(request):
         'packet': new_packet,
         'gateway_sync': 'SYNCHRONIZED_WITH_TWIN'
     }, status=status.HTTP_201_CREATED)
+
+@api_view(['POST'])
+def camera_frame_ingest_view(request):
+    """
+    Ingests live video frames sent from IoT Sender or IP camera,
+    runs YOLOv8 ONNX inference (BPUT/best.onnx), updates database,
+    and returns detected empty/occupied bays + annotated frame.
+    """
+    data = request.data or {}
+    frame_b64 = data.get('frame_base64') or data.get('image')
+    total_slots = int(data.get('total_slots', 80))
+    org_id = data.get('org_id')
+
+    if not frame_b64:
+        return Response({'success': False, 'error': 'frame_base64 required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    from .parking_onnx_engine import process_incoming_frame
+    res = process_incoming_frame(frame_b64, total_slots=total_slots)
+
+    if res.get('success'):
+        try:
+            target_org = None
+            if org_id:
+                clean_id = str(org_id).replace('org-', '')
+                if clean_id.isdigit():
+                    target_org = Organization.objects.filter(id=int(clean_id)).first()
+            if not target_org:
+                target_org = Organization.objects.first()
+
+            if target_org:
+                ParkingTelemetry.objects.create(
+                    organization=target_org,
+                    total_slots=res['total_slots'],
+                    occupied_slots=res['occupied_slots'],
+                    available_slots=res['available_slots'],
+                    ev_charging_total=res['ev_charging_total'],
+                    ev_charging_occupied=res['ev_charging_occupied'],
+                    occupancy_rate_pct=res['occupancy_rate_pct'],
+                    peak_congestion_zone='Live Camera (best.onnx)',
+                    entry_flow_rate=res['entry_flow_rate']
+                )
+        except Exception as e:
+            print(f"[PARKING_TELEMETRY_SYNC_ERROR] {e}")
+
+    return Response(res, status=status.HTTP_200_OK if res.get('success') else status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+def camera_latest_feed_view(request):
+    """
+    Returns latest processed frame with ONNX bounding boxes and real-time parking metrics.
+    """
+    from .parking_onnx_engine import get_latest_camera_feed
+    return Response(get_latest_camera_feed(), status=status.HTTP_200_OK)
 
 @api_view(['POST'])
 def configure_parking_capacity_view(request):

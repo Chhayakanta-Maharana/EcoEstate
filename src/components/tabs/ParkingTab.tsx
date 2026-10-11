@@ -47,6 +47,7 @@ export const ParkingTab: React.FC<ParkingTabProps> = ({ org }) => {
   const [manualEvBays, setManualEvBays] = useState<number>(12);
   const [isSavingConfig, setIsSavingConfig] = useState<boolean>(false);
   const [configToast, setConfigToast] = useState<string | null>(null);
+  const [cameraFeed, setCameraFeed] = useState<any>(null);
 
   useEffect(() => {
     if (!activeOrg?.id) return;
@@ -56,7 +57,8 @@ export const ParkingTab: React.FC<ParkingTabProps> = ({ org }) => {
       Promise.all([
         DjangoApi.getParkingTelemetry(activeOrg.id),
         DjangoApi.getIoTStatus(),
-      ]).then(([data, status]) => {
+        DjangoApi.getLatestCameraFeed(),
+      ]).then(([data, status, cam]) => {
         if (isMounted) {
           if (data) {
             setDbParking(data);
@@ -64,6 +66,7 @@ export const ParkingTab: React.FC<ParkingTabProps> = ({ org }) => {
             if (data.ev_charging_total) setManualEvBays(data.ev_charging_total);
           }
           if (status?.active_stream) setActiveStream(status.active_stream);
+          if (cam) setCameraFeed(cam);
         }
       });
     };
@@ -161,11 +164,37 @@ export const ParkingTab: React.FC<ParkingTabProps> = ({ org }) => {
   const streamEvOcc = streamMetrics.ev_charging_occupied !== undefined ? Number(streamMetrics.ev_charging_occupied) : undefined;
   const streamFlow = streamMetrics.entry_flow_rate !== undefined ? Number(streamMetrics.entry_flow_rate) : undefined;
 
-  const total = isInactive ? (dbParking?.total_slots || 80) : (dbParking?.total_slots ?? (streamTotal ?? 80));
-  const occ = isInactive ? 0 : (dbParking?.occupied_slots ?? (streamOcc ?? (currentCategory === null ? 0 : 0)));
-  const evOcc = isInactive ? 0 : (dbParking?.ev_charging_occupied ?? (streamEvOcc ?? (currentCategory === null ? 0 : 0)));
-  const flowRate = isInactive ? 0 : (dbParking?.entry_flow_rate ?? (streamFlow ?? (currentCategory === null ? 0 : 0)));
-  const ratePct = isInactive ? 0 : (dbParking?.occupancy_rate_pct ?? (total > 0 ? Math.round((occ / total) * 100) : 0));
+  const isCameraLive = Boolean(cameraFeed?.active || cameraFeed?.annotated_frame_base64);
+
+  const total = isCameraLive && cameraFeed?.total_slots
+    ? cameraFeed.total_slots
+    : isInactive
+    ? (dbParking?.total_slots || 80)
+    : (dbParking?.total_slots ?? (streamTotal ?? 80));
+
+  const occ = isCameraLive && cameraFeed?.occupied_slots !== undefined
+    ? cameraFeed.occupied_slots
+    : isInactive
+    ? 0
+    : (dbParking?.occupied_slots ?? (streamOcc ?? (currentCategory === null ? 0 : 0)));
+
+  const evOcc = isCameraLive && cameraFeed?.ev_charging_occupied !== undefined
+    ? cameraFeed.ev_charging_occupied
+    : isInactive
+    ? 0
+    : (dbParking?.ev_charging_occupied ?? (streamEvOcc ?? (currentCategory === null ? 0 : 0)));
+
+  const flowRate = isCameraLive && cameraFeed?.entry_flow_rate !== undefined
+    ? cameraFeed.entry_flow_rate
+    : isInactive
+    ? 0
+    : (dbParking?.entry_flow_rate ?? (streamFlow ?? (currentCategory === null ? 0 : 0)));
+
+  const ratePct = isCameraLive && cameraFeed?.occupancy_rate_pct !== undefined
+    ? cameraFeed.occupancy_rate_pct
+    : isInactive
+    ? 0
+    : (dbParking?.occupancy_rate_pct ?? (total > 0 ? Math.round((occ / total) * 100) : 0));
 
   const liveHourlyOccupancy = [
     { time: '08:00', standard: Math.round(total * (isInactive ? 0 : 0.32)), ev: isInactive ? 0 : Math.round(evOcc * 0.35) },
@@ -183,7 +212,7 @@ export const ParkingTab: React.FC<ParkingTabProps> = ({ org }) => {
     evChargingSlotsTotal: dbParking?.ev_charging_total ?? 12,
     evChargingSlotsOccupied: evOcc,
     occupancyRatePct: ratePct,
-    peakCongestionZone: isInactive ? 'Inactive Stream (0)' : (dbParking?.peak_congestion_zone || 'CAM-GATE-NORTH-01'),
+    peakCongestionZone: isCameraLive ? 'Live Camera Feed (best.onnx)' : (isInactive ? 'Inactive Stream (0)' : (dbParking?.peak_congestion_zone || 'CAM-GATE-NORTH-01')),
     entryFlowRatePerHour: flowRate,
     hourlyOccupancy: liveHourlyOccupancy,
   };
@@ -376,6 +405,56 @@ export const ParkingTab: React.FC<ParkingTabProps> = ({ org }) => {
           </div>
         </div>
       </div>
+
+      {/* Live Edge AI ONNX Camera Video Monitor Card */}
+      {cameraFeed?.annotated_frame_base64 && (
+        <div className="p-5 rounded-3xl bg-slate-950 border border-cyan-500/30 shadow-2xl space-y-4 animate-in fade-in duration-300">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+            <div className="flex items-center gap-3">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              </span>
+              <div>
+                <h4 className="text-sm font-black tracking-wide text-white flex items-center gap-2">
+                  <span>LIVE EDGE AI ONNX CAMERA STREAM</span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 font-mono">
+                    {cameraFeed.model_name || 'BPUT/best.onnx (YOLOv8)'}
+                  </span>
+                </h4>
+                <p className="text-xs text-slate-400">
+                  Real-time optical frame ingestion over WiFi/Ethernet • Synced with Campus 3D Twin &amp; NeonDB
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-3 text-xs font-mono flex-wrap">
+              <div className="flex items-center gap-1.5 text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+                <span className="w-2.5 h-2.5 rounded-sm bg-emerald-500" />
+                <span>Vacant Bays: <strong>{cameraFeed.detected_empty ?? cameraFeed.available_slots}</strong></span>
+              </div>
+              <div className="flex items-center gap-1.5 text-rose-400 bg-rose-500/10 px-2.5 py-1 rounded-lg border border-rose-500/20">
+                <span className="w-2.5 h-2.5 rounded-sm bg-rose-500" />
+                <span>Occupied Vehicles: <strong>{cameraFeed.detected_occupied ?? cameraFeed.occupied_slots}</strong></span>
+              </div>
+              <div className="flex items-center gap-1.5 text-cyan-400 bg-cyan-500/10 px-2.5 py-1 rounded-lg border border-cyan-500/20">
+                <span>Occupancy: <strong>{cameraFeed.occupancy_rate_pct}%</strong></span>
+              </div>
+            </div>
+          </div>
+
+          <div className="relative rounded-2xl overflow-hidden border border-slate-800 bg-black flex items-center justify-center">
+            <img
+              src={cameraFeed.annotated_frame_base64}
+              alt="Live Edge AI Parking Detection"
+              className="w-full max-h-[440px] object-contain rounded-xl"
+            />
+            <div className="absolute bottom-3 left-3 px-3 py-1.5 rounded-lg bg-black/75 backdrop-blur-md border border-cyan-500/30 text-[11px] text-cyan-300 font-mono flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span>LIVE FRAME AI INFERENCE • FPS: {cameraFeed.camera_fps || 30} • {cameraFeed.timestamp || 'ONLINE'}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Manual Capacity Configuration Modal */}
       {showConfigModal && (
