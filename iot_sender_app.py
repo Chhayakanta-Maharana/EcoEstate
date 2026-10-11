@@ -1770,8 +1770,13 @@ class IoTSenderGui:
                     "mac_address": f"00:1B:44:11:3A:{i:02X}" if is_lan else f"30:AE:A4:7F:8C:{i:02X}",
                     "signal_dbm": None if is_lan else (self.wifi_rssi_var.get() - (i % 6)),
                     "metrics": node_metrics,
-                    "timestamp": datetime.now().strftime("%H:%M:%S")
                 })
+
+        # Attach full fleet device IDs to each payload so backend matches count instantaneously
+        all_fleet_ids = [p["device_id"] for p in payloads]
+        for p in payloads:
+            p["fleet_ids"] = all_fleet_ids
+            p["fleet_size"] = len(payloads)
 
         return payloads
 

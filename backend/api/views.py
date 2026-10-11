@@ -911,6 +911,7 @@ CURRENT_ACTIVE_STREAM = {
 # Live Hardware Sensor Registry: Keyed by device_id to track every active hardware sensor independently
 LIVE_HARDWARE_REGISTRY = {}
 SAVED_NODE_POSITIONS = {}
+EXCLUDED_HARDWARE_NODES = set()
 
 def get_node_coordinates(device_id, category='aqi'):
     """
@@ -964,12 +965,17 @@ def sync_packet_to_models(packet):
     2. Calculates true mathematical average (M_bar = (1/N) * sum(M_i)) across all active sensors of that category.
     3. Saves category averages into NeonDB models for Main Analytics Dashboards (AQI, Water, Energy, Parking, Waste).
     """
-    global CURRENT_ACTIVE_STREAM, LIVE_HARDWARE_REGISTRY
+    global CURRENT_ACTIVE_STREAM, LIVE_HARDWARE_REGISTRY, EXCLUDED_HARDWARE_NODES
     try:
         from .models import Organization, AqiTelemetry, WaterTelemetry, EnergyTelemetry, Equipment, Dustbin, ParkingTelemetry
         metrics = packet.get('metrics', {})
         raw_sensor_type = (packet.get('sensor_type') or '').upper()
         device_id = packet.get('device_id', '') or f"DEV-{int(time.time()*1000)%10000}"
+
+        # If user explicitly deleted this pin, do not allow it to be re-added
+        if device_id in EXCLUDED_HARDWARE_NODES or packet.get('id') in EXCLUDED_HARDWARE_NODES:
+            return
+
         location = packet.get('location', '') or 'Campus Node'
         node_name = packet.get('name', '') or f"{raw_sensor_type} Node ({device_id})"
 
@@ -995,6 +1001,15 @@ def sync_packet_to_models(packet):
         else:
             category = raw_sensor_type or 'TELEMETRY'
             cat_type = 'general'
+
+        # Instantaneous fleet synchronization:
+        # If the sender specifies fleet_ids, remove any nodes of this category not present in the current fleet
+        fleet_ids = packet.get('fleet_ids')
+        if isinstance(fleet_ids, (list, tuple)) and len(fleet_ids) > 0:
+            fleet_set = set(str(fid) for fid in fleet_ids)
+            for k, v in list(LIVE_HARDWARE_REGISTRY.items()):
+                if v.get('type') == cat_type and k not in fleet_set:
+                    LIVE_HARDWARE_REGISTRY.pop(k, None)
 
         CURRENT_ACTIVE_STREAM = {
             'category': category,
@@ -1609,11 +1624,23 @@ def iot_live_nodes_view(request):
     formatted as CampusNode specifications for the 3D Campus Twin,
     along with mathematical category averages for the main dashboard.
     """
+    global LIVE_HARDWARE_REGISTRY, EXCLUDED_HARDWARE_NODES
     now_time = time.time()
     org_id = request.query_params.get('org_id')
+    active_window = 12.0
     
-    # All nodes registered from live hardware
-    all_nodes = list(LIVE_HARDWARE_REGISTRY.values())
+    # Prune stale nodes older than 45s or explicitly excluded
+    for k, v in list(LIVE_HARDWARE_REGISTRY.items()):
+        if (now_time - v.get('last_seen', 0)) > 45.0 or k in EXCLUDED_HARDWARE_NODES or v.get('id') in EXCLUDED_HARDWARE_NODES:
+            LIVE_HARDWARE_REGISTRY.pop(k, None)
+
+    # All nodes registered from live hardware active within the last 12 seconds
+    all_nodes = [
+        n for n in LIVE_HARDWARE_REGISTRY.values()
+        if (now_time - n.get('last_seen', 0)) <= active_window
+        and n.get('id') not in EXCLUDED_HARDWARE_NODES
+        and n.get('device_id') not in EXCLUDED_HARDWARE_NODES
+    ]
     
     def get_cat_avg(cat):
         cat_nodes = [n for n in all_nodes if n.get('type') == cat]
@@ -1697,6 +1724,50 @@ def iot_update_node_positions_view(request):
         'status': 'success',
         'message': f"Saved coordinates for {len(positions)} sensor nodes",
         'saved_positions': SAVED_NODE_POSITIONS
+    }, status=status.HTTP_200_OK)
+
+@api_view(['POST', 'DELETE'])
+def iot_delete_node_view(request):
+    """
+    Permanently deletes a sensor pin from memory and database,
+    preventing it from returning on subsequent polling cycles.
+    """
+    global LIVE_HARDWARE_REGISTRY, SAVED_NODE_POSITIONS, EXCLUDED_HARDWARE_NODES
+    node_id = str(request.data.get('id') or request.data.get('device_id') or request.query_params.get('id') or '')
+    org_id = request.data.get('org_id')
+
+    if node_id:
+        EXCLUDED_HARDWARE_NODES.add(node_id)
+        LIVE_HARDWARE_REGISTRY.pop(node_id, None)
+        SAVED_NODE_POSITIONS.pop(node_id, None)
+
+        # Also purge any matching device_id from LIVE_HARDWARE_REGISTRY
+        for k, v in list(LIVE_HARDWARE_REGISTRY.items()):
+            if v.get('id') == node_id or v.get('device_id') == node_id:
+                LIVE_HARDWARE_REGISTRY.pop(k, None)
+
+        try:
+            from .models import Organization
+            target_org = None
+            if org_id:
+                clean_id = str(org_id).replace('org-', '')
+                if clean_id.isdigit():
+                    target_org = Organization.objects.filter(id=int(clean_id)).first()
+            if not target_org:
+                target_org = Organization.objects.first()
+
+            if target_org and target_org.campus_nodes_json:
+                nodes_list = json.loads(target_org.campus_nodes_json)
+                filtered = [n for n in nodes_list if n.get('id') != node_id and n.get('device_id') != node_id]
+                target_org.campus_nodes_json = json.dumps(filtered)
+                target_org.save(update_fields=['campus_nodes_json'])
+        except Exception as e:
+            print(f"[DELETE_NODE_ERR] {e}")
+
+    return Response({
+        'status': 'success',
+        'message': f"Node {node_id} deleted permanently",
+        'deleted_id': node_id
     }, status=status.HTTP_200_OK)
 
 @api_view(['POST'])

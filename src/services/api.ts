@@ -268,6 +268,20 @@ export const DjangoApi = {
     }
   },
 
+  async deleteIoTNode(nodeId: string, orgId?: string) {
+    try {
+      const res = await fetch(`${API_BASE_URL}/iot/nodes/delete/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: nodeId, device_id: nodeId, org_id: orgId }),
+      });
+      return await res.json();
+    } catch (err) {
+      console.warn('Delete IoT node error', err);
+      return null;
+    }
+  },
+
   async getIoTGatewayConfig() {
     try {
       const res = await fetch(`${API_BASE_URL}/iot/gateway-config/`, { cache: 'no-store' });

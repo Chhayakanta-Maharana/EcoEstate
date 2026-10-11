@@ -414,6 +414,19 @@ export const Campus3DTab: React.FC = () => {
     return enrichWithDomainDefaults(generateAutoNodes(activeOrg?.type === 'HOSPITAL'));
   });
 
+  const [deletedNodeIds, setDeletedNodeIds] = useState<Set<string>>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(`ecoestate-deleted-nodes-${orgKey}`);
+        if (saved) {
+          const arr = JSON.parse(saved);
+          if (Array.isArray(arr)) return new Set(arr);
+        }
+      } catch (e) {}
+    }
+    return new Set<string>();
+  });
+
   // Sync 3D nodes with real NeonDB PostgreSQL telemetry
   useEffect(() => {
     if (!activeOrg?.id) return;
@@ -516,46 +529,53 @@ export const Campus3DTab: React.FC = () => {
         if (iotStatus?.active_stream) setActiveStream(iotStatus.active_stream);
 
         // Dynamic 3D Pin Generation: Match live hardware nodes streaming from IoT sender (Strict 1:1 Pin Mapping)
-        if (liveNodesData && Array.isArray(liveNodesData.nodes) && liveNodesData.nodes.length > 0) {
-          setNodes((prevNodes) => {
-            const prevMap = new Map<string, CampusNode>();
-            for (const n of prevNodes) {
-              prevMap.set(n.id, n);
-              if ((n as any).device_id) prevMap.set((n as any).device_id, n);
-            }
+        if (liveNodesData && Array.isArray(liveNodesData.nodes)) {
+          // Filter out any sensor nodes that have been explicitly deleted by the user
+          const rawIncomingNodes = liveNodesData.nodes.filter(
+            (r: any) => !deletedNodeIds.has(r.id) && !deletedNodeIds.has(r.device_id)
+          );
 
-            // Identify placeholder dummy nodes that should NEVER pollute active hardware streams
-            const isAutoDummy = (n: CampusNode) => {
-              const id = n.id || '';
-              return (
-                id.startsWith('node-air-') ||
-                id.startsWith('node-water-') ||
-                id.startsWith('node-energy-') ||
-                id.startsWith('node-gate-') ||
-                id.startsWith('node-waste-') ||
-                id.startsWith('node-hosp-') ||
-                id === 'node-quarters' ||
-                id === 'node-academic' ||
-                id === 'node-pump' ||
-                id === 'node-guest' ||
-                id === 'node-gate' ||
-                id === 'node-library' ||
-                id === 'node-sports'
-              );
-            };
+          if (rawIncomingNodes.length > 0) {
+            setNodes((prevNodes) => {
+              const prevMap = new Map<string, CampusNode>();
+              for (const n of prevNodes) {
+                prevMap.set(n.id, n);
+                if ((n as any).device_id) prevMap.set((n as any).device_id, n);
+              }
 
-            // Types present in live incoming hardware stream
-            const incomingTypes = new Set<string>(liveNodesData.nodes.map((r: any) => (r.type as string) || 'aqi'));
+              // Identify placeholder dummy nodes that should NEVER pollute active hardware streams
+              const isAutoDummy = (n: CampusNode) => {
+                const id = n.id || '';
+                return (
+                  id.startsWith('node-air-') ||
+                  id.startsWith('node-water-') ||
+                  id.startsWith('node-energy-') ||
+                  id.startsWith('node-gate-') ||
+                  id.startsWith('node-waste-') ||
+                  id.startsWith('node-hosp-') ||
+                  id === 'node-quarters' ||
+                  id === 'node-academic' ||
+                  id === 'node-pump' ||
+                  id === 'node-guest' ||
+                  id === 'node-gate' ||
+                  id === 'node-library' ||
+                  id === 'node-sports'
+                );
+              };
 
-            // Purge all placeholder dummy nodes, keeping only legitimate user-added custom pins from other domains
-            const preservedNodes = prevNodes.filter((n) => {
-              if (isAutoDummy(n)) return false; // Completely remove default mock/dummy pins!
-              if (incomingTypes.has(n.type)) return false; // Replaced completely by the incoming hardware fleet
-              return true;
-            });
+              // Types present in live incoming hardware stream
+              const incomingTypes = new Set<string>(rawIncomingNodes.map((r: any) => (r.type as string) || 'aqi'));
 
-            // Ingest each hardware node sent from the sender application (exact 1:1 mapping)
-            const hardwarePins: CampusNode[] = liveNodesData.nodes.map((rawNode: any, idx: number) => {
+              // Purge all placeholder dummy nodes, keeping only legitimate user-added custom pins from other domains
+              const preservedNodes = prevNodes.filter((n) => {
+                if (isAutoDummy(n)) return false; // Completely remove default mock/dummy pins!
+                if (deletedNodeIds.has(n.id) || deletedNodeIds.has((n as any).device_id)) return false; // Exclude deleted pins!
+                if (incomingTypes.has(n.type)) return false; // Replaced completely by the incoming hardware fleet
+                return true;
+              });
+
+              // Ingest each hardware node sent from the sender application (exact 1:1 mapping)
+              const hardwarePins: CampusNode[] = rawIncomingNodes.map((rawNode: any, idx: number) => {
               const devId = rawNode.device_id || rawNode.id || `node-${idx + 1}`;
               const existing = prevMap.get(devId) || prevMap.get(rawNode.id);
               const rawMetrics = rawNode.metrics || {};
@@ -604,7 +624,8 @@ export const Campus3DTab: React.FC = () => {
             return [...preservedNodes, ...hardwarePins];
           });
         }
-      });
+      }
+    });
     };
     fetchLiveStreams();
     const interval = setInterval(fetchLiveStreams, 1200);
@@ -839,18 +860,40 @@ export const Campus3DTab: React.FC = () => {
     setEditingNode(null);
   };
 
-  const handleDeleteNode = (id: string) => {
+  const handleDeleteNode = async (id: string) => {
+    // 1. Immediately track in local deleted set & localStorage so it is never re-added
+    setDeletedNodeIds((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`ecoestate-deleted-nodes-${orgKey}`, JSON.stringify(Array.from(next)));
+      }
+      return next;
+    });
+
+    // 2. Remove from active nodes state
     const updatedNodes = nodes.filter((n) => n.id !== id);
     setNodes(updatedNodes);
     if (selectedNode?.id === id) setSelectedNode(null);
 
-    // Persist node removal to NeonDB
+    // 3. Immediately purge from backend memory & database
+    try {
+      await DjangoApi.deleteIoTNode(id, activeOrg?.id);
+    } catch (e) {
+      console.warn('Failed to delete node in backend', e);
+    }
+
+    // 4. Persist node removal to NeonDB
     if (activeOrg?.id) {
       DjangoApi.updateCampusTwin(activeOrg.id, { campus_nodes_json: JSON.stringify(updatedNodes) });
     }
   };
 
   const handleResetDefaults = () => {
+    setDeletedNodeIds(new Set());
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(`ecoestate-deleted-nodes-${orgKey}`);
+    }
     const baseNodes = generateAutoNodes(activeOrg?.type === 'HOSPITAL');
     const baseImg = activeOrg?.type === 'HOSPITAL' ? '/images/hospital_aerial.jpg' : '/images/campus_aerial.jpg';
     setNodes(baseNodes);
