@@ -767,8 +767,8 @@ class IoTSenderGui:
     def __init__(self, root):
         self.root = root
         self.root.title("EcoEstate India • IoT Telemetry Hardware Sender (LAN TCP/UDP & WiFi)")
-        self.root.geometry("980x740")
-        self.root.minsize(860, 640)
+        self.root.geometry("1040x680")
+        self.root.minsize(860, 520)
         self.root.configure(bg="#070913")
 
         self.streaming = False
@@ -1048,16 +1048,82 @@ class IoTSenderGui:
         self.fleet_info_label = tk.Label(fleet_row, text="• 8 Nodes Live", font=("Segoe UI", 8, "bold"), bg="#0d111f", fg="#10b981")
         self.fleet_info_label.pack(side="left", padx=6)
 
+        # --- Prominent Primary Transmission Action Bar (Always visible right under sensor selection!) ---
+        action_bar_top = tk.Frame(sensor_box, bg="#0d111f")
+        action_bar_top.pack(fill="x", padx=10, pady=(2, 8))
+
+        btn_send_top = tk.Button(
+            action_bar_top, text="🚀 Send Single Packet", font=("Segoe UI", 9, "bold"),
+            bg="#0284c7", fg="#ffffff", activebackground="#0369a1", bd=0, padx=14, pady=5,
+            cursor="hand2", command=self.send_single_packet
+        )
+        btn_send_top.pack(side="left", padx=(0, 6))
+
+        self.btn_stream_top = tk.Button(
+            action_bar_top, text="▶ Start Auto-Stream", font=("Segoe UI", 9, "bold"),
+            bg="#16a34a", fg="#ffffff", activebackground="#15803d", bd=0, padx=14, pady=5,
+            cursor="hand2", command=self.toggle_stream
+        )
+        self.btn_stream_top.pack(side="left", padx=4)
+
+        tk.Label(action_bar_top, text="Rate:", bg="#0d111f", fg="#94a3b8", font=("Segoe UI", 8)).pack(side="left", padx=(8, 2))
+        self.interval_var = tk.DoubleVar(value=1.0)
+        self.interval_combo = ttk.Combobox(action_bar_top, textvariable=self.interval_var, values=[0.5, 1.0, 2.0, 5.0], width=4, state="readonly")
+        self.interval_combo.pack(side="left")
+
+        # --- Persistent Bottom Transmission Action Bar (Never clipped off-screen) ---
+        action_box = tk.Frame(parent, bg="#0d111f", pady=6)
+        action_box.pack(side="bottom", fill="x", padx=2, pady=(2, 4))
+
+        self.btn_send_single = tk.Button(
+            action_box, text="🚀 Send Single Packet", font=("Segoe UI", 10, "bold"),
+            bg="#0284c7", fg="#ffffff", activebackground="#0369a1", bd=0, padx=16, pady=6,
+            cursor="hand2", command=self.send_single_packet
+        )
+        self.btn_send_single.pack(side="left", padx=4)
+
+        self.btn_stream_toggle = tk.Button(
+            action_box, text="▶ Start Auto-Stream", font=("Segoe UI", 10, "bold"),
+            bg="#16a34a", fg="#ffffff", activebackground="#15803d", bd=0, padx=16, pady=6,
+            cursor="hand2", command=self.toggle_stream
+        )
+        self.btn_stream_toggle.pack(side="left", padx=4)
+
+        # Rate selector bottom
+        tk.Label(action_box, text="Interval:", bg="#0d111f", fg="#94a3b8").pack(side="left", padx=(10, 2))
+        self.interval_combo_bottom = ttk.Combobox(action_box, textvariable=self.interval_var, values=[0.5, 1.0, 2.0, 5.0], width=4, state="readonly")
+        self.interval_combo_bottom.pack(side="left")
+
+        # --- Optional AI Copilot Diagnostic Row (Docked bottom above action bar) ---
+        ai_box = tk.Frame(parent, bg="#0d111f", pady=2)
+        ai_box.pack(side="bottom", fill="x", padx=4, pady=(0, 2))
+
+        tk.Label(ai_box, text="⚡ Groq AI Persona:", font=("Segoe UI", 8, "bold"), bg="#0d111f", fg="#c084fc").pack(side="left", padx=2)
+        self.ai_org_var = tk.StringVar(value="HOSPITAL")
+        self.ai_org_combo = ttk.Combobox(
+            ai_box, textvariable=self.ai_org_var, state="readonly", width=14, font=("Segoe UI", 8),
+            values=["HOSPITAL", "INDUSTRY", "COLLEGE", "PSU", "COMMERCIAL"]
+        )
+        self.ai_org_combo.pack(side="left", padx=4)
+        self.ai_org_combo.current(0)
+
+        self.btn_run_ai = tk.Button(
+            ai_box, text="🧠 Run AI Diagnosis", font=("Segoe UI", 8, "bold"),
+            bg="#7e22ce", fg="#ffffff", activebackground="#6b21a8", activeforeground="#ffffff",
+            bd=0, padx=10, pady=2, cursor="hand2", command=self.run_ai_copilot_diagnosis
+        )
+        self.btn_run_ai.pack(side="left", padx=2)
+
         # --- Dynamic Telemetry Tuning Sliders ---
         self.telemetry_box = tk.LabelFrame(parent, text=" 3. Real-Time Telemetry Tuning (Inject SHAP Faults) ", font=("Segoe UI", 9, "bold"), bg="#0d111f", fg="#38bdf8", bd=1)
-        self.telemetry_box.pack(fill="both", expand=True, pady=(0, 8), padx=2)
+        self.telemetry_box.pack(fill="both", expand=True, pady=(0, 4), padx=2)
 
         self.sliders_container = tk.Frame(self.telemetry_box, bg="#0d111f")
-        self.sliders_container.pack(fill="both", expand=True, padx=8, pady=4)
+        self.sliders_container.pack(fill="both", expand=True, padx=8, pady=2)
 
         # Quick Preset Buttons (Healthy vs Anomaly)
         btn_preset_row = tk.Frame(self.telemetry_box, bg="#0d111f")
-        btn_preset_row.pack(fill="x", padx=8, pady=(2, 8))
+        btn_preset_row.pack(fill="x", padx=8, pady=(2, 6))
 
         btn_healthy = tk.Button(
             btn_preset_row, text="🟢 Set Healthy Baseline", font=("Segoe UI", 9, "bold"),
@@ -1072,59 +1138,6 @@ class IoTSenderGui:
             bd=0, padx=12, pady=4, cursor="hand2", command=self._set_anomaly_preset
         )
         btn_anomaly.pack(side="left", padx=4)
-
-        # --- 4. Multi-Behavior AI Copilot Diagnostic Box (Groq Cloud) ---
-        ai_box = tk.LabelFrame(parent, text=" ⚡ 4. Multi-Behavior AI Copilot (Groq LPU Engine) ", font=("Segoe UI", 9, "bold"), bg="#0d111f", fg="#c084fc", bd=1)
-        ai_box.pack(fill="x", pady=(0, 8), padx=2)
-
-        ai_row = tk.Frame(ai_box, bg="#0d111f")
-        ai_row.pack(fill="x", padx=8, pady=6)
-
-        tk.Label(ai_row, text="Org Persona:", font=("Segoe UI", 9, "bold"), bg="#0d111f", fg="#cbd5e1").pack(side="left")
-        self.ai_org_var = tk.StringVar(value="HOSPITAL")
-        self.ai_org_combo = ttk.Combobox(
-            ai_row, textvariable=self.ai_org_var, state="readonly", width=22,
-            values=[
-                "HOSPITAL",
-                "INDUSTRY",
-                "COLLEGE",
-                "PSU",
-                "COMMERCIAL"
-            ]
-        )
-        self.ai_org_combo.pack(side="left", padx=6)
-        self.ai_org_combo.current(0)
-
-        self.btn_run_ai = tk.Button(
-            ai_row, text="🧠 Run Groq AI Diagnosis", font=("Segoe UI", 9, "bold"),
-            bg="#7e22ce", fg="#ffffff", activebackground="#6b21a8", activeforeground="#ffffff",
-            bd=0, padx=12, pady=4, cursor="hand2", command=self.run_ai_copilot_diagnosis
-        )
-        self.btn_run_ai.pack(side="left", padx=4)
-
-        # --- 5. Transmission Action Bar ---
-        action_box = tk.Frame(parent, bg="#0d111f", pady=6)
-        action_box.pack(fill="x", padx=2)
-
-        self.btn_send_single = tk.Button(
-            action_box, text="🚀 Send Single Packet", font=("Segoe UI", 10, "bold"),
-            bg="#0284c7", fg="#ffffff", activebackground="#0369a1", bd=0, padx=16, pady=7,
-            cursor="hand2", command=self.send_single_packet
-        )
-        self.btn_send_single.pack(side="left", padx=4)
-
-        self.btn_stream_toggle = tk.Button(
-            action_box, text="▶ Start Auto-Stream (1s)", font=("Segoe UI", 10, "bold"),
-            bg="#16a34a", fg="#ffffff", activebackground="#15803d", bd=0, padx=16, pady=7,
-            cursor="hand2", command=self.toggle_stream
-        )
-        self.btn_stream_toggle.pack(side="left", padx=4)
-
-        # Rate selector
-        tk.Label(action_box, text="Interval:", bg="#0d111f", fg="#94a3b8").pack(side="left", padx=(10, 2))
-        self.interval_var = tk.DoubleVar(value=1.0)
-        self.interval_combo = ttk.Combobox(action_box, textvariable=self.interval_var, values=[0.5, 1.0, 2.0, 5.0], width=5, state="readonly")
-        self.interval_combo.pack(side="left")
 
     def _build_right_pane(self, parent):
         log_frame = tk.LabelFrame(parent, text=" Live Packet Transmission Console ", font=("Segoe UI", 9, "bold"), bg="#0d111f", fg="#38bdf8", bd=1)
@@ -1747,11 +1760,15 @@ class IoTSenderGui:
         if self.streaming:
             self.streaming = False
             self.btn_stream_toggle.config(text="▶ Start Auto-Stream", bg="#16a34a")
+            if hasattr(self, 'btn_stream_top'):
+                self.btn_stream_top.config(text="▶ Start Auto-Stream", bg="#16a34a")
             self._log("⏹ Auto-stream stopped.", "WARN")
         else:
             self.streaming = True
             interval = float(self.interval_var.get() or 1.0)
             self.btn_stream_toggle.config(text="⏹ Stop Streaming", bg="#dc2626")
+            if hasattr(self, 'btn_stream_top'):
+                self.btn_stream_top.config(text="⏹ Stop Streaming", bg="#dc2626")
             self._log(f"▶ Continuous streaming started (every {interval}s)...", "INFO")
 
             def _stream_worker():
