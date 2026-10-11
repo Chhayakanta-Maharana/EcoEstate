@@ -428,11 +428,11 @@ export const Campus3DTab: React.FC = () => {
             if (n.type === 'aqi' && dbAqi) {
               return {
                 ...n,
-                pm25: dbAqi.pm25 ?? n.pm25,
-                pm10: dbAqi.pm10 ?? n.pm10,
-                temp: dbAqi.temperature ? Math.round(dbAqi.temperature) : n.temp,
-                humidity: dbAqi.humidity ? Math.round(dbAqi.humidity) : n.humidity,
-                status: dbAqi.overall_aqi > 150 ? 'warning' : dbAqi.overall_aqi > 100 ? 'moderate' : 'optimal',
+                pm25: n.pm25 ?? dbAqi.pm25,
+                pm10: n.pm10 ?? dbAqi.pm10,
+                temp: n.temp ?? (dbAqi.temperature ? Math.round(dbAqi.temperature) : undefined),
+                humidity: n.humidity ?? (dbAqi.humidity ? Math.round(dbAqi.humidity) : undefined),
+                status: n.status || (dbAqi.overall_aqi > 150 ? 'warning' : dbAqi.overall_aqi > 100 ? 'moderate' : 'optimal'),
               };
             }
             if (n.type === 'water' && dbWater) {
@@ -457,103 +457,7 @@ export const Campus3DTab: React.FC = () => {
     });
   }, [activeOrg?.id]);
 
-  // Continuously ingest and spawn dynamic pins for all live incoming hardware nodes from sender
-  useEffect(() => {
-    let isMounted = true;
-    const fetchLiveHardwareNodes = async () => {
-      try {
-        const liveRes = await DjangoApi.getLiveIoTNodes(activeOrg?.id);
-        if (!isMounted || !liveRes?.nodes || !Array.isArray(liveRes.nodes) || liveRes.nodes.length === 0) return;
 
-        setNodes((prevNodes) => {
-          const nodeMap = new Map<string, CampusNode>();
-          for (const n of prevNodes) {
-            nodeMap.set(n.id, n);
-            if ((n as any).device_id) nodeMap.set((n as any).device_id, n);
-          }
-
-          // Ingest each hardware node sent from the sender application
-          for (const rawNode of liveRes.nodes) {
-            const devId = rawNode.device_id || rawNode.id;
-            const existing = nodeMap.get(devId) || nodeMap.get(rawNode.id);
-
-            if (existing) {
-              // Update telemetry values while keeping pinned coordinates
-              const updated: CampusNode = {
-                ...existing,
-                pm25: rawNode.pm25 ?? existing.pm25,
-                pm10: rawNode.pm10 ?? existing.pm10,
-                temp: rawNode.temp ?? existing.temp,
-                humidity: rawNode.humidity ?? existing.humidity,
-                status: rawNode.status || existing.status,
-                secondaryLabel: rawNode.secondaryLabel || existing.secondaryLabel,
-                secondaryValue: rawNode.secondaryValue || existing.secondaryValue,
-                metric1Label: rawNode.metric1Label || existing.metric1Label,
-                metric1Value: rawNode.metric1Value || existing.metric1Value,
-                metric2Label: rawNode.metric2Label || existing.metric2Label,
-                metric2Value: rawNode.metric2Value || existing.metric2Value,
-                metric3Label: rawNode.metric3Label || existing.metric3Label,
-                metric3Value: rawNode.metric3Value || existing.metric3Value,
-                metric4Label: rawNode.metric4Label || existing.metric4Label,
-                metric4Value: rawNode.metric4Value || existing.metric4Value,
-                metrics: rawNode.metrics || existing.metrics,
-              };
-              nodeMap.set(existing.id, updated);
-            } else {
-              // Spawn dynamic new pin on 3D Campus for each newly received hardware node!
-              const newNode: CampusNode = {
-                id: devId,
-                name: rawNode.name || `${rawNode.type?.toUpperCase() || 'IoT'} Node (${devId})`,
-                locationLabel: rawNode.locationLabel || rawNode.location || 'Campus Node',
-                type: (rawNode.type as any) || 'aqi',
-                interfaceType: (rawNode.interfaceType as any) || 'WIFI',
-                xPct: rawNode.xPct ?? 50.0,
-                yPct: rawNode.yPct ?? 50.0,
-                stemHeightPx: rawNode.stemHeightPx || 60,
-                pm25: rawNode.pm25 ?? 25,
-                pm10: rawNode.pm10 ?? 45,
-                temp: rawNode.temp ?? 28,
-                humidity: rawNode.humidity ?? 55,
-                status: rawNode.status || 'optimal',
-                secondaryLabel: rawNode.secondaryLabel,
-                secondaryValue: rawNode.secondaryValue,
-                metric1Label: rawNode.metric1Label,
-                metric1Value: rawNode.metric1Value,
-                metric2Label: rawNode.metric2Label,
-                metric2Value: rawNode.metric2Value,
-                metric3Label: rawNode.metric3Label,
-                metric3Value: rawNode.metric3Value,
-                metric4Label: rawNode.metric4Label,
-                metric4Value: rawNode.metric4Value,
-                metrics: rawNode.metrics,
-              };
-              nodeMap.set(devId, newNode);
-            }
-          }
-
-          // Return deduped list
-          const uniqueList: CampusNode[] = [];
-          const seenIds = new Set<string>();
-          Array.from(nodeMap.values()).forEach((item) => {
-            if (!seenIds.has(item.id)) {
-              seenIds.add(item.id);
-              uniqueList.push(item);
-            }
-          });
-          return uniqueList;
-        });
-      } catch (err) {
-        // quiet polling error
-      }
-    };
-
-    fetchLiveHardwareNodes();
-    const interval = setInterval(fetchLiveHardwareNodes, 2500);
-    return () => {
-      isMounted = false;
-      clearInterval(interval);
-    };
-  }, [activeOrg?.id]);
 
   // 3. Viewport Transform & Interactive State:
   // Default tiltPitch is 0deg so the image is clean, upright, and NOT skewed or slanted!
@@ -611,57 +515,93 @@ export const Campus3DTab: React.FC = () => {
         if (energyRes) setEnergyList(Array.isArray(energyRes) ? energyRes : [energyRes]);
         if (iotStatus?.active_stream) setActiveStream(iotStatus.active_stream);
 
-        // Dynamic 3D Pin Generation: Match live hardware nodes streaming from IoT sender
+        // Dynamic 3D Pin Generation: Match live hardware nodes streaming from IoT sender (Strict 1:1 Pin Mapping)
         if (liveNodesData && Array.isArray(liveNodesData.nodes) && liveNodesData.nodes.length > 0) {
           setNodes((prevNodes) => {
-            const merged = [...prevNodes];
-            const nodeMap = new Map<string, number>();
-            merged.forEach((n, idx) => nodeMap.set(n.id, idx));
+            const prevMap = new Map<string, CampusNode>();
+            for (const n of prevNodes) {
+              prevMap.set(n.id, n);
+              if ((n as any).device_id) prevMap.set((n as any).device_id, n);
+            }
 
-            liveNodesData.nodes.forEach((ln: any) => {
-              const existingIdx = nodeMap.get(ln.id);
-              if (existingIdx !== undefined) {
-                // Node already exists: update telemetry metrics & live status
-                merged[existingIdx] = {
-                  ...merged[existingIdx],
-                  ...ln,
-                  // Keep user's calibrated/dragged coordinates if user calibrated or dragged it
-                  xPct: isCalibrateMode ? merged[existingIdx].xPct : (ln.xPct ?? merged[existingIdx].xPct),
-                  yPct: isCalibrateMode ? merged[existingIdx].yPct : (ln.yPct ?? merged[existingIdx].yPct),
-                };
-              } else {
-                // New hardware node arrived! Dynamically generate pin for 3D digital twin
-                const newNode: CampusNode = {
-                  id: ln.id || ln.device_id,
-                  name: ln.name || `${(ln.type || 'aqi').toUpperCase()} Sensor Node`,
-                  locationLabel: ln.locationLabel || ln.location || 'Campus Facility Node',
-                  type: ln.type || 'aqi',
-                  interfaceType: ln.interfaceType || 'WIFI',
-                  xPct: ln.xPct ?? 50.0,
-                  yPct: ln.yPct ?? 50.0,
-                  stemHeightPx: ln.stemHeightPx || 60,
-                  pm25: ln.pm25 ?? 0,
-                  pm10: ln.pm10 ?? 0,
-                  temp: ln.temp ?? 28,
-                  humidity: ln.humidity ?? 50,
-                  secondaryLabel: ln.secondaryLabel || `${(ln.type || 'aqi').toUpperCase()} Value`,
-                  secondaryValue: ln.secondaryValue || '',
-                  metric1Label: ln.metric1Label || '',
-                  metric1Value: ln.metric1Value || '',
-                  metric2Label: ln.metric2Label || '',
-                  metric2Value: ln.metric2Value || '',
-                  metric3Label: ln.metric3Label || '',
-                  metric3Value: ln.metric3Value || '',
-                  metric4Label: ln.metric4Label || '',
-                  metric4Value: ln.metric4Value || '',
-                  status: ln.status || 'optimal',
-                };
-                merged.push(newNode);
-                nodeMap.set(newNode.id, merged.length - 1);
-              }
+            // Identify placeholder dummy nodes that should NEVER pollute active hardware streams
+            const isAutoDummy = (n: CampusNode) => {
+              const id = n.id || '';
+              return (
+                id.startsWith('node-air-') ||
+                id.startsWith('node-water-') ||
+                id.startsWith('node-energy-') ||
+                id.startsWith('node-gate-') ||
+                id.startsWith('node-waste-') ||
+                id.startsWith('node-hosp-') ||
+                id === 'node-quarters' ||
+                id === 'node-academic' ||
+                id === 'node-pump' ||
+                id === 'node-guest' ||
+                id === 'node-gate' ||
+                id === 'node-library' ||
+                id === 'node-sports'
+              );
+            };
+
+            // Types present in live incoming hardware stream
+            const incomingTypes = new Set<string>(liveNodesData.nodes.map((r: any) => (r.type as string) || 'aqi'));
+
+            // Purge all placeholder dummy nodes, keeping only legitimate user-added custom pins from other domains
+            const preservedNodes = prevNodes.filter((n) => {
+              if (isAutoDummy(n)) return false; // Completely remove default mock/dummy pins!
+              if (incomingTypes.has(n.type)) return false; // Replaced completely by the incoming hardware fleet
+              return true;
             });
 
-            return merged;
+            // Ingest each hardware node sent from the sender application (exact 1:1 mapping)
+            const hardwarePins: CampusNode[] = liveNodesData.nodes.map((rawNode: any, idx: number) => {
+              const devId = rawNode.device_id || rawNode.id || `node-${idx + 1}`;
+              const existing = prevMap.get(devId) || prevMap.get(rawNode.id);
+              const rawMetrics = rawNode.metrics || {};
+
+              // Extract each individual node's specific live metrics
+              const pm25 = rawNode.pm25 !== undefined ? rawNode.pm25 : (rawMetrics.pm25 ?? rawMetrics.pm25_ug_m3);
+              const pm10 = rawNode.pm10 !== undefined ? rawNode.pm10 : (rawMetrics.pm10 ?? rawMetrics.pm10_ug_m3);
+              const temp = rawNode.temp !== undefined ? rawNode.temp : (rawMetrics.temp_c ?? rawMetrics.temperature);
+              const humidity = rawNode.humidity !== undefined ? rawNode.humidity : (rawMetrics.humidity ?? rawMetrics.humidity_pct);
+
+              const numPm25 = pm25 !== undefined && pm25 !== null ? Math.round(Number(pm25) * 10) / 10 : undefined;
+              const numPm10 = pm10 !== undefined && pm10 !== null ? Math.round(Number(pm10) * 10) / 10 : undefined;
+              const numTemp = temp !== undefined && temp !== null ? Math.round(Number(temp)) : undefined;
+              const numHum = humidity !== undefined && humidity !== null ? Math.round(Number(humidity)) : undefined;
+
+              const computedAqi = numPm25 !== undefined ? Math.round(numPm25 * 2.5) : (numPm10 ? Math.round(numPm10) : 55);
+
+              return {
+                id: devId,
+                name: rawNode.name || `${rawNode.type?.toUpperCase() || 'IoT'} Node #${idx + 1}`,
+                locationLabel: rawNode.locationLabel || rawNode.location || `Sensor Point #${idx + 1}`,
+                type: (rawNode.type as any) || 'aqi',
+                interfaceType: (rawNode.interfaceType as any) || 'WIFI',
+                xPct: isCalibrateMode ? (existing?.xPct ?? rawNode.xPct ?? (20.0 + (idx % 4) * 20.0)) : (rawNode.xPct ?? existing?.xPct ?? (20.0 + (idx % 4) * 20.0)),
+                yPct: isCalibrateMode ? (existing?.yPct ?? rawNode.yPct ?? (30.0 + Math.floor(idx / 4) * 32.0)) : (rawNode.yPct ?? existing?.yPct ?? (30.0 + Math.floor(idx / 4) * 32.0)),
+                stemHeightPx: existing?.stemHeightPx ?? rawNode.stemHeightPx ?? 60,
+                pm25: numPm25 ?? 25.0,
+                pm10: numPm10 ?? 45.0,
+                temp: numTemp ?? 28,
+                humidity: numHum ?? 55,
+                status: rawNode.status || (computedAqi > 150 ? 'warning' : 'optimal'),
+                secondaryLabel: rawNode.secondaryLabel || (rawNode.type === 'aqi' ? 'AQI Value' : 'Telemetry'),
+                secondaryValue: rawNode.secondaryValue || (rawNode.type === 'aqi' ? `AQI ${computedAqi}` : undefined),
+                metric1Label: rawNode.metric1Label || 'PM2.5',
+                metric1Value: rawNode.metric1Value || (numPm25 !== undefined ? `${numPm25} µg/m³` : undefined),
+                metric2Label: rawNode.metric2Label || 'PM10',
+                metric2Value: rawNode.metric2Value || (numPm10 !== undefined ? `${numPm10} µg/m³` : undefined),
+                metric3Label: rawNode.metric3Label || 'Temp',
+                metric3Value: rawNode.metric3Value || (numTemp !== undefined ? `${numTemp} °C` : undefined),
+                metric4Label: rawNode.metric4Label || 'Humidity',
+                metric4Value: rawNode.metric4Value || (numHum !== undefined ? `${numHum}%` : undefined),
+                metrics: rawMetrics,
+              };
+            });
+
+            return [...preservedNodes, ...hardwarePins];
           });
         }
       });
@@ -1320,11 +1260,19 @@ export const Campus3DTab: React.FC = () => {
             const isSelected = selectedNode?.id === node.id;
             const isDragging = draggingNodeId === node.id;
 
-            // Live values when telemetry has arrived, otherwise clean '--' standby placeholders
-            const nodePm25 = hasAqiData ? (avgPm25 ?? '--') : '--';
-            const nodePm10 = hasAqiData ? (avgPm10 ?? '--') : '--';
-            const nodeTemp = hasAqiData ? (avgTemp ?? '--') : '--';
-            const nodeHumidity = hasAqiData ? (avgHumidity ?? '--') : '--';
+            // Live values for this specific node
+            const nodePm25 = (node.pm25 !== undefined && node.pm25 !== null)
+              ? node.pm25
+              : (hasAqiData ? (avgPm25 ?? '--') : '--');
+            const nodePm10 = (node.pm10 !== undefined && node.pm10 !== null)
+              ? node.pm10
+              : (hasAqiData ? (avgPm10 ?? '--') : '--');
+            const nodeTemp = (node.temp !== undefined && node.temp !== null)
+              ? node.temp
+              : (hasAqiData ? (avgTemp ?? '--') : '--');
+            const nodeHumidity = (node.humidity !== undefined && node.humidity !== null)
+              ? node.humidity
+              : (hasAqiData ? (avgHumidity ?? '--') : '--');
 
             const nodeStatus = (
               node.type === 'aqi' ? (hasAqiData ? 'OPTIMAL' : 'STANDBY') :
