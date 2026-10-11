@@ -1691,40 +1691,59 @@ class IoTSenderGui:
                 d_id = tmpl.get("device_id") if n_count == 1 else f"{dev_prefix}-{i:02d}"
                 loc = tmpl.get("location") if n_count == 1 else campus_locations[(i - 1) % len(campus_locations)]
                 
-                # Distinct spatial campus positions so 8 nodes never stack on top of each other
+                # Distinct spatial campus positions and micro-climate profiles
                 if key == "AIR_QUALITY_STATION":
-                    aqi_spread_coords = [
-                        (25.0, 32.0, "Hostel Quad & North Green Walkway"),
-                        (42.0, 26.0, "Science & Engineering Lab Wing"),
-                        (68.0, 28.0, "Library Lawn & Reading Pavilion"),
-                        (78.0, 48.0, "Administrative Tower & Central Plaza"),
-                        (64.0, 72.0, "Sports Complex & Athletic Ground"),
-                        (38.0, 76.0, "Student Canteen & Food Court"),
-                        (18.0, 62.0, "Research Innovation & Incubation Block"),
-                        (52.0, 52.0, "Central Academic Plaza & Fountain"),
+                    # Distinct realistic environmental profile per sensor location across campus
+                    # (xPct, yPct, location, pm_mult, temp_base, hum_base)
+                    aqi_profiles = [
+                        (25.0, 32.0, "Hostel Quad & North Green Walkway", 0.88, 26.5, 62.0),
+                        (42.0, 26.0, "Science & Engineering Lab Wing", 0.56, 22.8, 48.0),
+                        (68.0, 28.0, "Library Lawn & Reading Pavilion", 0.92, 27.2, 55.0),
+                        (78.0, 48.0, "Administrative Tower & Central Plaza", 1.18, 29.5, 51.0),
+                        (64.0, 72.0, "Sports Complex & Athletic Ground", 1.55, 31.4, 46.0),
+                        (38.0, 76.0, "Student Canteen & Food Court", 2.15, 33.2, 59.0),
+                        (18.0, 62.0, "Research Innovation & Incubation Block", 0.64, 23.8, 50.0),
+                        (52.0, 52.0, "Central Academic Plaza & Fountain", 0.96, 25.5, 74.0),
                     ]
-                    sp_x, sp_y, sp_loc = aqi_spread_coords[(i - 1) % len(aqi_spread_coords)]
+                    sp_x, sp_y, sp_loc, pm_mult, prof_temp, prof_hum = aqi_profiles[(i - 1) % len(aqi_profiles)]
                     x_pct = sp_x
                     y_pct = sp_y
                     if n_count > 1:
                         loc = sp_loc
+
+                    # Build distinct realistic per-sensor readings calibrated to its location
+                    node_metrics = {}
+                    base_pm25 = base_metrics.get("pm25_ug_m3", base_metrics.get("pm25", 25.0))
+                    base_pm10 = base_metrics.get("pm10_ug_m3", base_metrics.get("pm10", 45.0))
+
+                    node_metrics["pm25_ug_m3"] = round(float(base_pm25) * pm_mult, 1)
+                    node_metrics["pm10_ug_m3"] = round(float(base_pm10) * pm_mult, 1)
+                    node_metrics["pm25"] = node_metrics["pm25_ug_m3"]
+                    node_metrics["pm10"] = node_metrics["pm10_ug_m3"]
+                    node_metrics["temp_c"] = prof_temp
+                    node_metrics["temperature"] = prof_temp
+                    node_metrics["humidity_pct"] = prof_hum
+                    node_metrics["humidity"] = prof_hum
+                    node_metrics["co2_ppm"] = round(base_metrics.get("co2_ppm", 430.0) * (0.85 + pm_mult * 0.18), 0)
+                    node_metrics["voc_ppb"] = round(base_metrics.get("voc_ppb", 85.0) * (0.80 + pm_mult * 0.22), 0)
                 elif n_count > 1:
                     import math
                     angle = ((i - 1) * 2 * math.pi) / max(1, n_count)
                     x_pct = round(50.0 + 28.0 * math.cos(angle), 1)
                     y_pct = round(50.0 + 24.0 * math.sin(angle), 1)
+
+                    # Distinct variance per node across campus so readings diverge naturally
+                    node_metrics = {}
+                    node_mult = 0.75 + (((i * 7 + 2) % 9)) * 0.07
+                    for mk, mv in base_metrics.items():
+                        if isinstance(mv, (int, float)):
+                            node_metrics[mk] = round(mv * node_mult, 2)
+                        else:
+                            node_metrics[mk] = mv
                 else:
                     x_pct = tmpl.get("xPct", 50.0)
                     y_pct = tmpl.get("yPct", 50.0)
-
-                # Natural per-sensor variance (±5%) around slider baseline so nodes aren't carbon copies
-                node_metrics = {}
-                for mk, mv in base_metrics.items():
-                    if isinstance(mv, (int, float)):
-                        variance = 1.0 + (((i * 9 + 4) % 17) - 8) * 0.012
-                        node_metrics[mk] = round(mv * variance, 2)
-                    else:
-                        node_metrics[mk] = mv
+                    node_metrics = dict(base_metrics)
 
                 if cv_parking_metrics:
                     occ_var = max(0, min(cv_parking_metrics["total_slots"], cv_parking_metrics["occupied_slots"] + (i - 1) * 2))
