@@ -48,13 +48,13 @@ LOCAL_BACKEND_URL = "http://127.0.0.1:8000/api/iot/status/"
 PROD_BACKEND_URL = "https://ecoestate.onrender.com/api/iot/status/"
 
 APP_TITLE = "EcoEstate India - Sustainable Smart Facility Management"
-APP_BG_COLOR = "#070913"
+APP_BG_COLOR = "#020305"
 
 # Subprocess tracker
 _CHILD_PROCESSES = []
 
 
-def is_url_reachable(url: str, timeout: float = 0.8) -> bool:
+def is_url_reachable(url: str, timeout: float = 1.2) -> bool:
     """Checks if an HTTP service is responding."""
     try:
         req = urllib.request.Request(
@@ -67,23 +67,50 @@ def is_url_reachable(url: str, timeout: float = 0.8) -> bool:
         return False
 
 
+def ensure_local_frontend_if_present():
+    """Spawns Next.js dev server if package.json exists and port 3000 is not yet active."""
+    if is_url_reachable("http://localhost:3000", timeout=0.8):
+        return
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    pkg_json = os.path.join(script_dir, "package.json")
+    if os.path.exists(pkg_json):
+        try:
+            npm_bin = "npm.cmd" if os.name == "nt" else "npm"
+            print("[EcoEstate Desktop] Booting local Next.js server on port 3000...")
+            proc = subprocess.Popen(
+                [npm_bin, "run", "dev"],
+                cwd=script_dir,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+            )
+            _CHILD_PROCESSES.append(proc)
+            for _ in range(8):
+                time.sleep(1.0)
+                if is_url_reachable("http://localhost:3000", timeout=0.8):
+                    print("[EcoEstate Desktop] -> Local Next.js server ready.")
+                    break
+        except Exception as e:
+            print(f"[EcoEstate Desktop] Frontend spawn notice: {e}")
+
+
 def resolve_startup_url() -> tuple[str, str]:
     """
     Auto-detects whether to launch Localhost or Cloud Production.
     Returns: (target_url, mode_name)
     """
     print("[EcoEstate Desktop] Probing Localhost (http://localhost:3000)...")
-    if is_url_reachable(LOCAL_FRONTEND_URL, timeout=0.6):
+    if is_url_reachable(LOCAL_FRONTEND_URL, timeout=1.5):
         print("[EcoEstate Desktop] -> Localhost Dev Server is Active!")
         return LOCAL_FRONTEND_URL, "LOCAL_DEV"
 
     print("[EcoEstate Desktop] Localhost not active. Probing Production Cloud (eco-estate-delta.vercel.app)...")
-    if is_url_reachable(PROD_FRONTEND_URL, timeout=1.5):
+    if is_url_reachable(PROD_FRONTEND_URL, timeout=2.5):
         print("[EcoEstate Desktop] -> Connected to Cloud Production Deployment!")
         return PROD_FRONTEND_URL, "CLOUD_PROD"
 
-    # Default to production URL anyway so WebView2 attempts full load
-    return PROD_FRONTEND_URL, "CLOUD_PROD"
+    # Default to Localhost so dev environment remains primary
+    return LOCAL_FRONTEND_URL, "LOCAL_DEV"
 
 
 def ensure_local_backend_if_present():
@@ -91,7 +118,7 @@ def ensure_local_backend_if_present():
     If running locally in workspace and Django backend is not yet started,
     optionally spawns manage.py runserver in a background process.
     """
-    if is_url_reachable(LOCAL_BACKEND_URL, timeout=0.5):
+    if is_url_reachable(LOCAL_BACKEND_URL, timeout=0.8):
         print("[EcoEstate Desktop] Local Django Backend is already online (Port 8000).")
         return
 
@@ -215,6 +242,7 @@ def launch_edge_app_mode(url: str) -> bool:
                     f"--app={url}",
                     "--window-size=1380,860",
                     "--disable-features=Translate",
+                    "--force-dark-mode",
                     f"--user-data-dir={profile_dir}"
                 ]
                 proc = subprocess.Popen(cmd)
@@ -232,8 +260,13 @@ def main():
     print("=" * 68)
 
     try:
-        # 1. Start local backend in background if present
-        threading.Thread(target=ensure_local_backend_if_present, daemon=True).start()
+        # 1. Start local backend and frontend in background if present
+        t_be = threading.Thread(target=ensure_local_backend_if_present, daemon=True)
+        t_fe = threading.Thread(target=ensure_local_frontend_if_present, daemon=True)
+        t_be.start()
+        t_fe.start()
+        t_be.join(timeout=1.5)
+        t_fe.join(timeout=2.0)
 
         # 2. Resolve startup URL
         target_url, mode = resolve_startup_url()
