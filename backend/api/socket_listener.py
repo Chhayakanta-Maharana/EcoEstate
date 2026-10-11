@@ -139,6 +139,9 @@ def _ingest_socket_packet(raw_data_str: str, client_ip: str, protocol: str):
         'sensor_type': sensor_type,
         'location': location,
         'metrics': metrics,
+        'fleet_ids': data.get('fleet_ids'),
+        'fleet_size': data.get('fleet_size'),
+        'org_id': data.get('org_id'),
         'timestamp': datetime.now().strftime('%H:%M:%S'),
         'status': 'HEALTHY'
     }

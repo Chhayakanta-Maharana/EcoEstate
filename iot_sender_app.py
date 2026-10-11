@@ -1817,8 +1817,11 @@ class IoTSenderGui:
                 # Primary HTTP POST to target desktop
                 http_ok, http_msg = send_packet_wifi_http(url, payload)
                 
-                # Parallel broadcast on UDP 5005 for low-latency listener
+                # Parallel broadcast on UDP 5005 for low-latency listener (both broadcast and localhost)
                 send_packet_lan_udp("255.255.255.255", 5005, payload)
+                send_packet_lan_udp("127.0.0.1", 5005, payload)
+                if "127.0.0.1" not in url and "localhost" not in url:
+                    send_packet_wifi_http("http://127.0.0.1:8000/api/iot/ingest/", payload)
                 
                 ok = http_ok
                 last_proto = "WiFi-HTTP"

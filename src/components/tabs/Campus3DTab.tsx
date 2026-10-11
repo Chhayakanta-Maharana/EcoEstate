@@ -427,6 +427,16 @@ export const Campus3DTab: React.FC = () => {
     return new Set<string>();
   });
 
+  const [deletedTimestamps, setDeletedTimestamps] = useState<Record<string, number>>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem(`ecoestate-deleted-ts-${orgKey}`);
+        if (saved) return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return {};
+  });
+
   // Sync 3D nodes with real NeonDB PostgreSQL telemetry
   useEffect(() => {
     if (!activeOrg?.id) return;
@@ -530,10 +540,31 @@ export const Campus3DTab: React.FC = () => {
 
         // Dynamic 3D Pin Generation: Match live hardware nodes streaming from IoT sender (Strict 1:1 Pin Mapping)
         if (liveNodesData && Array.isArray(liveNodesData.nodes)) {
-          // Filter out any sensor nodes that have been explicitly deleted by the user
-          const rawIncomingNodes = liveNodesData.nodes.filter(
-            (r: any) => !deletedNodeIds.has(r.id) && !deletedNodeIds.has(r.device_id)
-          );
+          // Track timestamps of deleted nodes to allow unsuppressing strictly when fresh data is sent
+          const rawIncomingNodes = liveNodesData.nodes.filter((r: any) => {
+            const devId = r.device_id || r.id;
+            const isMarkedDeleted = deletedNodeIds.has(devId) || deletedNodeIds.has(r.id);
+            if (!isMarkedDeleted) return true;
+
+            // "If deleted once then it will not be shown until and unless the data is send"
+            // Check if sender transmitted new telemetry timestamp since user deleted it
+            const delTs = deletedTimestamps[devId] || deletedTimestamps[r.id];
+            const nodeSeenMs = r.last_seen ? r.last_seen * 1000 : 0;
+            if (delTs && nodeSeenMs > delTs + 2000) {
+              // Unsuppress: fresh telemetry packet sent by sender!
+              setDeletedNodeIds((prev) => {
+                const next = new Set(prev);
+                next.delete(devId);
+                next.delete(r.id);
+                if (typeof window !== 'undefined') {
+                  localStorage.setItem(`ecoestate-deleted-nodes-${orgKey}`, JSON.stringify(Array.from(next)));
+                }
+                return next;
+              });
+              return true;
+            }
+            return false;
+          });
 
           if (rawIncomingNodes.length > 0) {
             setNodes((prevNodes) => {
@@ -543,89 +574,62 @@ export const Campus3DTab: React.FC = () => {
                 if ((n as any).device_id) prevMap.set((n as any).device_id, n);
               }
 
-              // Identify placeholder dummy nodes that should NEVER pollute active hardware streams
-              const isAutoDummy = (n: CampusNode) => {
-                const id = n.id || '';
-                return (
-                  id.startsWith('node-air-') ||
-                  id.startsWith('node-water-') ||
-                  id.startsWith('node-energy-') ||
-                  id.startsWith('node-gate-') ||
-                  id.startsWith('node-waste-') ||
-                  id.startsWith('node-hosp-') ||
-                  id === 'node-quarters' ||
-                  id === 'node-academic' ||
-                  id === 'node-pump' ||
-                  id === 'node-guest' ||
-                  id === 'node-gate' ||
-                  id === 'node-library' ||
-                  id === 'node-sports'
-                );
-              };
-
-              // Types present in live incoming hardware stream
-              const incomingTypes = new Set<string>(rawIncomingNodes.map((r: any) => (r.type as string) || 'aqi'));
-
-              // Purge all placeholder dummy nodes, keeping only legitimate user-added custom pins from other domains
-              const preservedNodes = prevNodes.filter((n) => {
-                if (isAutoDummy(n)) return false; // Completely remove default mock/dummy pins!
-                if (deletedNodeIds.has(n.id) || deletedNodeIds.has((n as any).device_id)) return false; // Exclude deleted pins!
-                if (incomingTypes.has(n.type)) return false; // Replaced completely by the incoming hardware fleet
-                return true;
-              });
-
               // Ingest each hardware node sent from the sender application (exact 1:1 mapping)
               const hardwarePins: CampusNode[] = rawIncomingNodes.map((rawNode: any, idx: number) => {
-              const devId = rawNode.device_id || rawNode.id || `node-${idx + 1}`;
-              const existing = prevMap.get(devId) || prevMap.get(rawNode.id);
-              const rawMetrics = rawNode.metrics || {};
+                const devId = rawNode.device_id || rawNode.id || `node-${idx + 1}`;
+                const existing = prevMap.get(devId) || prevMap.get(rawNode.id);
+                const rawMetrics = rawNode.metrics || {};
 
-              // Extract each individual node's specific live metrics
-              const pm25 = rawNode.pm25 !== undefined ? rawNode.pm25 : (rawMetrics.pm25 ?? rawMetrics.pm25_ug_m3);
-              const pm10 = rawNode.pm10 !== undefined ? rawNode.pm10 : (rawMetrics.pm10 ?? rawMetrics.pm10_ug_m3);
-              const temp = rawNode.temp !== undefined ? rawNode.temp : (rawMetrics.temp_c ?? rawMetrics.temperature);
-              const humidity = rawNode.humidity !== undefined ? rawNode.humidity : (rawMetrics.humidity ?? rawMetrics.humidity_pct);
+                // Extract each individual node's specific live metrics
+                const pm25 = rawNode.pm25 !== undefined ? rawNode.pm25 : (rawMetrics.pm25 ?? rawMetrics.pm25_ug_m3);
+                const pm10 = rawNode.pm10 !== undefined ? rawNode.pm10 : (rawMetrics.pm10 ?? rawMetrics.pm10_ug_m3);
+                const temp = rawNode.temp !== undefined ? rawNode.temp : (rawMetrics.temp_c ?? rawMetrics.temperature);
+                const humidity = rawNode.humidity !== undefined ? rawNode.humidity : (rawMetrics.humidity ?? rawMetrics.humidity_pct);
 
-              const numPm25 = pm25 !== undefined && pm25 !== null ? Math.round(Number(pm25) * 10) / 10 : undefined;
-              const numPm10 = pm10 !== undefined && pm10 !== null ? Math.round(Number(pm10) * 10) / 10 : undefined;
-              const numTemp = temp !== undefined && temp !== null ? Math.round(Number(temp)) : undefined;
-              const numHum = humidity !== undefined && humidity !== null ? Math.round(Number(humidity)) : undefined;
+                const numPm25 = pm25 !== undefined && pm25 !== null ? Math.round(Number(pm25) * 10) / 10 : undefined;
+                const numPm10 = pm10 !== undefined && pm10 !== null ? Math.round(Number(pm10) * 10) / 10 : undefined;
+                const numTemp = temp !== undefined && temp !== null ? Math.round(Number(temp)) : undefined;
+                const numHum = humidity !== undefined && humidity !== null ? Math.round(Number(humidity)) : undefined;
 
-              const computedAqi = numPm25 !== undefined ? Math.round(numPm25 * 2.5) : (numPm10 ? Math.round(numPm10) : 55);
+                const computedAqi = numPm25 !== undefined ? Math.round(numPm25 * 2.5) : (numPm10 ? Math.round(numPm10) : 55);
 
-              return {
-                id: devId,
-                name: rawNode.name || `${rawNode.type?.toUpperCase() || 'IoT'} Node #${idx + 1}`,
-                locationLabel: rawNode.locationLabel || rawNode.location || `Sensor Point #${idx + 1}`,
-                type: (rawNode.type as any) || 'aqi',
-                interfaceType: (rawNode.interfaceType as any) || 'WIFI',
-                xPct: isCalibrateMode ? (existing?.xPct ?? rawNode.xPct ?? (20.0 + (idx % 4) * 20.0)) : (rawNode.xPct ?? existing?.xPct ?? (20.0 + (idx % 4) * 20.0)),
-                yPct: isCalibrateMode ? (existing?.yPct ?? rawNode.yPct ?? (30.0 + Math.floor(idx / 4) * 32.0)) : (rawNode.yPct ?? existing?.yPct ?? (30.0 + Math.floor(idx / 4) * 32.0)),
-                stemHeightPx: existing?.stemHeightPx ?? rawNode.stemHeightPx ?? 60,
-                pm25: numPm25 ?? 25.0,
-                pm10: numPm10 ?? 45.0,
-                temp: numTemp ?? 28,
-                humidity: numHum ?? 55,
-                status: rawNode.status || (computedAqi > 150 ? 'warning' : 'optimal'),
-                secondaryLabel: rawNode.secondaryLabel || (rawNode.type === 'aqi' ? 'AQI Value' : 'Telemetry'),
-                secondaryValue: rawNode.secondaryValue || (rawNode.type === 'aqi' ? `AQI ${computedAqi}` : undefined),
-                metric1Label: rawNode.metric1Label || 'PM2.5',
-                metric1Value: rawNode.metric1Value || (numPm25 !== undefined ? `${numPm25} µg/m³` : undefined),
-                metric2Label: rawNode.metric2Label || 'PM10',
-                metric2Value: rawNode.metric2Value || (numPm10 !== undefined ? `${numPm10} µg/m³` : undefined),
-                metric3Label: rawNode.metric3Label || 'Temp',
-                metric3Value: rawNode.metric3Value || (numTemp !== undefined ? `${numTemp} °C` : undefined),
-                metric4Label: rawNode.metric4Label || 'Humidity',
-                metric4Value: rawNode.metric4Value || (numHum !== undefined ? `${numHum}%` : undefined),
-                metrics: rawMetrics,
-              };
+                return {
+                  id: devId,
+                  name: rawNode.name || `${rawNode.type?.toUpperCase() || 'IoT'} Node #${idx + 1}`,
+                  locationLabel: rawNode.locationLabel || rawNode.location || `Sensor Point #${idx + 1}`,
+                  type: (rawNode.type as any) || 'aqi',
+                  interfaceType: (rawNode.interfaceType as any) || 'WIFI',
+                  xPct: isCalibrateMode ? (existing?.xPct ?? rawNode.xPct ?? (20.0 + (idx % 4) * 20.0)) : (rawNode.xPct ?? existing?.xPct ?? (20.0 + (idx % 4) * 20.0)),
+                  yPct: isCalibrateMode ? (existing?.yPct ?? rawNode.yPct ?? (30.0 + Math.floor(idx / 4) * 32.0)) : (rawNode.yPct ?? existing?.yPct ?? (30.0 + Math.floor(idx / 4) * 32.0)),
+                  stemHeightPx: existing?.stemHeightPx ?? rawNode.stemHeightPx ?? 60,
+                  pm25: numPm25 ?? 25.0,
+                  pm10: numPm10 ?? 45.0,
+                  temp: numTemp ?? 28,
+                  humidity: numHum ?? 55,
+                  status: rawNode.status || (computedAqi > 150 ? 'warning' : 'optimal'),
+                  secondaryLabel: rawNode.secondaryLabel || (rawNode.type === 'aqi' ? 'AQI Value' : 'Telemetry'),
+                  secondaryValue: rawNode.secondaryValue || (rawNode.type === 'aqi' ? `AQI ${computedAqi}` : undefined),
+                  metric1Label: rawNode.metric1Label || 'PM2.5',
+                  metric1Value: rawNode.metric1Value || (numPm25 !== undefined ? `${numPm25} µg/m³` : undefined),
+                  metric2Label: rawNode.metric2Label || 'PM10',
+                  metric2Value: rawNode.metric2Label || (numPm10 !== undefined ? `${numPm10} µg/m³` : undefined),
+                  metric3Label: rawNode.metric3Label || 'Temp',
+                  metric3Value: rawNode.metric3Value || (numTemp !== undefined ? `${numTemp} °C` : undefined),
+                  metric4Label: rawNode.metric4Label || 'Humidity',
+                  metric4Value: rawNode.metric4Value || (numHum !== undefined ? `${numHum}%` : undefined),
+                  metrics: rawMetrics,
+                };
+              });
+
+              // Strictly return the incoming hardware pins (1:1 mapping with sender: if 5 sent -> 5 shown, if 2 sent -> 2 shown)
+              return hardwarePins;
             });
-
-            return [...preservedNodes, ...hardwarePins];
-          });
+          } else if (liveNodesData.nodes.length > 0 && rawIncomingNodes.length === 0) {
+            // All active nodes were deleted by user -> show 0 pins until new data is sent
+            setNodes([]);
+          }
         }
-      }
-    });
+      });
     };
     fetchLiveStreams();
     const interval = setInterval(fetchLiveStreams, 1200);
@@ -689,7 +693,10 @@ export const Campus3DTab: React.FC = () => {
       try {
         const parsed = JSON.parse(activeOrg.campusNodesJson);
         if (Array.isArray(parsed) && parsed.length > 0) {
-          setNodes(parsed);
+          setNodes((current) => {
+            const hasLive = current.some((n) => n.id?.startsWith('WIFI-') || n.id?.startsWith('LAN-') || n.id?.startsWith('CAM-'));
+            return hasLive ? current : parsed;
+          });
         }
       } catch (e) {}
     }
@@ -708,7 +715,10 @@ export const Campus3DTab: React.FC = () => {
           try {
             const parsed = JSON.parse(dbOrg.campus_nodes_json);
             if (Array.isArray(parsed) && parsed.length > 0) {
-              setNodes(parsed);
+              setNodes((current) => {
+                const hasLive = current.some((n) => n.id?.startsWith('WIFI-') || n.id?.startsWith('LAN-') || n.id?.startsWith('CAM-'));
+                return hasLive ? current : parsed;
+              });
               if (typeof window !== 'undefined') {
                 localStorage.setItem(`ecoestate-campus-nodes-${orgKey}`, dbOrg.campus_nodes_json);
               }
@@ -861,12 +871,20 @@ export const Campus3DTab: React.FC = () => {
   };
 
   const handleDeleteNode = async (id: string) => {
-    // 1. Immediately track in local deleted set & localStorage so it is never re-added
+    // 1. Immediately track in local deleted set & localStorage so it is suppressed
     setDeletedNodeIds((prev) => {
       const next = new Set(prev);
       next.add(id);
       if (typeof window !== 'undefined') {
         localStorage.setItem(`ecoestate-deleted-nodes-${orgKey}`, JSON.stringify(Array.from(next)));
+      }
+      return next;
+    });
+
+    setDeletedTimestamps((prev) => {
+      const next = { ...prev, [id]: Date.now() };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem(`ecoestate-deleted-ts-${orgKey}`, JSON.stringify(next));
       }
       return next;
     });
@@ -891,8 +909,10 @@ export const Campus3DTab: React.FC = () => {
 
   const handleResetDefaults = () => {
     setDeletedNodeIds(new Set());
+    setDeletedTimestamps({});
     if (typeof window !== 'undefined') {
       localStorage.removeItem(`ecoestate-deleted-nodes-${orgKey}`);
+      localStorage.removeItem(`ecoestate-deleted-ts-${orgKey}`);
     }
     const baseNodes = generateAutoNodes(activeOrg?.type === 'HOSPITAL');
     const baseImg = activeOrg?.type === 'HOSPITAL' ? '/images/hospital_aerial.jpg' : '/images/campus_aerial.jpg';

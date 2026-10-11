@@ -912,6 +912,7 @@ CURRENT_ACTIVE_STREAM = {
 LIVE_HARDWARE_REGISTRY = {}
 SAVED_NODE_POSITIONS = {}
 EXCLUDED_HARDWARE_NODES = set()
+DELETED_NODES_TIMESTAMPS = {}
 
 def get_node_coordinates(device_id, category='aqi'):
     """
@@ -965,15 +966,25 @@ def sync_packet_to_models(packet):
     2. Calculates true mathematical average (M_bar = (1/N) * sum(M_i)) across all active sensors of that category.
     3. Saves category averages into NeonDB models for Main Analytics Dashboards (AQI, Water, Energy, Parking, Waste).
     """
-    global CURRENT_ACTIVE_STREAM, LIVE_HARDWARE_REGISTRY, EXCLUDED_HARDWARE_NODES
+    global CURRENT_ACTIVE_STREAM, LIVE_HARDWARE_REGISTRY, EXCLUDED_HARDWARE_NODES, DELETED_NODES_TIMESTAMPS
     try:
         from .models import Organization, AqiTelemetry, WaterTelemetry, EnergyTelemetry, Equipment, Dustbin, ParkingTelemetry
         metrics = packet.get('metrics', {})
         raw_sensor_type = (packet.get('sensor_type') or '').upper()
         device_id = packet.get('device_id', '') or f"DEV-{int(time.time()*1000)%10000}"
 
-        # If user explicitly deleted this pin, do not allow it to be re-added
-        if device_id in EXCLUDED_HARDWARE_NODES or packet.get('id') in EXCLUDED_HARDWARE_NODES:
+        # If user recently deleted this pin within the last 3.0 seconds, drop in-flight packet
+        del_ts = DELETED_NODES_TIMESTAMPS.get(device_id) or DELETED_NODES_TIMESTAMPS.get(packet.get('id', ''))
+        if del_ts:
+            if (time.time() - del_ts) < 3.0:
+                return
+            else:
+                # Fresh telemetry packet sent after deletion interval: unsuppress and ingest
+                DELETED_NODES_TIMESTAMPS.pop(device_id, None)
+                DELETED_NODES_TIMESTAMPS.pop(packet.get('id', ''), None)
+                EXCLUDED_HARDWARE_NODES.discard(device_id)
+                EXCLUDED_HARDWARE_NODES.discard(packet.get('id', ''))
+        elif device_id in EXCLUDED_HARDWARE_NODES or packet.get('id') in EXCLUDED_HARDWARE_NODES:
             return
 
         location = packet.get('location', '') or 'Campus Node'
@@ -1191,6 +1202,28 @@ def sync_packet_to_models(packet):
                     anomaly_detected=(computed_avg_aqi > 150 or avg_pm25 > 60)
                 )
 
+                try:
+                    from .dual_db_sync import is_neondb_configured
+                    if is_neondb_configured():
+                        neon_org = Organization.objects.using('neondb').filter(name__iexact=target_org.name).first() or Organization.objects.using('neondb').first()
+                        if neon_org:
+                            AqiTelemetry.objects.using('neondb').create(
+                                organization=neon_org,
+                                overall_aqi=computed_avg_aqi,
+                                status=status_str,
+                                pm25=avg_pm25,
+                                pm10=avg_pm10,
+                                co2=avg_co2,
+                                voc=avg_voc,
+                                temperature=avg_temp,
+                                humidity=avg_hum,
+                                noise=avg_noise,
+                                hotspot_location=f"Campus Average across {n_count} sensors",
+                                anomaly_detected=(computed_avg_aqi > 150 or avg_pm25 > 60)
+                            )
+                except Exception:
+                    pass
+
             elif category == 'WATER':
                 water_nodes = [n for n in LIVE_HARDWARE_REGISTRY.values() if n['type'] == 'water' and (now_time - n.get('last_seen', 0)) <= active_window_secs]
                 if not water_nodes:
@@ -1214,6 +1247,25 @@ def sync_packet_to_models(packet):
                     stp_treated_water_kl=round(total_daily_cons * 0.72, 1),
                     stp_recycle_rate_pct=72
                 )
+
+                try:
+                    from .dual_db_sync import is_neondb_configured
+                    if is_neondb_configured():
+                        neon_org = Organization.objects.using('neondb').filter(name__iexact=target_org.name).first() or Organization.objects.using('neondb').first()
+                        if neon_org:
+                            WaterTelemetry.objects.using('neondb').create(
+                                organization=neon_org,
+                                flow_rate_lps=avg_flow,
+                                underground_tank_level_pct=avg_tank,
+                                overhead_tank_level_pct=avg_tank,
+                                ph_level=avg_ph,
+                                turbidity_ntu=avg_turb,
+                                daily_consumption_kl=total_daily_cons,
+                                stp_treated_water_kl=round(total_daily_cons * 0.72, 1),
+                                stp_recycle_rate_pct=72
+                            )
+                except Exception:
+                    pass
 
                 # Individual equipment record
                 Equipment.objects.update_or_create(
@@ -1253,6 +1305,24 @@ def sync_packet_to_models(packet):
                     peak_load_kw=round(total_load * 1.15, 1),
                     carbon_emissions_kg=round(total_load * 0.82 * 14, 1)
                 )
+
+                try:
+                    from .dual_db_sync import is_neondb_configured
+                    if is_neondb_configured():
+                        neon_org = Organization.objects.using('neondb').filter(name__iexact=target_org.name).first() or Organization.objects.using('neondb').first()
+                        if neon_org:
+                            EnergyTelemetry.objects.using('neondb').create(
+                                organization=neon_org,
+                                current_load_kw=total_load,
+                                power_factor=avg_pf,
+                                solar_rooftop_kw=total_solar,
+                                grid_power_kw=grid_val,
+                                daily_total_kwh=daily_kwh,
+                                peak_load_kw=round(total_load * 1.15, 1),
+                                carbon_emissions_kg=round(total_load * 0.82 * 14, 1)
+                            )
+                except Exception:
+                    pass
 
             elif category == 'PARKING':
                 parking_nodes = [n for n in LIVE_HARDWARE_REGISTRY.values() if n['type'] == 'parking' and (now_time - n.get('last_seen', 0)) <= active_window_secs]
@@ -1542,14 +1612,38 @@ def iot_status_view(request):
     except Exception:
         gw_cfg = None
 
-    # Stream Heartbeat Liveness Check (8 second timeout)
+    # Stream Heartbeat Liveness Check (45 second timeout for reliable live status)
     stream_payload = None
+    now_ts = time.time()
     if CURRENT_ACTIVE_STREAM and CURRENT_ACTIVE_STREAM.get('category'):
         last_epoch = CURRENT_ACTIVE_STREAM.get('last_epoch', 0)
-        is_stream_live = (time.time() - last_epoch) <= 8.0
+        is_stream_live = (now_ts - last_epoch) <= 45.0
         stream_payload = dict(CURRENT_ACTIVE_STREAM)
         stream_payload['is_active'] = is_stream_live
         stream_payload['status'] = 'ACTIVE' if is_stream_live else 'INACTIVE'
+    elif IOT_PACKET_STREAM:
+        latest_pkt = IOT_PACKET_STREAM[0]
+        stream_payload = {
+            'category': latest_pkt.get('category') or latest_pkt.get('sensor_type') or 'TELEMETRY',
+            'sensor_type': latest_pkt.get('sensor_type'),
+            'device_id': latest_pkt.get('device_id'),
+            'location': latest_pkt.get('location'),
+            'is_active': True,
+            'status': 'ACTIVE',
+            'metrics': latest_pkt.get('metrics', {})
+        }
+    elif LIVE_HARDWARE_REGISTRY:
+        latest_node = list(LIVE_HARDWARE_REGISTRY.values())[-1]
+        is_node_live = (now_ts - latest_node.get('last_seen', 0)) <= 45.0
+        stream_payload = {
+            'category': latest_node.get('type', 'TELEMETRY').upper(),
+            'sensor_type': latest_node.get('type', 'TELEMETRY').upper(),
+            'device_id': latest_node.get('device_id'),
+            'location': latest_node.get('locationLabel'),
+            'is_active': is_node_live,
+            'status': 'ACTIVE' if is_node_live else 'INACTIVE',
+            'metrics': latest_node.get('metrics', {})
+        }
     else:
         stream_payload = {
             'category': None,
@@ -1624,10 +1718,10 @@ def iot_live_nodes_view(request):
     formatted as CampusNode specifications for the 3D Campus Twin,
     along with mathematical category averages for the main dashboard.
     """
-    global LIVE_HARDWARE_REGISTRY, EXCLUDED_HARDWARE_NODES
+    global LIVE_HARDWARE_REGISTRY, EXCLUDED_HARDWARE_NODES, DELETED_NODES_TIMESTAMPS
     now_time = time.time()
     org_id = request.query_params.get('org_id')
-    active_window = 12.0
+    active_window = 25.0
     
     # Prune stale nodes older than 45s or explicitly excluded
     for k, v in list(LIVE_HARDWARE_REGISTRY.items()):
@@ -1732,11 +1826,12 @@ def iot_delete_node_view(request):
     Permanently deletes a sensor pin from memory and database,
     preventing it from returning on subsequent polling cycles.
     """
-    global LIVE_HARDWARE_REGISTRY, SAVED_NODE_POSITIONS, EXCLUDED_HARDWARE_NODES
+    global LIVE_HARDWARE_REGISTRY, SAVED_NODE_POSITIONS, EXCLUDED_HARDWARE_NODES, DELETED_NODES_TIMESTAMPS
     node_id = str(request.data.get('id') or request.data.get('device_id') or request.query_params.get('id') or '')
     org_id = request.data.get('org_id')
 
     if node_id:
+        DELETED_NODES_TIMESTAMPS[node_id] = time.time()
         EXCLUDED_HARDWARE_NODES.add(node_id)
         LIVE_HARDWARE_REGISTRY.pop(node_id, None)
         SAVED_NODE_POSITIONS.pop(node_id, None)
