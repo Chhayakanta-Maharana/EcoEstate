@@ -30,6 +30,8 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
   const activeOrg = org || contextOrg;
   const [dbWater, setDbWater] = useState<any>(null);
   const [activeStream, setActiveStream] = useState<any>(null);
+  const [liveNodes, setLiveNodes] = useState<any[]>([]);
+  const [waterSummary, setWaterSummary] = useState<any>(null);
 
   useEffect(() => {
     if (!activeOrg?.id) return;
@@ -39,10 +41,18 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
       Promise.all([
         DjangoApi.getWaterTelemetry(activeOrg.id),
         DjangoApi.getIoTStatus(),
-      ]).then(([data, status]) => {
+        DjangoApi.getLiveIoTNodes(activeOrg.id),
+      ]).then(([data, status, nodesData]) => {
         if (isMounted) {
           if (data) setDbWater(data);
           if (status?.active_stream) setActiveStream(status.active_stream);
+          if (nodesData?.nodes) {
+            const wNodes = nodesData.nodes.filter((n: any) => n.type === 'water');
+            setLiveNodes(wNodes);
+          }
+          if (nodesData?.summary?.water) {
+            setWaterSummary(nodesData.summary.water);
+          }
         }
       });
     };
@@ -84,6 +94,32 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
   const turbVal = currentCategory === null ? null : (isWaterActive ? Number(dbWater?.turbidity_ntu ?? (streamTurb ?? 1.5)) : 0);
   const leakAlerts = currentCategory === null ? 0 : (isWaterActive ? Number(dbWater?.leak_alert_count || 0) : 0);
 
+  // Individual water sources from the live hardware mesh
+  const sumpNode = liveNodes.find((n: any) => n.id?.includes('SUMP') || n.name?.includes('Sump') || n.category === 'WATER_UNDERGROUND_SUMP');
+  const ohtNode = liveNodes.find((n: any) => n.id?.includes('OHT') || n.name?.includes('Overhead') || n.category === 'WATER_OVERHEAD_TANK');
+  const boreNode = liveNodes.find((n: any) => n.id?.includes('BORE') || n.name?.includes('Borewell') || n.category === 'WATER_BOREWELL');
+  const rwhNode = liveNodes.find((n: any) => n.id?.includes('RWH') || n.name?.includes('Rainwater') || n.category === 'WATER_RAINWATER');
+  const roNode = liveNodes.find((n: any) => n.id?.includes('RO') || n.name?.includes('RO') || n.category === 'WATER_RO_PLANT');
+  const pumpNode = liveNodes.find((n: any) => n.id?.includes('PUMP') || n.name?.includes('Lift Pump') || n.category === 'WATER_PUMP');
+
+  // Mathematical campus averages across all active water sources: M_bar = (1/N) * sum(M_i)
+  const campusWaterCount = liveNodes.length;
+  const campusAvgFlow = campusWaterCount > 0
+    ? Math.round((liveNodes.reduce((acc, n) => acc + (parseFloat(String(n.metric1Value || n.metrics?.flow_rate_lps || 0)) || 0), 0) / campusWaterCount) * 10) / 10
+    : flowRate;
+  const campusAvgTank = campusWaterCount > 0
+    ? Math.round(liveNodes.reduce((acc, n) => acc + (parseFloat(String(n.metric2Value || n.metrics?.tank_level_pct || 75)) || 75), 0) / campusWaterCount)
+    : undergroundTank;
+  const campusAvgPh = campusWaterCount > 0
+    ? Math.round((liveNodes.reduce((acc, n) => acc + (parseFloat(String(n.metric3Value || n.metrics?.ph_level || 7.2)) || 7.2), 0) / campusWaterCount) * 10) / 10
+    : phVal;
+  const campusAvgTurb = campusWaterCount > 0
+    ? Math.round((liveNodes.reduce((acc, n) => acc + (parseFloat(String(n.metric4Value || n.metrics?.turbidity_ntu || 1.5)) || 1.5), 0) / campusWaterCount) * 10) / 10
+    : turbVal;
+
+  const sumpLevel = sumpNode ? (sumpNode.metrics?.tank_level_pct ?? undergroundTank) : undergroundTank;
+  const ohtLevel = ohtNode ? (ohtNode.metrics?.tank_level_pct ?? overheadTank) : overheadTank;
+
   const liveTrend7Days = hasData && dailyKL !== null && stpKL !== null && dailyKL > 0
     ? [
         { day: 'Mon', freshWater: Math.round(dailyKL * 0.95), recycledWater: Math.round(stpKL * 0.92) },
@@ -103,7 +139,11 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold text-cyan-400 mb-1">
             <Droplets className="w-4 h-4" /> Smart Water Metering & Circular STP Recycling
-            {hasData ? (
+            {campusWaterCount > 0 ? (
+              <span className="flex items-center gap-1 text-[10px] bg-cyan-500/10 text-cyan-400 px-2.5 py-0.5 rounded-full border border-cyan-500/20 font-bold">
+                <Activity className="w-3 h-3 animate-pulse" /> {campusWaterCount} CAMPUS WATER SOURCES ACTIVE (AVG: {campusAvgFlow} L/s)
+              </span>
+            ) : hasData ? (
               <span className="flex items-center gap-1 text-[10px] bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded-full border border-cyan-500/20">
                 <Activity className="w-3 h-3 animate-pulse" /> LIVE STREAM ACTIVE
               </span>
@@ -134,74 +174,135 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
 
       {/* KPI Cards & Tank Gauges */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Card 1: Underground Sump */}
         <div className="p-5 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Underground Sump</span>
+            <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Underground Sump (UG-SUMP)</span>
             <Waves className="w-4 h-4 text-cyan-500" />
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-3xl font-extrabold text-stone-900 dark:text-white">
-              {undergroundTank !== null ? `${undergroundTank}%` : '--'}
+              {sumpLevel !== null ? `${sumpLevel}%` : '--'}
             </span>
             <span className="text-xs text-emerald-500 font-semibold">{hasData ? 'Optimal' : '--'}</span>
           </div>
           <div className="w-full h-3 bg-stone-100 dark:bg-stone-900 rounded-full overflow-hidden">
             <div
               className="h-full bg-cyan-500 rounded-full transition-all duration-500"
-              style={{ width: `${undergroundTank || 0}%` }}
+              style={{ width: `${sumpLevel || 0}%` }}
             />
           </div>
-          <p className="text-[11px] text-stone-400 dark:text-slate-500">Flow: {flowRate !== null ? `${flowRate} L/s` : '--'}</p>
+          <p className="text-[11px] text-stone-400 dark:text-slate-500">
+            {sumpNode ? `Node: ${sumpNode.name}` : `Campus Flow: ${campusAvgFlow !== null ? `${campusAvgFlow} L/s` : '--'}`}
+          </p>
         </div>
 
+        {/* Card 2: Overhead Reservoir */}
         <div className="p-5 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Overhead Tank</span>
+            <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Overhead Tank (OHT-01)</span>
             <Waves className="w-4 h-4 text-blue-500" />
           </div>
           <div className="flex items-baseline gap-2">
             <span className="text-3xl font-extrabold text-stone-900 dark:text-white">
-              {overheadTank !== null ? `${overheadTank}%` : '--'}
+              {ohtLevel !== null ? `${ohtLevel}%` : '--'}
             </span>
             <span className="text-xs text-emerald-500 font-semibold">{hasData ? 'Auto-Pumping' : '--'}</span>
           </div>
           <div className="w-full h-3 bg-stone-100 dark:bg-stone-900 rounded-full overflow-hidden">
             <div
               className="h-full bg-blue-500 rounded-full transition-all duration-500"
-              style={{ width: `${overheadTank || 0}%` }}
+              style={{ width: `${ohtLevel || 0}%` }}
             />
           </div>
-          <p className="text-[11px] text-stone-400 dark:text-slate-500">Daily Intake: {dailyKL !== null ? `${dailyKL} kL` : '--'}</p>
+          <p className="text-[11px] text-stone-400 dark:text-slate-500">
+            {ohtNode ? `Node: ${ohtNode.name}` : `Daily Intake: ${dailyKL !== null ? `${dailyKL} kL` : '--'}`}
+          </p>
         </div>
 
+        {/* Card 3: Water Quality Parameters (Campus Average) */}
         <div className="p-5 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-2">
-          <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Water Quality Parameters</span>
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Campus Average Quality</span>
+            <span className="text-[10px] text-cyan-500 font-bold">AVG</span>
+          </div>
           <div className="grid grid-cols-2 gap-2 pt-1">
             <div className="p-2 rounded-xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
-              <span className="text-[10px] text-stone-500 dark:text-slate-400 block">pH Level</span>
-              <span className="text-base font-bold text-emerald-500">{phVal !== null ? phVal : '--'}</span>
+              <span className="text-[10px] text-stone-500 dark:text-slate-400 block">Avg pH</span>
+              <span className="text-base font-bold text-emerald-500">{campusAvgPh !== null ? campusAvgPh : '--'}</span>
             </div>
             <div className="p-2 rounded-xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
-              <span className="text-[10px] text-stone-500 dark:text-slate-400 block">Turbidity</span>
-              <span className="text-base font-bold text-cyan-500">{turbVal !== null ? `${turbVal} NTU` : '--'}</span>
+              <span className="text-[10px] text-stone-500 dark:text-slate-400 block">Avg Turbidity</span>
+              <span className="text-base font-bold text-cyan-500">{campusAvgTurb !== null ? `${campusAvgTurb} NTU` : '--'}</span>
             </div>
           </div>
           <p className="text-[10px] text-stone-400 dark:text-slate-500">{hasData ? 'BIS 10500 Potable Standard Pass' : 'Awaiting sensor check'}</p>
         </div>
 
+        {/* Card 4: Campus Fleet Flow Rate Average */}
         <div className="p-5 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-2">
-          <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Smart Leak Sensor Grid</span>
-          <div className="pt-2 flex items-center gap-2">
-            <span className={`w-3 h-3 rounded-full ${hasData ? 'bg-emerald-500' : 'bg-stone-500'}`} />
-            <span className="text-sm font-bold text-stone-900 dark:text-white">
-              {hasData ? (leakAlerts === 0 ? 'Zero Pipeline Leaks' : `${leakAlerts} Pipe Alert`) : '--'}
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Campus Average Flow</span>
+            <span className="text-[10px] text-emerald-500 font-bold">ALL SOURCES</span>
+          </div>
+          <div className="pt-1 flex items-baseline gap-2">
+            <span className="text-3xl font-extrabold text-stone-900 dark:text-white">
+              {campusAvgFlow !== null ? `${campusAvgFlow} L/s` : '--'}
+            </span>
+            <span className="text-xs text-cyan-500 font-bold">
+              ({campusWaterCount} {campusWaterCount === 1 ? 'Source' : 'Sources'})
             </span>
           </div>
           <p className="text-xs text-stone-500 dark:text-slate-400">
-            Acoustic wave IoT sensors across distribution lines.
+            True mathematical mean flow rate across all active campus water nodes.
           </p>
         </div>
       </div>
+
+      {/* DISTINCT CAMPUS WATER SOURCES BREAKDOWN GRID */}
+      {campusWaterCount > 0 && (
+        <div className="p-5 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-extrabold text-stone-900 dark:text-white flex items-center gap-2">
+              <Droplets className="w-4 h-4 text-cyan-500" /> Active Campus Water Sources Telemetry Mesh
+            </h3>
+            <span className="text-xs text-stone-500 font-mono">
+              Mean: {campusAvgFlow} L/s • {campusAvgTank}% Level
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {liveNodes.map((wn: any) => {
+              const f = wn.metrics?.flow_rate_lps ?? wn.metric1Value;
+              const t = wn.metrics?.tank_level_pct ?? wn.metric2Value;
+              const p = wn.metrics?.ph_level ?? wn.metric3Value;
+              return (
+                <div key={wn.id} className="p-3.5 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722] space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-xs text-stone-900 dark:text-white truncate">{wn.name}</span>
+                    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-cyan-500/10 text-cyan-400 font-bold">{wn.id}</span>
+                  </div>
+                  <p className="text-[11px] text-stone-500 dark:text-slate-400 truncate">{wn.locationLabel || wn.location}</p>
+                  <div className="grid grid-cols-3 gap-1 pt-1 text-center font-mono text-[11px]">
+                    <div className="bg-white/50 dark:bg-black/40 p-1.5 rounded-lg">
+                      <span className="text-[9px] text-stone-400 block font-sans">Flow</span>
+                      <strong className="text-cyan-500">{f ? `${f} L/s` : '--'}</strong>
+                    </div>
+                    <div className="bg-white/50 dark:bg-black/40 p-1.5 rounded-lg">
+                      <span className="text-[9px] text-stone-400 block font-sans">Level</span>
+                      <strong className="text-blue-500">{t ? `${t}%` : '--'}</strong>
+                    </div>
+                    <div className="bg-white/50 dark:bg-black/40 p-1.5 rounded-lg">
+                      <span className="text-[9px] text-stone-400 block font-sans">pH</span>
+                      <strong className="text-emerald-500">{p ? `${p}` : '7.2'}</strong>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* 7-Day Freshwater vs STP Recycled Chart */}
       <div className="p-6 rounded-3xl bg-white dark:bg-[#07080e] border border-[#ece3d6] dark:border-[#151722] shadow-xl space-y-4">

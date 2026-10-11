@@ -401,12 +401,17 @@ SENSOR_TEMPLATES = {
         "name": "STP MBBR Raw Sewage Lift Pump #4",
         "category": "WATER_PUMP",
         "sensor_type": "WATER",
-        "device_id": "LAN-PLC-PUMP-04",
+        "device_id": "LAN-PLC-STP-04",
         "location": "Central STP Yard • MBBR Lift Pit B",
+        "xPct": 48.0,
+        "yPct": 65.0,
         "healthy": {
             "vibration_mm_s": 1.15,
             "operating_temp_c": 42.5,
             "flow_rate_lps": 18.2,
+            "tank_level_pct": 78,
+            "ph_level": 7.4,
+            "turbidity_ntu": 2.1,
             "current_draw_a": 28.0,
             "acoustic_noise_db": 54.0,
             "head_pressure_bar": 4.1
@@ -415,9 +420,167 @@ SENSOR_TEMPLATES = {
             "vibration_mm_s": 4.65,
             "operating_temp_c": 78.5,
             "flow_rate_lps": 10.8,
+            "tank_level_pct": 45,
+            "ph_level": 6.2,
+            "turbidity_ntu": 5.8,
             "current_draw_a": 44.2,
             "acoustic_noise_db": 77.5,
             "head_pressure_bar": 2.5
+        }
+    },
+    "WATER_OVERHEAD_TANK": {
+        "name": "Overhead Water Reservoir Tank (OHT-01)",
+        "category": "WATER_OVERHEAD_TANK",
+        "sensor_type": "WATER",
+        "device_id": "WIFI-ESP32-OHT-01",
+        "location": "Main Academic Block Rooftop • Tank Bay",
+        "xPct": 28.0,
+        "yPct": 35.0,
+        "healthy": {
+            "vibration_mm_s": 0.75,
+            "operating_temp_c": 29.0,
+            "flow_rate_lps": 12.5,
+            "tank_level_pct": 85,
+            "ph_level": 7.2,
+            "turbidity_ntu": 0.9,
+            "current_draw_a": 16.5,
+            "acoustic_noise_db": 42.0,
+            "head_pressure_bar": 3.8
+        },
+        "anomaly": {
+            "vibration_mm_s": 3.2,
+            "operating_temp_c": 45.0,
+            "flow_rate_lps": 4.2,
+            "tank_level_pct": 22,
+            "ph_level": 8.5,
+            "turbidity_ntu": 4.1,
+            "current_draw_a": 26.0,
+            "acoustic_noise_db": 68.0,
+            "head_pressure_bar": 1.8
+        }
+    },
+    "WATER_UNDERGROUND_SUMP": {
+        "name": "Underground Raw Water Storage Sump (UG-SUMP)",
+        "category": "WATER_UNDERGROUND_SUMP",
+        "sensor_type": "WATER",
+        "device_id": "LAN-PLC-SUMP-01",
+        "location": "Main Utility Pump House • Storage Bay A",
+        "xPct": 68.0,
+        "yPct": 52.0,
+        "healthy": {
+            "vibration_mm_s": 1.05,
+            "operating_temp_c": 26.5,
+            "flow_rate_lps": 24.0,
+            "tank_level_pct": 92,
+            "ph_level": 7.1,
+            "turbidity_ntu": 1.8,
+            "current_draw_a": 34.0,
+            "acoustic_noise_db": 51.0,
+            "head_pressure_bar": 4.6
+        },
+        "anomaly": {
+            "vibration_mm_s": 3.8,
+            "operating_temp_c": 52.0,
+            "flow_rate_lps": 8.0,
+            "tank_level_pct": 28,
+            "ph_level": 6.5,
+            "turbidity_ntu": 6.5,
+            "current_draw_a": 48.0,
+            "acoustic_noise_db": 74.0,
+            "head_pressure_bar": 2.2
+        }
+    },
+    "WATER_BOREWELL": {
+        "name": "Deep Aquifer Borewell Submersible Pump #2",
+        "category": "WATER_BOREWELL",
+        "sensor_type": "WATER",
+        "device_id": "LAN-PLC-BORE-02",
+        "location": "North Perimeter Wellhead • Aquifer 02",
+        "xPct": 82.0,
+        "yPct": 24.0,
+        "healthy": {
+            "vibration_mm_s": 1.35,
+            "operating_temp_c": 34.0,
+            "flow_rate_lps": 15.0,
+            "tank_level_pct": 68,
+            "ph_level": 7.6,
+            "turbidity_ntu": 1.2,
+            "current_draw_a": 22.0,
+            "acoustic_noise_db": 56.0,
+            "head_pressure_bar": 5.2
+        },
+        "anomaly": {
+            "vibration_mm_s": 4.5,
+            "operating_temp_c": 68.0,
+            "flow_rate_lps": 5.5,
+            "tank_level_pct": 18,
+            "ph_level": 8.8,
+            "turbidity_ntu": 4.8,
+            "current_draw_a": 38.0,
+            "acoustic_noise_db": 82.0,
+            "head_pressure_bar": 2.9
+        }
+    },
+    "WATER_RAINWATER": {
+        "name": "Rainwater Harvesting Reservoir & Eco-Lake (RWH)",
+        "category": "WATER_RAINWATER",
+        "sensor_type": "WATER",
+        "device_id": "WIFI-ESP32-RWH-01",
+        "location": "Eco Lake Inflow Weir & Desilting Basin",
+        "xPct": 38.0,
+        "yPct": 78.0,
+        "healthy": {
+            "vibration_mm_s": 0.45,
+            "operating_temp_c": 24.5,
+            "flow_rate_lps": 8.5,
+            "tank_level_pct": 64,
+            "ph_level": 6.9,
+            "turbidity_ntu": 2.8,
+            "current_draw_a": 12.0,
+            "acoustic_noise_db": 38.0,
+            "head_pressure_bar": 2.1
+        },
+        "anomaly": {
+            "vibration_mm_s": 2.4,
+            "operating_temp_c": 36.0,
+            "flow_rate_lps": 1.5,
+            "tank_level_pct": 15,
+            "ph_level": 5.8,
+            "turbidity_ntu": 9.2,
+            "current_draw_a": 22.0,
+            "acoustic_noise_db": 62.0,
+            "head_pressure_bar": 1.1
+        }
+    },
+    "WATER_RO_PLANT": {
+        "name": "Commercial RO Water Purification Plant",
+        "category": "WATER_RO_PLANT",
+        "sensor_type": "WATER",
+        "device_id": "LAN-PLC-RO-01",
+        "location": "Dining Complex & Utility Block",
+        "xPct": 55.0,
+        "yPct": 42.0,
+        "healthy": {
+            "vibration_mm_s": 0.85,
+            "operating_temp_c": 28.5,
+            "flow_rate_lps": 9.2,
+            "tank_level_pct": 88,
+            "ph_level": 7.0,
+            "turbidity_ntu": 0.4,
+            "current_draw_a": 18.0,
+            "acoustic_noise_db": 46.0,
+            "head_pressure_bar": 3.4
+        },
+        "anomaly": {
+            "vibration_mm_s": 3.5,
+            "operating_temp_c": 54.0,
+            "flow_rate_lps": 3.0,
+            "tank_level_pct": 25,
+            "ph_level": 8.2,
+            "turbidity_ntu": 3.6,
+            "current_draw_a": 32.0,
+            "acoustic_noise_db": 71.0,
+            "head_pressure_bar": 1.9
         }
     },
     "ENERGY_TRANSFORMER": {
@@ -822,9 +985,14 @@ class IoTSenderGui:
         tk.Label(s_row, text="Select Sensor:", font=("Segoe UI", 9, "bold"), bg="#0d111f", fg="#e2e8f0").pack(side="left")
         self.sensor_choice_var = tk.StringVar(value="WATER_PUMP")
         self.sensor_combo = ttk.Combobox(
-            s_row, textvariable=self.sensor_choice_var, state="readonly", width=34,
+            s_row, textvariable=self.sensor_choice_var, state="readonly", width=38,
             values=[
                 "WATER_PUMP (STP Raw Sewage Lift Pump #4)",
+                "WATER_OVERHEAD_TANK (Overhead Water Reservoir Tank OHT-01)",
+                "WATER_UNDERGROUND_SUMP (Underground Storage Sump UG-SUMP)",
+                "WATER_BOREWELL (Deep Aquifer Borewell Pump #2)",
+                "WATER_RAINWATER (Rainwater Harvesting Eco-Lake RWH)",
+                "WATER_RO_PLANT (Commercial RO Purification Plant)",
                 "ENERGY_TRANSFORMER (11kV/415V Substation XFR)",
                 "AIR_QUALITY_STATION (CPCB Laser AQI Quad)",
                 "CHILLER_HVAC (Basement Chiller Compressor)",
@@ -1024,7 +1192,12 @@ class IoTSenderGui:
         cat_default_fleet = {
             "AIR_QUALITY_STATION": 8,
             "DUSTBIN": 5,
-            "WATER_PUMP": 4,
+            "WATER_PUMP": 6,
+            "WATER_OVERHEAD_TANK": 4,
+            "WATER_UNDERGROUND_SUMP": 3,
+            "WATER_BOREWELL": 2,
+            "WATER_RAINWATER": 2,
+            "WATER_RO_PLANT": 2,
             "ENERGY_TRANSFORMER": 3,
             "SOLAR_ARRAY": 3,
             "PARKING_GATEWAY": 2,
@@ -1121,6 +1294,11 @@ class IoTSenderGui:
         sensor_key = self._get_selected_key()
         cluster_map = {
             "WATER_PUMP": "WATER",
+            "WATER_OVERHEAD_TANK": "WATER",
+            "WATER_UNDERGROUND_SUMP": "WATER",
+            "WATER_BOREWELL": "WATER",
+            "WATER_RAINWATER": "WATER",
+            "WATER_RO_PLANT": "WATER",
             "ENERGY_TRANSFORMER": "ENERGY",
             "AIR_QUALITY_STATION": "AQI",
             "CHILLER_HVAC": "HVAC",
@@ -1396,10 +1574,25 @@ class IoTSenderGui:
             "Health Center & Emergency Bay"
         ]
 
+        # 6 Dedicated Campus Water Sources
+        campus_water_keys = [
+            "WATER_PUMP",
+            "WATER_OVERHEAD_TANK",
+            "WATER_UNDERGROUND_SUMP",
+            "WATER_BOREWELL",
+            "WATER_RAINWATER",
+            "WATER_RO_PLANT"
+        ]
+
         dev_prefix = {
             "AIR_QUALITY_STATION": "WIFI-ESP32-AQI",
             "DUSTBIN": "WIFI-ESP32-BIN",
             "WATER_PUMP": "LAN-PLC-PUMP",
+            "WATER_OVERHEAD_TANK": "WIFI-ESP32-OHT",
+            "WATER_UNDERGROUND_SUMP": "LAN-PLC-SUMP",
+            "WATER_BOREWELL": "LAN-PLC-BORE",
+            "WATER_RAINWATER": "WIFI-ESP32-RWH",
+            "WATER_RO_PLANT": "LAN-PLC-RO",
             "CHILLER_HVAC": "LAN-BACNET-CHILLER",
             "ENERGY_TRANSFORMER": "LAN-MODBUS-XFR",
             "SOLAR_ARRAY": "WIFI-ESP32-SOLAR",
@@ -1411,45 +1604,94 @@ class IoTSenderGui:
         if key == "PARKING_GATEWAY" and self.vision_processor and self.vision_processor.is_open:
             cv_parking_metrics = self.vision_processor.process_next_frame()
 
+        is_water_domain = (tmpl.get("sensor_type") == "WATER" or key.startswith("WATER_"))
+
         for i in range(1, n_count + 1):
-            d_id = f"{dev_prefix}-{i:02d}"
-            loc = campus_locations[(i - 1) % len(campus_locations)]
+            if is_water_domain and n_count > 1:
+                # Distribute distinct water sources across campus
+                w_key = campus_water_keys[(i - 1) % len(campus_water_keys)]
+                w_tmpl = SENSOR_TEMPLATES.get(w_key, tmpl)
+                d_id = w_tmpl.get("device_id", f"{dev_prefix}-{i:02d}")
+                if i > len(campus_water_keys):
+                    d_id = f"{d_id}-N{i}"
+                node_name = w_tmpl["name"] if i <= len(campus_water_keys) else f"{w_tmpl['name']} #{i}"
+                loc = w_tmpl.get("location", campus_locations[(i - 1) % len(campus_locations)])
+                x_pct = w_tmpl.get("xPct", 50.0)
+                y_pct = w_tmpl.get("yPct", 50.0)
 
-            # Natural per-sensor variance (±5%) around slider baseline so nodes aren't carbon copies
-            node_metrics = {}
-            for mk, mv in base_metrics.items():
-                if isinstance(mv, (int, float)):
-                    variance = 1.0 + (((i * 9 + 4) % 17) - 8) * 0.012
-                    node_metrics[mk] = round(mv * variance, 2)
+                # If this is the currently selected key on slider, use slider metrics; otherwise use designated template
+                if w_key == key:
+                    ref_metrics = base_metrics
                 else:
-                    node_metrics[mk] = mv
+                    ref_metrics = dict(w_tmpl.get("healthy", {}))
 
-            if cv_parking_metrics:
-                # Per-node variance on bay count
-                occ_var = max(0, min(cv_parking_metrics["total_slots"], cv_parking_metrics["occupied_slots"] + (i - 1) * 2))
-                node_metrics["occupied_slots"] = occ_var
-                node_metrics["total_slots"] = cv_parking_metrics["total_slots"]
-                node_metrics["available_slots"] = max(0, cv_parking_metrics["total_slots"] - occ_var)
-                node_metrics["occupancy_rate_pct"] = round((occ_var / max(1, cv_parking_metrics["total_slots"])) * 100)
-                node_metrics["ev_charging_occupied"] = cv_parking_metrics["ev_charging_occupied"]
-                node_metrics["entry_flow_rate"] = cv_parking_metrics["entry_flow_rate"]
-                node_metrics["camera_fps"] = cv_parking_metrics["camera_fps"]
-                node_metrics["vision_pipeline"] = cv_parking_metrics.get("model_status", "OpenCV MOG2 Tracking")
+                node_metrics = {}
+                for mk, mv in ref_metrics.items():
+                    if isinstance(mv, (int, float)):
+                        var_val = 1.0 + (((i * 7 + 3) % 13) - 6) * 0.015
+                        node_metrics[mk] = round(mv * var_val, 2)
+                    else:
+                        node_metrics[mk] = mv
 
-            payloads.append({
-                "source": source,
-                "protocol": proto,
-                "sensor_type": tmpl["sensor_type"],
-                "category": tmpl["category"],
-                "name": f"{tmpl['name']} Node #{i}",
-                "device_id": d_id,
-                "location": loc,
-                "ip_address": dev_ip,
-                "mac_address": f"00:1B:44:11:3A:{i:02X}" if is_lan else f"30:AE:A4:7F:8C:{i:02X}",
-                "signal_dbm": None if is_lan else (self.wifi_rssi_var.get() - (i % 6)),
-                "metrics": node_metrics,
-                "timestamp": datetime.now().strftime("%H:%M:%S")
-            })
+                payloads.append({
+                    "source": source,
+                    "protocol": proto,
+                    "sensor_type": "WATER",
+                    "category": w_tmpl.get("category", "WATER_PUMP"),
+                    "name": node_name,
+                    "device_id": d_id,
+                    "location": loc,
+                    "xPct": x_pct,
+                    "yPct": y_pct,
+                    "ip_address": dev_ip,
+                    "mac_address": f"00:1B:44:11:3A:{i:02X}" if is_lan else f"30:AE:A4:7F:8C:{i:02X}",
+                    "signal_dbm": None if is_lan else (self.wifi_rssi_var.get() - (i % 6)),
+                    "metrics": node_metrics,
+                    "timestamp": datetime.now().strftime("%H:%M:%S")
+                })
+            else:
+                # Standard single sensor or non-water fleet
+                d_id = tmpl.get("device_id") if n_count == 1 else f"{dev_prefix}-{i:02d}"
+                loc = tmpl.get("location") if n_count == 1 else campus_locations[(i - 1) % len(campus_locations)]
+                x_pct = tmpl.get("xPct", 50.0)
+                y_pct = tmpl.get("yPct", 50.0)
+
+                # Natural per-sensor variance (±5%) around slider baseline so nodes aren't carbon copies
+                node_metrics = {}
+                for mk, mv in base_metrics.items():
+                    if isinstance(mv, (int, float)):
+                        variance = 1.0 + (((i * 9 + 4) % 17) - 8) * 0.012
+                        node_metrics[mk] = round(mv * variance, 2)
+                    else:
+                        node_metrics[mk] = mv
+
+                if cv_parking_metrics:
+                    occ_var = max(0, min(cv_parking_metrics["total_slots"], cv_parking_metrics["occupied_slots"] + (i - 1) * 2))
+                    node_metrics["occupied_slots"] = occ_var
+                    node_metrics["total_slots"] = cv_parking_metrics["total_slots"]
+                    node_metrics["available_slots"] = max(0, cv_parking_metrics["total_slots"] - occ_var)
+                    node_metrics["occupancy_rate_pct"] = round((occ_var / max(1, cv_parking_metrics["total_slots"])) * 100)
+                    node_metrics["ev_charging_occupied"] = cv_parking_metrics["ev_charging_occupied"]
+                    node_metrics["entry_flow_rate"] = cv_parking_metrics["entry_flow_rate"]
+                    node_metrics["camera_fps"] = cv_parking_metrics["camera_fps"]
+                    node_metrics["vision_pipeline"] = cv_parking_metrics.get("model_status", "OpenCV MOG2 Tracking")
+
+                payloads.append({
+                    "source": source,
+                    "protocol": proto,
+                    "sensor_type": tmpl["sensor_type"],
+                    "category": tmpl["category"],
+                    "name": tmpl["name"] if n_count == 1 else f"{tmpl['name']} Node #{i}",
+                    "device_id": d_id,
+                    "location": loc,
+                    "xPct": x_pct,
+                    "yPct": y_pct,
+                    "ip_address": dev_ip,
+                    "mac_address": f"00:1B:44:11:3A:{i:02X}" if is_lan else f"30:AE:A4:7F:8C:{i:02X}",
+                    "signal_dbm": None if is_lan else (self.wifi_rssi_var.get() - (i % 6)),
+                    "metrics": node_metrics,
+                    "timestamp": datetime.now().strftime("%H:%M:%S")
+                })
 
         return payloads
 

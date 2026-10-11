@@ -841,7 +841,7 @@ def sync_packet_to_models(packet):
         node_name = packet.get('name', '') or f"{raw_sensor_type} Node ({device_id})"
 
         # Determine category
-        if raw_sensor_type in ['WATER', 'WATER_PUMP', 'PUMP'] or 'PUMP' in device_id or 'WATER' in device_id:
+        if raw_sensor_type in ['WATER', 'WATER_PUMP', 'WATER_OVERHEAD_TANK', 'WATER_UNDERGROUND_SUMP', 'WATER_BOREWELL', 'WATER_RAINWATER', 'WATER_RO_PLANT', 'PUMP'] or 'PUMP' in device_id or 'WATER' in device_id or 'SUMP' in device_id or 'OHT' in device_id or 'BORE' in device_id or 'RWH' in device_id or 'RO' in device_id:
             category = 'WATER'
             cat_type = 'water'
         elif raw_sensor_type in ['ENERGY', 'ENERGY_TRANSFORMER', 'SOLAR', 'GRID'] or 'XFR' in device_id or 'SOLAR' in device_id:
@@ -873,8 +873,12 @@ def sync_packet_to_models(packet):
             'metrics': metrics
         }
 
-        # Spatial Coordinates (user dragged or deterministic spread)
-        coords = get_node_coordinates(device_id, category=cat_type)
+        # Spatial Coordinates (incoming packet coordinates, user dragged or deterministic spread)
+        if 'xPct' in packet and 'yPct' in packet and packet['xPct'] is not None and packet['yPct'] is not None:
+            coords = {'xPct': round(float(packet['xPct']), 1), 'yPct': round(float(packet['yPct']), 1)}
+            SAVED_NODE_POSITIONS[device_id] = coords
+        else:
+            coords = get_node_coordinates(device_id, category=cat_type)
 
         # Map to CampusNode schema for 3D Twin
         pm25_val = float(metrics.get('pm25', metrics.get('pm25_ug_m3', 0)))
@@ -901,13 +905,14 @@ def sync_packet_to_models(packet):
             flow = float(metrics.get('flow_rate_lps', 18.2))
             tank = int(metrics.get('tank_level_pct', metrics.get('underground_tank_pct', 78)))
             ph = float(metrics.get('ph_level', 7.2))
-            tds = int(metrics.get('tds_ppm', 142))
+            turb = float(metrics.get('turbidity_ntu', 1.5))
+            tds = int(metrics.get('tds_ppm', int(turb * 65)))
             sec_val = f"{flow} L/s"
             m1_lbl, m1_val = 'Flow Rate', f"{flow} L/s"
             m2_lbl, m2_val = 'Tank Level', f"{tank}%"
             m3_lbl, m3_val = 'pH Level', f"{ph} pH"
-            m4_lbl, m4_val = 'TDS Purity', f"{tds} ppm"
-            node_status = 'warning' if flow < 5 else 'optimal'
+            m4_lbl, m4_val = 'Turbidity', f"{turb} NTU"
+            node_status = 'warning' if (flow < 4.0 or ph < 6.5 or ph > 8.5) else 'optimal'
         elif cat_type == 'energy':
             load = float(metrics.get('current_load_kw', metrics.get('active_load_kw', 420.0)))
             solar = float(metrics.get('solar_kw', metrics.get('solar_rooftop_kw', 185.0)))
@@ -1175,6 +1180,10 @@ def iot_ingest_view(request):
 
     sensor_type = data.get('sensor_type', 'AQI').upper()
     device_id = data.get('device_id', f"{source}-DEV-{random.randint(100, 999)}")
+    node_name = data.get('name') or f"{sensor_type} Node ({device_id})"
+    x_pct = data.get('xPct')
+    y_pct = data.get('yPct')
+    category_val = data.get('category')
     ip_address = data.get('ip_address', request.META.get('REMOTE_ADDR', '192.168.1.120'))
     mac_address = data.get('mac_address', '')
     signal_dbm = data.get('signal_dbm', -58 if source == 'WIFI' else None)
@@ -1195,6 +1204,10 @@ def iot_ingest_view(request):
         'protocol': protocol,
         'interface': interface_label,
         'device_id': device_id,
+        'name': node_name,
+        'xPct': x_pct,
+        'yPct': y_pct,
+        'category': category_val,
         'ip_address': ip_address,
         'mac_address': mac_address,
         'signal_dbm': signal_dbm,
@@ -1401,11 +1414,18 @@ def iot_live_nodes_view(request):
         cat_nodes = [n for n in all_nodes if n.get('type') == cat]
         if not cat_nodes:
             return {'count': 0, 'active': False}
-        return {
+        res = {
             'count': len(cat_nodes),
             'active': True,
             'nodes': [n.get('id') for n in cat_nodes]
         }
+        if cat == 'water':
+            cnt = len(cat_nodes)
+            res['avg_flow'] = round(sum(float(n.get('metrics', {}).get('flow_rate_lps', 0)) for n in cat_nodes) / cnt, 1)
+            res['avg_tank'] = round(sum(float(n.get('metrics', {}).get('tank_level_pct', 75)) for n in cat_nodes) / cnt, 1)
+            res['avg_ph'] = round(sum(float(n.get('metrics', {}).get('ph_level', 7.2)) for n in cat_nodes) / cnt, 2)
+            res['avg_turbidity'] = round(sum(float(n.get('metrics', {}).get('turbidity_ntu', 1.5)) for n in cat_nodes) / cnt, 2)
+        return res
         
     return Response({
         'status': 'success',

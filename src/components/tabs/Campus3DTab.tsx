@@ -64,6 +64,8 @@ export interface CampusNode {
   metric3Value?: string;
   metric4Label?: string;
   metric4Value?: string;
+  metrics?: Record<string, any>;
+  [key: string]: any;
   status: 'optimal' | 'moderate' | 'warning';
 }
 
@@ -521,8 +523,8 @@ export const Campus3DTab: React.FC = () => {
               const saved = posMap.get(ln.id);
               return {
                 ...ln,
-                xPct: saved ? saved.xPct : ln.xPct,
-                yPct: saved ? saved.yPct : ln.yPct,
+                xPct: isCalibrateMode && saved ? saved.xPct : (ln.xPct ?? (saved ? saved.xPct : 50)),
+                yPct: isCalibrateMode && saved ? saved.yPct : (ln.yPct ?? (saved ? saved.yPct : 50)),
               };
             });
           });
@@ -532,7 +534,7 @@ export const Campus3DTab: React.FC = () => {
     fetchLiveStreams();
     const interval = setInterval(fetchLiveStreams, 1200);
     return () => clearInterval(interval);
-  }, [activeOrg?.id]);
+  }, [activeOrg?.id, isCalibrateMode]);
 
   const currentCategory = activeStream?.category || null;
   const isAqiActive = currentCategory === 'AQI';
@@ -560,6 +562,18 @@ export const Campus3DTab: React.FC = () => {
   const avgFlow = currentCategory === null ? null : (isWaterActive ? (hasWaterData ? Math.round((waterList.reduce((acc, r) => acc + (r.flow_rate_lps || 0), 0) / waterList.length) * 10) / 10 : (streamFlow ?? 0)) : 0);
   const avgTreated = currentCategory === null ? null : (isWaterActive ? (hasWaterData ? Math.round((waterList.reduce((acc, r) => acc + (r.stp_treated_water_kl || r.treated_output_kl || 0), 0) / waterList.length) * 10) / 10 : (streamFlow ? Number((streamFlow * 3.6 * 8 * 0.72).toFixed(1)) : 230)) : 0);
   const avgTds = currentCategory === null ? null : (isWaterActive ? (hasWaterData ? Math.round((waterList.reduce((acc, r) => acc + (r.tds_ppm || 140), 0) / waterList.length) * 10) / 10 : 140) : 0);
+
+  // Dynamic campus averages across all active water source pins
+  const activeWaterNodes = nodes.filter((n) => n.type === 'water');
+  const campusAvgWaterFlow = activeWaterNodes.length > 0
+    ? Math.round((activeWaterNodes.reduce((acc, n) => acc + (parseFloat(String(n.metric1Value || n.metrics?.flow_rate_lps || 0)) || 0), 0) / activeWaterNodes.length) * 10) / 10
+    : avgFlow;
+  const campusAvgTankLevel = activeWaterNodes.length > 0
+    ? Math.round(activeWaterNodes.reduce((acc, n) => acc + (parseFloat(String(n.metric2Value || n.metrics?.tank_level_pct || 75)) || 75), 0) / activeWaterNodes.length)
+    : 78;
+  const campusAvgPh = activeWaterNodes.length > 0
+    ? Math.round((activeWaterNodes.reduce((acc, n) => acc + (parseFloat(String(n.metric3Value || n.metrics?.ph_level || 7.2)) || 7.2), 0) / activeWaterNodes.length) * 10) / 10
+    : 7.2;
 
   // Averages for Energy (Live when Energy active; 0 when other stream active; null/-- when awaiting)
   const streamLoad = streamMetrics.active_load_kw !== undefined ? Number(streamMetrics.active_load_kw) : (streamMetrics.current_load_kw !== undefined ? Number(streamMetrics.current_load_kw) : undefined);
@@ -940,7 +954,11 @@ export const Campus3DTab: React.FC = () => {
           {activeFilter === 'water' && (
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-600 dark:text-cyan-400 text-[11px] font-bold animate-in fade-in duration-200">
               <Droplets className="w-3.5 h-3.5" />
-              <span>STP Flow • Tank Level • pH Level • TDS</span>
+              <span>
+                {activeWaterNodes.length > 0
+                  ? `${activeWaterNodes.length} Water Sources • Avg Flow: ${campusAvgWaterFlow} L/s • Avg Level: ${campusAvgTankLevel}% • Avg pH: ${campusAvgPh}`
+                  : 'STP Flow • Tank Level • pH Level • TDS'}
+              </span>
             </div>
           )}
           {activeFilter === 'energy' && (
@@ -1049,8 +1067,12 @@ export const Campus3DTab: React.FC = () => {
             </span>
           </div>
           <div className="flex items-center gap-1 text-cyan-400">
-            <span>Avg Flow:</span>
-            <span className="font-bold">{hasWaterData ? `${avgFlow} L/s` : '--'}</span>
+            <span>Avg Water Flow:</span>
+            <span className="font-bold">{campusAvgWaterFlow !== null ? `${campusAvgWaterFlow} L/s` : (hasWaterData ? `${avgFlow} L/s` : '--')}</span>
+          </div>
+          <div className="flex items-center gap-1 text-blue-400">
+            <span>Avg Tank:</span>
+            <span className="font-bold">{activeWaterNodes.length > 0 ? `${campusAvgTankLevel}%` : (hasWaterData ? `${avgTreated} kL` : '--')}</span>
           </div>
           <div className="flex items-center gap-1 text-amber-400">
             <span>Avg Power:</span>
@@ -1231,23 +1253,35 @@ export const Campus3DTab: React.FC = () => {
 
                     {/* Domain-Specific Metrics Content */}
                     {node.type === 'water' ? (
-                      /* Water & STP Loop HUD */
+                      /* Individual Water Source Pin Telemetry */
                       <>
                         <div className="flex items-center gap-1 text-cyan-400">
                           <Waves className="w-3 h-3 flex-shrink-0" />
-                          <span>{hasWaterData ? `${avgFlow} L/s` : '-- L/s'} <span className="text-[9px] text-cyan-500/70 font-sans">{node.metric1Label || 'Flow'}</span></span>
+                          <span>
+                            {node.metric1Value || (node.metrics?.flow_rate_lps !== undefined ? `${node.metrics.flow_rate_lps} L/s` : (hasWaterData ? `${avgFlow} L/s` : '-- L/s'))}{' '}
+                            <span className="text-[9px] text-cyan-500/70 font-sans">{node.metric1Label || 'Flow'}</span>
+                          </span>
                         </div>
                         <div className="flex items-center gap-1 text-blue-400">
                           <Droplets className="w-3 h-3 flex-shrink-0" />
-                          <span>{hasWaterData ? `${avgTreated} kL` : '-- %'} <span className="text-[9px] text-blue-500/70 font-sans">{node.metric2Label || 'Tank'}</span></span>
+                          <span>
+                            {node.metric2Value || (node.metrics?.tank_level_pct !== undefined ? `${node.metrics.tank_level_pct}%` : (hasWaterData ? `${avgTreated} kL` : '-- %'))}{' '}
+                            <span className="text-[9px] text-blue-500/70 font-sans">{node.metric2Label || 'Level'}</span>
+                          </span>
                         </div>
                         <div className="flex items-center gap-1 text-emerald-400">
                           <Droplets className="w-3 h-3 flex-shrink-0" />
-                          <span>{hasWaterData ? '7.2 pH' : '-- pH'} <span className="text-[9px] text-emerald-500/70 font-sans">{node.metric3Label || 'pH'}</span></span>
+                          <span>
+                            {node.metric3Value || (node.metrics?.ph_level !== undefined ? `${node.metrics.ph_level} pH` : '7.2 pH')}{' '}
+                            <span className="text-[9px] text-emerald-500/70 font-sans">{node.metric3Label || 'pH'}</span>
+                          </span>
                         </div>
                         <div className="flex items-center gap-1 text-indigo-400">
                           <Activity className="w-3 h-3 flex-shrink-0" />
-                          <span>{hasWaterData ? `${avgTds} ppm` : '-- ppm'} <span className="text-[9px] text-indigo-500/70 font-sans">{node.metric4Label || 'TDS'}</span></span>
+                          <span>
+                            {node.metric4Value || (node.metrics?.turbidity_ntu !== undefined ? `${node.metrics.turbidity_ntu} NTU` : (hasWaterData ? `${avgTds} ppm` : '--'))}{' '}
+                            <span className="text-[9px] text-indigo-500/70 font-sans">{node.metric4Label || 'Turb'}</span>
+                          </span>
                         </div>
                       </>
                     ) : node.type === 'energy' ? (
@@ -1479,31 +1513,81 @@ export const Campus3DTab: React.FC = () => {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="p-3 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
-              <span className="text-[10px] text-stone-500 dark:text-slate-400 block font-semibold">Fine Particulate PM2.5</span>
-              <span className="text-2xl font-black text-amber-500 mt-1 block">{selectedNode.pm25} µg/m³</span>
-              <span className="text-[10px] text-emerald-600 font-semibold">NAQI Standard Passed</span>
-            </div>
+          {selectedNode.type === 'water' ? (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
+                  <span className="text-[10px] text-stone-500 dark:text-slate-400 block font-semibold">{selectedNode.metric1Label || 'Flow Rate'}</span>
+                  <span className="text-2xl font-black text-cyan-500 mt-1 block">
+                    {selectedNode.metric1Value || (selectedNode.metrics?.flow_rate_lps ? `${selectedNode.metrics.flow_rate_lps} L/s` : '--')}
+                  </span>
+                  <span className="text-[10px] text-cyan-600 font-semibold">Active Sensor Telemetry</span>
+                </div>
 
-            <div className="p-3 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
-              <span className="text-[10px] text-stone-500 dark:text-slate-400 block font-semibold">Inhalable Particulate PM10</span>
-              <span className="text-2xl font-black text-cyan-500 mt-1 block">{selectedNode.pm10} µg/m³</span>
-              <span className="text-[10px] text-cyan-600 font-semibold">Clean Atmospheric Index</span>
-            </div>
+                <div className="p-3 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
+                  <span className="text-[10px] text-stone-500 dark:text-slate-400 block font-semibold">{selectedNode.metric2Label || 'Tank Level'}</span>
+                  <span className="text-2xl font-black text-blue-500 mt-1 block">
+                    {selectedNode.metric2Value || (selectedNode.metrics?.tank_level_pct ? `${selectedNode.metrics.tank_level_pct}%` : '--')}
+                  </span>
+                  <span className="text-[10px] text-blue-600 font-semibold">Ultrasonic Depth Gauge</span>
+                </div>
 
-            <div className="p-3 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
-              <span className="text-[10px] text-stone-500 dark:text-slate-400 block font-semibold">Ambient Temperature</span>
-              <span className="text-2xl font-black text-emerald-500 mt-1 block">{selectedNode.temp} °C</span>
-              <span className="text-[10px] text-stone-400">Micro-climate Thermal Balance</span>
-            </div>
+                <div className="p-3 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
+                  <span className="text-[10px] text-stone-500 dark:text-slate-400 block font-semibold">{selectedNode.metric3Label || 'Water pH'}</span>
+                  <span className="text-2xl font-black text-emerald-500 mt-1 block">
+                    {selectedNode.metric3Value || (selectedNode.metrics?.ph_level ? `${selectedNode.metrics.ph_level} pH` : '7.2 pH')}
+                  </span>
+                  <span className="text-[10px] text-emerald-600 font-semibold">BIS 10500 Potable Standard</span>
+                </div>
 
-            <div className="p-3 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
-              <span className="text-[10px] text-stone-500 dark:text-slate-400 block font-semibold">Relative Humidity</span>
-              <span className="text-2xl font-black text-blue-500 mt-1 block">{selectedNode.humidity} %</span>
-              <span className="text-[10px] text-blue-600 font-semibold">Psychrometric Comfort</span>
+                <div className="p-3 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
+                  <span className="text-[10px] text-stone-500 dark:text-slate-400 block font-semibold">{selectedNode.metric4Label || 'Turbidity / TDS'}</span>
+                  <span className="text-2xl font-black text-indigo-500 mt-1 block">
+                    {selectedNode.metric4Value || (selectedNode.metrics?.turbidity_ntu ? `${selectedNode.metrics.turbidity_ntu} NTU` : '--')}
+                  </span>
+                  <span className="text-[10px] text-indigo-600 font-semibold">Optical Scattering Sensor</span>
+                </div>
+              </div>
+
+              {/* Campus Average Strip in Inspector */}
+              <div className="p-3 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex flex-wrap items-center justify-between gap-2 text-xs font-mono">
+                <span className="font-sans font-bold text-cyan-600 dark:text-cyan-400 flex items-center gap-1.5">
+                  <Droplets className="w-3.5 h-3.5" /> Campus Water Fleet Summary ({activeWaterNodes.length} Sources Active)
+                </span>
+                <div className="flex items-center gap-4 text-stone-700 dark:text-slate-300">
+                  <span>Avg Flow: <strong className="text-cyan-500">{campusAvgWaterFlow} L/s</strong></span>
+                  <span>Avg Level: <strong className="text-blue-500">{campusAvgTankLevel}%</strong></span>
+                  <span>Avg pH: <strong className="text-emerald-500">{campusAvgPh}</strong></span>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="p-3 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
+                <span className="text-[10px] text-stone-500 dark:text-slate-400 block font-semibold">Fine Particulate PM2.5</span>
+                <span className="text-2xl font-black text-amber-500 mt-1 block">{selectedNode.pm25} µg/m³</span>
+                <span className="text-[10px] text-emerald-600 font-semibold">NAQI Standard Passed</span>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
+                <span className="text-[10px] text-stone-500 dark:text-slate-400 block font-semibold">Inhalable Particulate PM10</span>
+                <span className="text-2xl font-black text-cyan-500 mt-1 block">{selectedNode.pm10} µg/m³</span>
+                <span className="text-[10px] text-cyan-600 font-semibold">Clean Atmospheric Index</span>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
+                <span className="text-[10px] text-stone-500 dark:text-slate-400 block font-semibold">Ambient Temperature</span>
+                <span className="text-2xl font-black text-emerald-500 mt-1 block">{selectedNode.temp} °C</span>
+                <span className="text-[10px] text-stone-400">Micro-climate Thermal Balance</span>
+              </div>
+
+              <div className="p-3 rounded-2xl bg-[#f8f5ee] dark:bg-[#0a0b12] border border-[#ece3d6] dark:border-[#151722]">
+                <span className="text-[10px] text-stone-500 dark:text-slate-400 block font-semibold">Relative Humidity</span>
+                <span className="text-2xl font-black text-blue-500 mt-1 block">{selectedNode.humidity} %</span>
+                <span className="text-[10px] text-blue-600 font-semibold">Psychrometric Comfort</span>
+              </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
