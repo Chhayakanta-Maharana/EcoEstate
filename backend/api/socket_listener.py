@@ -152,7 +152,7 @@ def _ingest_socket_packet(raw_data_str: str, client_ip: str, protocol: str):
 
     try:
         from api.views import sync_packet_to_models
-        sync_packet_to_models(new_packet)
+        threading.Thread(target=sync_packet_to_models, args=(new_packet,), daemon=True).start()
     except Exception as e:
         print(f"[SOCKET_SYNC_ERROR] {e}")
 

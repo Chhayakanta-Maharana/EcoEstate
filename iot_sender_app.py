@@ -314,6 +314,9 @@ def normalize_ingest_url(raw_url: str) -> str:
     if not url.startswith("http://") and not url.startswith("https://"):
         url = "http://" + url
 
+    # Normalize localhost to 127.0.0.1 to eliminate Windows IPv6 (::1) 2-second resolution latency
+    url = url.replace("://localhost", "://127.0.0.1")
+
     # Fix typo where colon is omitted before 8000 (e.g. 192.168.0.1918000)
     import re
     m = re.match(r'(https?://\d+\.\d+\.\d+\.\d{1,3})(8000|5000|5005)(.*)', url)
@@ -382,6 +385,11 @@ def discover_server_url(base_ip: str = "", port: int = 8000) -> tuple[str, str]:
     3. Production Cloud Fallback (https://ecoestate.onrender.com/api/iot/ingest/)
     Returns (url, discovery_source_text).
     """
+    # 0. Fast Localhost / Current Machine Probe (< 50ms)
+    local_probe = _probe_server_ip("127.0.0.1", port)
+    if local_probe:
+        return local_probe, "Localhost Django Backend (Active)"
+
     # 1. Ultra-fast UDP Beacon
     beacon = discover_server_via_beacon(port=5005)
     if beacon and beacon.get('http_url'):
@@ -391,6 +399,7 @@ def discover_server_url(base_ip: str = "", port: int = 8000) -> tuple[str, str]:
     local_ip = get_local_ip()
     candidates = ["127.0.0.1", "localhost"]
     if local_ip != "127.0.0.1":
+        candidates.insert(0, local_ip)
         prefix = ".".join(local_ip.split(".")[:3])
         for i in range(1, 255):
             candidates.append(f"{prefix}.{i}")
@@ -767,7 +776,7 @@ def send_packet_wifi_http(url: str, payload: dict) -> tuple[bool, str]:
             data=data_bytes,
             headers={'Content-Type': 'application/json', 'User-Agent': 'ESP32-WiFi-Node/1.0'}
         )
-        with urllib.request.urlopen(req, timeout=2.5) as resp:
+        with urllib.request.urlopen(req, timeout=6.0) as resp:
             status_code = resp.getcode()
             body = resp.read().decode('utf-8', errors='ignore')
             return True, f"HTTP {status_code} Created: Synced with Twin Buffer"
@@ -1814,14 +1823,22 @@ class IoTSenderGui:
                 raw_url = self.wifi_url_var.get().strip() or DEFAULT_HTTP_URL
                 url = normalize_ingest_url(raw_url)
                 
-                # Primary HTTP POST to target desktop
+                # Primary HTTP POST to target endpoint
                 http_ok, http_msg = send_packet_wifi_http(url, payload)
                 
+                # If primary URL fails (e.g. stale IP), fall back gracefully to localhost or cloud
+                if not http_ok and "127.0.0.1" not in url and "localhost" not in url:
+                    fb_ok, fb_msg = send_packet_wifi_http("http://127.0.0.1:8000/api/iot/ingest/", payload)
+                    if fb_ok:
+                        http_ok, http_msg = True, "Delivered via Localhost Ingest"
+                    else:
+                        fb_cloud_ok, fb_cloud_msg = send_packet_wifi_http(CLOUD_INGEST_URL, payload)
+                        if fb_cloud_ok:
+                            http_ok, http_msg = True, "Delivered via Production Cloud Ingest"
+
                 # Parallel broadcast on UDP 5005 for low-latency listener (both broadcast and localhost)
                 send_packet_lan_udp("255.255.255.255", 5005, payload)
                 send_packet_lan_udp("127.0.0.1", 5005, payload)
-                if "127.0.0.1" not in url and "localhost" not in url:
-                    send_packet_wifi_http("http://127.0.0.1:8000/api/iot/ingest/", payload)
                 
                 ok = http_ok
                 last_proto = "WiFi-HTTP"

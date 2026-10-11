@@ -59,20 +59,23 @@ NEON_DB_URL = os.environ.get(
     "postgresql://neondb_owner:npg_jkwc5flaP1Io@ep-bold-scene-b4vfxua7-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 )
 
-# Dual-Database Engine: 'default' (Local SQLite for zero-latency UI) + 'neondb' (National Cloud Hub)
+NEON_DB_CONFIG = dj_database_url.config(
+    default=NEON_DB_URL,
+    conn_max_age=600,
+    ssl_require=True
+)
+
+# Primary Enterprise Database: NeonDB Cloud PostgreSQL (AWS Ohio)
 DATABASES = {
-    'default': {
+    'default': NEON_DB_CONFIG,
+    'neondb': NEON_DB_CONFIG,
+    'sqlite': {
         'ENGINE': 'django.db.backends.sqlite3',
         'NAME': BASE_DIR / 'db.sqlite3',
         'OPTIONS': {
-            'timeout': 20,
+            'timeout': 30,
         }
-    },
-    'neondb': dj_database_url.config(
-        default=NEON_DB_URL,
-        conn_max_age=600,
-        ssl_require=True
-    )
+    }
 }
 
 AUTH_PASSWORD_VALIDATORS = [
