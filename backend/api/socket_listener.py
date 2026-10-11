@@ -41,11 +41,22 @@ def get_gateway_config():
     cfg = dict(GATEWAY_CONFIG)
     cfg['is_active'] = _LISTENER_ACTIVE
     try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.settimeout(1.0)
-        s.connect(('8.8.8.8', 80))
-        cfg['server_local_ip'] = s.getsockname()[0]
-        s.close()
+        # Prioritize local Wi-Fi / Ethernet IPs bound to hostname
+        host_ips = [
+            info[4][0] for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
+            if not info[4][0].startswith('127.')
+        ]
+        if host_ips:
+            # Prefer 192.168.x.x or 10.x.x.x
+            lan_pref = [ip for ip in host_ips if ip.startswith('192.168.')]
+            cfg['server_local_ip'] = lan_pref[0] if lan_pref else host_ips[0]
+            cfg['all_local_ips'] = host_ips
+        else:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(1.0)
+            s.connect(('8.8.8.8', 80))
+            cfg['server_local_ip'] = s.getsockname()[0]
+            s.close()
     except Exception:
         cfg['server_local_ip'] = '127.0.0.1'
     return cfg

@@ -968,6 +968,13 @@ class IoTSenderGui:
         )
         btn_discover.pack(side="left", padx=2)
 
+        self.btn_use_auto_ip = tk.Button(
+            btn_wifi_box, text="⚡ Use Auto-Found IP", font=("Segoe UI", 7, "bold"),
+            bg="#0f766e", fg="#5eead4", activebackground="#14b8a6", activeforeground="#ffffff",
+            bd=0, padx=6, pady=1, cursor="hand2", command=self._apply_auto_found_ip
+        )
+        self.btn_use_auto_ip.pack(side="left", padx=2)
+
         tk.Label(wifi_grid, text="WiFi SSID:", bg="#0d111f", fg="#94a3b8").grid(row=2, column=0, sticky="w", pady=2)
         self.wifi_ssid_var = tk.StringVar(value="EcoEstate_IoT_Grid")
         tk.Entry(wifi_grid, textvariable=self.wifi_ssid_var, width=18, bg="#070913", fg="#ffffff", insertbackground="#ffffff").grid(row=2, column=1, sticky="w", padx=5, pady=2)
@@ -1776,22 +1783,17 @@ class IoTSenderGui:
                 raw_url = self.wifi_url_var.get().strip() or DEFAULT_HTTP_URL
                 url = normalize_ingest_url(raw_url)
                 
-                # Primary HTTP POST
+                # Primary HTTP POST to target desktop
                 http_ok, http_msg = send_packet_wifi_http(url, payload)
                 
-                # Parallel local delivery to ensure twin receives packets on localhost / shared WiFi
-                if "127.0.0.1" not in url and "localhost" not in url:
-                    local_ok, _ = send_packet_wifi_http("http://127.0.0.1:8000/api/iot/ingest/", payload)
-                    if local_ok:
-                        http_ok = True
+                # Parallel broadcast on UDP 5005 for low-latency listener
+                send_packet_lan_udp("255.255.255.255", 5005, payload)
                 
-                # Subnet UDP Broadcast (255.255.255.255) + Local loopback UDP (127.0.0.1)
-                udp_ok, udp_msg = send_packet_lan_udp("255.255.255.255", 5005, payload)
-                send_packet_lan_udp("127.0.0.1", 5005, payload)
-                
-                ok = http_ok or udp_ok
-                last_proto = "WiFi-HTTP" if http_ok else "UDP-Broadcast"
-                last_msg = f"Delivered {payload['device_id']}"
+                ok = http_ok
+                last_proto = "WiFi-HTTP"
+                last_msg = http_msg
+                if not http_ok:
+                    self._log(f"❌ Failed to reach {url} -> {http_msg}", "FAIL")
 
             if ok:
                 success_count += 1
@@ -2097,13 +2099,21 @@ class IoTSenderGui:
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_server_discovered(self, server_ip: str, http_url: str):
+        self._discovered_server_ip = server_ip
+        self._discovered_http_url = http_url
         self.wifi_url_var.set(http_url)
         self.lan_host_var.set(server_ip)
         self.conn_status_label.config(
-            text=f"🟢 Server Auto-Found: {server_ip}:8000",
-            bg="#064e3b", fg="#6ee7b7"
+            text=f"🟢 Server Auto-Found: {server_ip}:8000 (Click to Use)",
+            bg="#064e3b", fg="#6ee7b7", cursor="hand2"
         )
+        self.conn_status_label.bind("<Button-1>", lambda e: self._apply_auto_found_ip())
         self._log(f"🎯 Auto-Discovered Laptop B Server at {server_ip}! Ingest URL updated to {http_url}", "SUCCESS")
+
+    def _apply_auto_found_ip(self):
+        target_url = getattr(self, '_discovered_http_url', None) or f"http://{getattr(self, '_discovered_server_ip', '192.168.0.191')}:8000/api/iot/ingest/"
+        self.wifi_url_var.set(target_url)
+        self._log(f"⚡ Applied Auto-Found Ingest URL: {target_url}", "SUCCESS")
 
     def _scan_subnet_fallback(self):
         """Fallback subnet scan if router blocks 255.255.255.255 broadcast."""
