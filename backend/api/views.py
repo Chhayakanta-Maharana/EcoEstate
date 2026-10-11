@@ -235,18 +235,28 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         # Automatically create or update StaffMember so assigned admin can immediately log in with their credentials
         if org.assigned_admin_email:
             try:
-                StaffMember.objects.update_or_create(
-                    email__iexact=org.assigned_admin_email.strip().lower(),
-                    defaults={
-                        'name': org.assigned_admin_name or f"Admin of {org.name}",
-                        'email': org.assigned_admin_email.strip().lower(),
-                        'organization': org,
-                        'role': 'ORG_ADMIN',
-                        'title': f"Estate Administrator - {org.name}",
-                        'password': org.assigned_password or 'estate@2026',
-                        'status': 'Active'
-                    }
-                )
+                clean_email = org.assigned_admin_email.strip().lower()
+                staff = StaffMember.objects.filter(
+                    email__iexact=clean_email,
+                    organization=org
+                ).first()
+                if staff:
+                    staff.name = org.assigned_admin_name or f"Admin of {org.name}"
+                    staff.password = org.assigned_password or 'estate@2026'
+                    staff.role = 'ORG_ADMIN'
+                    staff.title = f"Estate Administrator - {org.name}"
+                    staff.status = 'Active'
+                    staff.save()
+                else:
+                    StaffMember.objects.create(
+                        name=org.assigned_admin_name or f"Admin of {org.name}",
+                        email=clean_email,
+                        organization=org,
+                        role='ORG_ADMIN',
+                        title=f"Estate Administrator - {org.name}",
+                        password=org.assigned_password or 'estate@2026',
+                        status='Active'
+                    )
             except Exception as e:
                 print(f"[ORG_CREATE_STAFF_SYNC_ERROR] {e}")
 
@@ -282,18 +292,28 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         # Sync updated credentials to StaffMember table
         if org.assigned_admin_email:
             try:
-                StaffMember.objects.update_or_create(
-                    email__iexact=org.assigned_admin_email.strip().lower(),
-                    defaults={
-                        'name': org.assigned_admin_name or f"Admin of {org.name}",
-                        'email': org.assigned_admin_email.strip().lower(),
-                        'organization': org,
-                        'role': 'ORG_ADMIN',
-                        'title': f"Estate Administrator - {org.name}",
-                        'password': org.assigned_password or 'estate@2026',
-                        'status': 'Active'
-                    }
-                )
+                clean_email = org.assigned_admin_email.strip().lower()
+                staff = StaffMember.objects.filter(
+                    email__iexact=clean_email,
+                    organization=org
+                ).first()
+                if staff:
+                    staff.name = org.assigned_admin_name or f"Admin of {org.name}"
+                    staff.password = org.assigned_password or 'estate@2026'
+                    staff.role = 'ORG_ADMIN'
+                    staff.title = f"Estate Administrator - {org.name}"
+                    staff.status = 'Active'
+                    staff.save()
+                else:
+                    StaffMember.objects.create(
+                        name=org.assigned_admin_name or f"Admin of {org.name}",
+                        email=clean_email,
+                        organization=org,
+                        role='ORG_ADMIN',
+                        title=f"Estate Administrator - {org.name}",
+                        password=org.assigned_password or 'estate@2026',
+                        status='Active'
+                    )
             except Exception as e:
                 print(f"[ORG_UPDATE_STAFF_SYNC_ERROR] {e}")
 
@@ -1571,48 +1591,52 @@ def admin_realtime_analytics_view(request):
         }
     ]
 
-    seen_emails = {'superadmin@ecoestate.gov.in'}
-
-    # Add all actual staff members directly from NeonDB StaffMember table
-    for s in staff_members:
-        if s.email and s.email.lower() not in seen_emails:
-            seen_emails.add(s.email.lower())
-            org_name = s.organization.name if s.organization else 'General Estate'
-            org_id = s.organization.id if s.organization else 1
-            org_type = s.organization.facility_type if s.organization else 'COLLEGE'
-            real_users.append({
-                'id': f"user-{s.id}",
-                'name': s.name,
-                'email': s.email,
-                'role': s.role,
-                'role_label': s.role.replace('_', ' ').title(),
-                'title': s.title or f"{s.role} - {org_name}",
-                'assigned_facility': org_name,
-                'facility_id': org_id,
-                'facility_type': org_type,
-                'status': s.status or 'Active',
-                'last_active': s.last_active if hasattr(s, 'last_active') and s.last_active else 'Connected to NeonDB',
-                'source': 'NeonDB Staff Directory'
-            })
+    seen_user_keys = set()
 
     # Add all registered estate admins from NeonDB Organization table
     for o in orgs:
-        if o.assigned_admin_email and o.assigned_admin_email.lower() not in seen_emails:
-            seen_emails.add(o.assigned_admin_email.lower())
-            real_users.append({
-                'id': f"user-org-{o.id}",
-                'name': o.assigned_admin_name or 'Facility Lead',
-                'email': o.assigned_admin_email,
-                'role': 'ORG_ADMIN',
-                'role_label': 'Estate Administrator',
-                'title': f"Estate Administrator - {o.name}",
-                'assigned_facility': o.name,
-                'facility_id': o.id,
-                'facility_type': o.facility_type,
-                'status': 'Active',
-                'last_active': 'Connected to NeonDB',
-                'source': 'NeonDB Facility Tenant'
-            })
+        if o.assigned_admin_email:
+            ukey = f"org_{o.id}_{o.assigned_admin_email.strip().lower()}"
+            if ukey not in seen_user_keys:
+                seen_user_keys.add(ukey)
+                real_users.append({
+                    'id': f"user-org-{o.id}",
+                    'name': o.assigned_admin_name or f'Admin of {o.name}',
+                    'email': o.assigned_admin_email,
+                    'role': 'ORG_ADMIN',
+                    'role_label': 'Estate Administrator',
+                    'title': f"Estate Administrator - {o.name}",
+                    'assigned_facility': o.name,
+                    'facility_id': o.id,
+                    'facility_type': o.facility_type,
+                    'status': 'Active',
+                    'last_active': 'Connected to NeonDB',
+                    'source': 'NeonDB Facility Tenant'
+                })
+
+    # Add all actual staff members directly from NeonDB StaffMember table
+    for s in staff_members:
+        if s.email:
+            org_id = s.organization.id if s.organization else 0
+            ukey = f"org_{org_id}_{s.email.strip().lower()}"
+            if ukey not in seen_user_keys:
+                seen_user_keys.add(ukey)
+                org_name = s.organization.name if s.organization else 'General Estate'
+                org_type = s.organization.facility_type if s.organization else 'COLLEGE'
+                real_users.append({
+                    'id': f"user-{s.id}",
+                    'name': s.name,
+                    'email': s.email,
+                    'role': s.role,
+                    'role_label': s.role.replace('_', ' ').title(),
+                    'title': s.title or f"{s.role} - {org_name}",
+                    'assigned_facility': org_name,
+                    'facility_id': org_id,
+                    'facility_type': org_type,
+                    'status': s.status or 'Active',
+                    'last_active': s.last_active if hasattr(s, 'last_active') and s.last_active else 'Connected to NeonDB',
+                    'source': 'NeonDB Staff Directory'
+                })
 
     # 2. Real Role Distribution Count
     role_distribution = {}
@@ -1875,67 +1899,93 @@ def api_login_view(request):
             return Response({'error': 'Incorrect password for SuperAdmin account.'}, status=status.HTTP_401_UNAUTHORIZED)
 
     # 2. Check Estate Admin assigned to an Organization in NeonDB
-    org = Organization.objects.filter(assigned_admin_email__iexact=email).first()
-    if org:
-        accepted_passwords = {
-            (org.assigned_password or '').strip(),
-            'estate@2026',
-            'admin123',
-            'staff@2026'
-        }
-        staff_match = StaffMember.objects.filter(email__iexact=email).first()
-        if staff_match and staff_match.password:
-            accepted_passwords.add(staff_match.password.strip())
-
-        valid_passwords = {p for p in accepted_passwords if p}
-        if password in valid_passwords:
+    matching_orgs = Organization.objects.filter(assigned_admin_email__iexact=email).order_by('-id')
+    # First, test each matching organization for exact password match
+    for o in matching_orgs:
+        org_passwords = {(o.assigned_password or '').strip()}
+        s_match = StaffMember.objects.filter(email__iexact=email, organization=o).first()
+        if s_match and s_match.password:
+            org_passwords.add(s_match.password.strip())
+        if password in {p for p in org_passwords if p}:
             return Response({
                 'success': True,
                 'user': {
-                    'id': f"user-org-{org.id}",
-                    'name': org.assigned_admin_name or (staff_match.name if staff_match else org.assigned_admin_name),
-                    'email': org.assigned_admin_email,
+                    'id': f"user-org-{o.id}",
+                    'name': o.assigned_admin_name or (s_match.name if s_match else f"Admin of {o.name}"),
+                    'email': o.assigned_admin_email,
                     'role': 'ORG_ADMIN',
-                    'organizationId': f"org-{org.id}",
-                    'organizationName': org.name,
-                    'title': f"Estate Administrator - {org.name}",
+                    'organizationId': f"org-{o.id}",
+                    'organizationName': o.name,
+                    'title': f"Estate Administrator - {o.name}",
                     'status': 'Active',
                 },
-                'redirect_url': f"/user/org-{org.id}",
+                'redirect_url': f"/user/org-{o.id}",
             }, status=status.HTTP_200_OK)
-        else:
-            return Response({'error': 'Incorrect password for assigned Estate Administrator account.'}, status=status.HTTP_401_UNAUTHORIZED)
 
     # 3. Check Institutional Staff Member in NeonDB
-    staff = StaffMember.objects.filter(email__iexact=email).first()
-    if staff:
-        accepted_staff = {
-            (staff.password or '').strip(),
-            'estate@2026',
-            'staff@2026',
-            'admin123'
-        }
-        if staff.organization and staff.organization.assigned_password:
-            accepted_staff.add(staff.organization.assigned_password.strip())
-
-        valid_staff_passwords = {p for p in accepted_staff if p}
-        if password in valid_staff_passwords:
+    matching_staff = StaffMember.objects.filter(email__iexact=email).order_by('-id')
+    for s in matching_staff:
+        staff_passwords = {(s.password or '').strip()}
+        if s.organization and s.organization.assigned_password:
+            staff_passwords.add(s.organization.assigned_password.strip())
+        if password in {p for p in staff_passwords if p}:
+            org_id = s.organization.id if s.organization else 1
+            org_name = s.organization.name if s.organization else "Campus"
             return Response({
                 'success': True,
                 'user': {
-                    'id': f"user-staff-{staff.id}",
-                    'name': staff.name,
-                    'email': staff.email,
-                    'role': staff.role,
-                    'organizationId': f"org-{staff.organization.id}" if staff.organization else "org-1",
-                    'organizationName': staff.organization.name if staff.organization else "Campus",
-                    'title': staff.title or f"{staff.role} - {staff.organization.name if staff.organization else 'Campus'}",
-                    'status': staff.status,
+                    'id': f"user-staff-{s.id}",
+                    'name': s.name,
+                    'email': s.email,
+                    'role': s.role,
+                    'organizationId': f"org-{org_id}",
+                    'organizationName': org_name,
+                    'title': s.title or f"{s.role} - {org_name}",
+                    'status': s.status,
                 },
-                'redirect_url': f"/user/org-{staff.organization.id}" if staff.organization else "/user",
+                'redirect_url': f"/user/org-{org_id}",
             }, status=status.HTTP_200_OK)
-        else:
-            return Response({'error': 'Incorrect password for institutional staff account.'}, status=status.HTTP_401_UNAUTHORIZED)
+
+    # 4. Check fallback default passwords if account exists (e.g. 'estate@2026', 'admin123', 'staff@2026')
+    fallback_defaults = {'estate@2026', 'admin123', 'staff@2026'}
+    if password in fallback_defaults:
+        if matching_orgs.exists():
+            o = matching_orgs.first()
+            return Response({
+                'success': True,
+                'user': {
+                    'id': f"user-org-{o.id}",
+                    'name': o.assigned_admin_name or f"Admin of {o.name}",
+                    'email': o.assigned_admin_email,
+                    'role': 'ORG_ADMIN',
+                    'organizationId': f"org-{o.id}",
+                    'organizationName': o.name,
+                    'title': f"Estate Administrator - {o.name}",
+                    'status': 'Active',
+                },
+                'redirect_url': f"/user/org-{o.id}",
+            }, status=status.HTTP_200_OK)
+        if matching_staff.exists():
+            s = matching_staff.first()
+            org_id = s.organization.id if s.organization else 1
+            org_name = s.organization.name if s.organization else "Campus"
+            return Response({
+                'success': True,
+                'user': {
+                    'id': f"user-staff-{s.id}",
+                    'name': s.name,
+                    'email': s.email,
+                    'role': s.role,
+                    'organizationId': f"org-{org_id}",
+                    'organizationName': org_name,
+                    'title': s.title or f"{s.role} - {org_name}",
+                    'status': s.status,
+                },
+                'redirect_url': f"/user/org-{org_id}",
+            }, status=status.HTTP_200_OK)
+
+    if matching_orgs.exists() or matching_staff.exists():
+        return Response({'error': 'Incorrect password for this account. Please verify and try again.'}, status=status.HTTP_401_UNAUTHORIZED)
 
     # 4. Cloud NeonDB Check: If user was registered in Cloud NeonDB, authenticate and sync locally
     try:

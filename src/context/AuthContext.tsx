@@ -301,19 +301,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         };
 
         const staffMap = new Map<string, User>();
-        staffMap.set(superAdminEmail.toLowerCase(), superAdminUser);
-        staffMap.set('superadmin@ecoestate.gov.in', superAdminUser);
+        staffMap.set('superadmin', superAdminUser);
 
         // Add all assigned admins from organizations in NeonDB
         for (const org of mappedOrgs) {
           if (org.assignedAdminEmail) {
-            const emailKey = org.assignedAdminEmail.toLowerCase();
-            if (emailKey === superAdminEmail.toLowerCase() || emailKey === 'superadmin@ecoestate.gov.in') {
-              continue;
-            }
-            staffMap.set(emailKey, {
-              id: `user-org-${org.id.replace('org-', '')}`,
-              name: org.assignedAdminName || 'Estate Administrator',
+            const orgAdminKey = `org-admin-${org.id}`;
+            staffMap.set(orgAdminKey, {
+              id: `user-${org.id}`,
+              name: org.assignedAdminName || `Admin of ${org.name}`,
               email: org.assignedAdminEmail,
               role: 'ORG_ADMIN',
               organizationId: org.id,
@@ -328,26 +324,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // Add all staff members from NeonDB StaffMember table
         for (const s of (backendStaff || [])) {
           if (s.email) {
-            const emailKey = s.email.toLowerCase();
-            if (emailKey === superAdminEmail.toLowerCase() || emailKey === 'superadmin@ecoestate.gov.in') {
-              continue;
-            }
+            const staffKey = `staff-${s.id}`;
             const matchingOrg = mappedOrgs.find(
               (o) =>
                 o.id === `org-${s.organization_id || s.organization}` ||
                 o.id === String(s.organization)
             );
-            staffMap.set(emailKey, {
-              id: `user-${s.id}`,
-              name: s.name,
-              email: s.email,
-              role: s.role as Role,
-              organizationId: matchingOrg ? matchingOrg.id : `org-${s.organization_id || s.organization || 1}`,
-              organizationName: matchingOrg ? matchingOrg.name : 'Estate',
-              title: s.title || `${s.role} - Estate Management`,
-              status: (s.status as 'Active' | 'Inactive') || 'Active',
-              lastActive: s.last_active || 'Connected to NeonDB',
-            });
+            // If this staff member is already represented as this exact org's assigned admin, avoid duplicate row:
+            const isSameAsOrgAdmin = matchingOrg && matchingOrg.assignedAdminEmail?.toLowerCase() === s.email.toLowerCase() && s.role === 'ORG_ADMIN';
+            if (!isSameAsOrgAdmin) {
+              staffMap.set(staffKey, {
+                id: `user-${s.id}`,
+                name: s.name,
+                email: s.email,
+                role: s.role as Role,
+                organizationId: matchingOrg ? matchingOrg.id : `org-${s.organization_id || s.organization || 1}`,
+                organizationName: matchingOrg ? matchingOrg.name : 'Estate',
+                title: s.title || `${s.role} - Estate Management`,
+                status: (s.status as 'Active' | 'Inactive') || 'Active',
+                lastActive: s.last_active || 'Connected to NeonDB',
+              });
+            }
           }
         }
 
@@ -535,10 +532,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         status: 'Active',
         lastActive: 'Provisioned just now',
       };
-      setUsers((prev) => {
-        const exists = prev.some((u) => u.email.toLowerCase() === newOrg.assignedAdminEmail.toLowerCase());
-        return exists ? prev : [assignedUser, ...prev];
-      });
+      setUsers((prev) => [assignedUser, ...prev.filter((u) => u.organizationId !== newOrgId)]);
     }
 
     // Trigger notification

@@ -80,6 +80,7 @@ export const AdminUsersView: React.FC = () => {
       organizationName: orgName,
       title: newTitle.trim() || `${roleLabel} - ${orgName}`,
       status: 'Active',
+      password: pwdToNotify,
     });
 
     setNewName('');

@@ -20,6 +20,7 @@ export interface User {
   createdAt?: string;
   avatar?: string;
   title?: string;
+  password?: string;
 }
 
 export interface Organization {
