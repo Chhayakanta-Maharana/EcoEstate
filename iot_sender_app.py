@@ -306,10 +306,13 @@ def get_local_ip() -> str:
         return "127.0.0.1"
 
 
-def normalize_ingest_url(raw_url: str) -> str:
-    """Clean and normalize ingest URL, fixing common typos and ensuring port 8000 for LAN/WiFi IPs."""
+def normalize_ingest_url(raw_url: str, default_port: str = "8000") -> str:
+    """Clean and normalize ingest URL, fixing common typos and ensuring configurable port for LAN/WiFi IPs."""
     url = raw_url.strip()
     if not url:
+        return CLOUD_INGEST_URL
+    if "10.26." in url:
+        # Internal container IP from Render cloud - redirect to external cloud ingest URL
         return CLOUD_INGEST_URL
     if not url.startswith("http://") and not url.startswith("https://"):
         url = "http://" + url
@@ -317,16 +320,16 @@ def normalize_ingest_url(raw_url: str) -> str:
     # Normalize localhost to 127.0.0.1 to eliminate Windows IPv6 (::1) 2-second resolution latency
     url = url.replace("://localhost", "://127.0.0.1")
 
-    # Fix typo where colon is omitted before 8000 (e.g. 192.168.0.1918000)
+    # Fix typo where colon is omitted before port (e.g. 192.168.0.1918000)
     import re
-    m = re.match(r'(https?://\d+\.\d+\.\d+\.\d{1,3})(8000|5000|5005)(.*)', url)
+    m = re.match(r'(https?://\d+\.\d+\.\d+\.\d{1,3})(8000|8080|5000|5005)(.*)', url)
     if m:
         url = f"{m.group(1)}:{m.group(2)}{m.group(3)}"
 
-    # If it's an IP address without an explicit port, append :8000 automatically
+    # If it's an IP address without an explicit port, append configured default_port automatically
     ip_m = re.match(r'^(https?://\d+\.\d+\.\d+\.\d+)(/.*)?$', url)
     if ip_m and ':' not in ip_m.group(1).split('://')[1]:
-        base = ip_m.group(1) + ":8000"
+        base = ip_m.group(1) + f":{default_port}"
         path = ip_m.group(2) or ""
         url = base + path
 
@@ -767,8 +770,8 @@ def send_packet_lan_udp(host: str, port: int, payload: dict) -> tuple[bool, str]
         return False, f"UDP Datagram Error ({host}:{port}): {e}"
 
 
-def send_packet_wifi_http(url: str, payload: dict) -> tuple[bool, str]:
-    """Sends telemetry payload via HTTP REST API simulating WiFi ESP32 node with fast 0.8s timeout."""
+def send_packet_wifi_http(url: str, payload: dict, timeout: float = 2.5) -> tuple[bool, str]:
+    """Sends telemetry payload via HTTP REST API simulating WiFi ESP32 node with fast timeout."""
     try:
         data_bytes = json.dumps(payload).encode('utf-8')
         req = urllib.request.Request(
@@ -776,7 +779,7 @@ def send_packet_wifi_http(url: str, payload: dict) -> tuple[bool, str]:
             data=data_bytes,
             headers={'Content-Type': 'application/json', 'User-Agent': 'ESP32-WiFi-Node/1.0'}
         )
-        with urllib.request.urlopen(req, timeout=6.0) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
             status_code = resp.getcode()
             body = resp.read().decode('utf-8', errors='ignore')
             return True, f"HTTP {status_code} Created: Synced with Twin Buffer"
@@ -956,12 +959,36 @@ class IoTSenderGui:
 
         tk.Label(wifi_grid, text="HTTP Ingest URL:", bg="#0d111f", fg="#94a3b8").grid(row=0, column=0, sticky="w", pady=2)
         self.wifi_url_var = tk.StringVar(value=DEFAULT_HTTP_URL)
-        url_entry = tk.Entry(wifi_grid, textvariable=self.wifi_url_var, width=38, bg="#070913", fg="#ffffff", insertbackground="#ffffff")
-        url_entry.grid(row=0, column=1, columnspan=2, sticky="w", padx=5, pady=2)
+        url_entry = tk.Entry(wifi_grid, textvariable=self.wifi_url_var, width=32, bg="#070913", fg="#ffffff", insertbackground="#ffffff")
+        url_entry.grid(row=0, column=1, sticky="w", padx=4, pady=2)
+
+        # Dedicated editable Port box
+        tk.Label(wifi_grid, text="Port:", bg="#0d111f", fg="#38bdf8", font=("Segoe UI", 8, "bold")).grid(row=0, column=2, sticky="w", padx=(6, 2), pady=2)
+        self.wifi_port_var = tk.StringVar(value="8000")
+        port_entry = tk.Entry(wifi_grid, textvariable=self.wifi_port_var, width=7, bg="#070913", fg="#38bdf8", insertbackground="#ffffff", font=("Consolas", 9, "bold"))
+        port_entry.grid(row=0, column=3, sticky="w", padx=2, pady=2)
+
+        def _on_port_changed(*args):
+            p = self.wifi_port_var.get().strip()
+            if not p or not p.isdigit():
+                return
+            cur = self.wifi_url_var.get().strip()
+            import re
+            m = re.search(r':\d{2,5}(/api/iot/ingest/?)', cur)
+            if m:
+                self.wifi_url_var.set(cur[:m.start()] + f":{p}" + m.group(1))
+            elif "127.0.0.1" in cur or "localhost" in cur or (hasattr(self, 'detected_ip') and self.detected_ip in cur):
+                self.wifi_url_var.set(f"http://127.0.0.1:{p}/api/iot/ingest/")
+
+        self.wifi_port_var.trace_add("write", _on_port_changed)
+
+        def _set_http_port(p_val: str):
+            self.wifi_port_var.set(p_val)
+            _on_port_changed()
 
         # Preset & Auto-Discover buttons row
         btn_wifi_box = tk.Frame(wifi_grid, bg="#0d111f")
-        btn_wifi_box.grid(row=1, column=1, columnspan=3, sticky="w", padx=5, pady=2)
+        btn_wifi_box.grid(row=1, column=1, columnspan=4, sticky="w", padx=4, pady=2)
 
         btn_cloud = tk.Button(
             btn_wifi_box, text="🌐 Cloud (Render)", font=("Segoe UI", 7, "bold"),
@@ -973,9 +1000,22 @@ class IoTSenderGui:
         btn_local_http = tk.Button(
             btn_wifi_box, text="🏠 Localhost", font=("Segoe UI", 7, "bold"),
             bg="#374151", fg="#e5e7eb", activebackground="#4b5563", activeforeground="#ffffff",
-            bd=0, padx=5, pady=1, cursor="hand2", command=lambda: self.wifi_url_var.set("http://127.0.0.1:8000/api/iot/ingest/")
+            bd=0, padx=5, pady=1, cursor="hand2", command=lambda: self.wifi_url_var.set(f"http://127.0.0.1:{self.wifi_port_var.get().strip() or '8000'}/api/iot/ingest/")
         )
         btn_local_http.pack(side="left", padx=2)
+
+        # Quick port buttons
+        btn_p8000 = tk.Button(
+            btn_wifi_box, text=":8000", font=("Consolas", 7, "bold"),
+            bg="#0f172a", fg="#38bdf8", bd=0, padx=4, pady=1, cursor="hand2", command=lambda: _set_http_port("8000")
+        )
+        btn_p8000.pack(side="left", padx=2)
+
+        btn_p8080 = tk.Button(
+            btn_wifi_box, text=":8080", font=("Consolas", 7, "bold"),
+            bg="#0f172a", fg="#38bdf8", bd=0, padx=4, pady=1, cursor="hand2", command=lambda: _set_http_port("8080")
+        )
+        btn_p8080.pack(side="left", padx=2)
 
         btn_discover = tk.Button(
             btn_wifi_box, text="🔍 Subnet Scan", font=("Segoe UI", 7, "bold"),
@@ -1304,6 +1344,11 @@ class IoTSenderGui:
 
     def _on_discover_result(self, url: str, desc: str = ""):
         self.wifi_url_var.set(url)
+        # Also extract and set editable port if present
+        import re
+        p_m = re.search(r':(\d{2,5})(/api/iot/ingest/?)', url)
+        if p_m:
+            self.wifi_port_var.set(p_m.group(1))
         # Also update LAN host based on discovered URL
         try:
             host_part = url.split("//")[1].split(":")[0]
@@ -1796,6 +1841,22 @@ class IoTSenderGui:
         last_proto = "UDP"
         last_msg = ""
 
+        # Retrieve user-editable ports
+        configured_http_port = self.wifi_port_var.get().strip() or "8000"
+        try:
+            configured_udp_port = int(self.lan_port_var.get().strip())
+        except Exception:
+            configured_udp_port = DEFAULT_UDP_PORT
+
+        try:
+            configured_tcp_port = int(self.lan_port_var.get().strip())
+        except Exception:
+            configured_tcp_port = DEFAULT_TCP_PORT
+
+        raw_url = self.wifi_url_var.get().strip() or DEFAULT_HTTP_URL
+        primary_http_url = normalize_ingest_url(raw_url, default_port=configured_http_port)
+        local_http_url = f"http://127.0.0.1:{configured_http_port}/api/iot/ingest/"
+
         # Send all N sensor nodes in the fleet
         for payload in payloads:
             is_lan = (payload["source"] == "LAN")
@@ -1803,48 +1864,52 @@ class IoTSenderGui:
 
             if is_lan:
                 host = self.lan_host_var.get().strip() or "255.255.255.255"
-                try:
-                    port = int(self.lan_port_var.get().strip())
-                except Exception:
-                    port = DEFAULT_TCP_PORT if proto == "TCP" else DEFAULT_UDP_PORT
-
                 if proto == "TCP":
-                    ok, msg = send_packet_lan_tcp(host, port, payload)
+                    ok, msg = send_packet_lan_tcp(host, configured_tcp_port, payload)
                 else:
-                    ok, msg = send_packet_lan_udp(host, port, payload)
+                    ok, msg = send_packet_lan_udp(host, configured_udp_port, payload)
                     if host != "127.0.0.1":
-                        send_packet_lan_udp("127.0.0.1", port, payload)
-                
-                # Also deliver to local Django REST backend to guarantee ingestion
-                send_packet_wifi_http("http://127.0.0.1:8000/api/iot/ingest/", payload)
+                        send_packet_lan_udp("127.0.0.1", configured_udp_port, payload)
+
+                # Asynchronously mirror to both Localhost and Cloud REST endpoints to guarantee receiver sees data
+                def _bg_lan_sync(p=payload, l_url=local_http_url):
+                    send_packet_wifi_http(l_url, p, timeout=1.5)
+                    send_packet_wifi_http(CLOUD_INGEST_URL, p, timeout=2.5)
+                threading.Thread(target=_bg_lan_sync, daemon=True).start()
+
                 last_proto = proto
                 last_msg = msg
             else:
-                raw_url = self.wifi_url_var.get().strip() or DEFAULT_HTTP_URL
-                url = normalize_ingest_url(raw_url)
-                
                 # Primary HTTP POST to target endpoint
-                http_ok, http_msg = send_packet_wifi_http(url, payload)
-                
-                # If primary URL fails (e.g. stale IP), fall back gracefully to localhost or cloud
-                if not http_ok and "127.0.0.1" not in url and "localhost" not in url:
-                    fb_ok, fb_msg = send_packet_wifi_http("http://127.0.0.1:8000/api/iot/ingest/", payload)
-                    if fb_ok:
-                        http_ok, http_msg = True, "Delivered via Localhost Ingest"
-                    else:
-                        fb_cloud_ok, fb_cloud_msg = send_packet_wifi_http(CLOUD_INGEST_URL, payload)
-                        if fb_cloud_ok:
-                            http_ok, http_msg = True, "Delivered via Production Cloud Ingest"
+                http_ok, http_msg = send_packet_wifi_http(primary_http_url, payload, timeout=2.5)
 
-                # Parallel broadcast on UDP 5005 for low-latency listener (both broadcast and localhost)
-                send_packet_lan_udp("255.255.255.255", 5005, payload)
-                send_packet_lan_udp("127.0.0.1", 5005, payload)
-                
+                # Asynchronously mirror to cloud and/or local endpoint so receiver updates regardless of environment
+                def _bg_wifi_sync(p=payload, p_url=primary_http_url, l_url=local_http_url):
+                    if "ecoestate.onrender.com" not in p_url:
+                        send_packet_wifi_http(CLOUD_INGEST_URL, p, timeout=2.5)
+                    if "127.0.0.1" not in p_url and "localhost" not in p_url:
+                        send_packet_wifi_http(l_url, p, timeout=1.5)
+                threading.Thread(target=_bg_wifi_sync, daemon=True).start()
+
+                # If primary URL fails (e.g. unreachable IP or timeout), fall back immediately
+                if not http_ok:
+                    fb_ok, fb_msg = send_packet_wifi_http(local_http_url, payload, timeout=1.5)
+                    if fb_ok:
+                        http_ok, http_msg = True, f"Delivered via Localhost (Port {configured_http_port})"
+                    else:
+                        fb_c_ok, fb_c_msg = send_packet_wifi_http(CLOUD_INGEST_URL, payload, timeout=2.5)
+                        if fb_c_ok:
+                            http_ok, http_msg = True, "Delivered via Cloud Production Ingest"
+
+                # Parallel broadcast on UDP for low-latency listener (both broadcast and localhost)
+                send_packet_lan_udp("255.255.255.255", configured_udp_port, payload)
+                send_packet_lan_udp("127.0.0.1", configured_udp_port, payload)
+
                 ok = http_ok
-                last_proto = "WiFi-HTTP"
+                last_proto = f"WiFi-HTTP:{configured_http_port}"
                 last_msg = http_msg
                 if not http_ok:
-                    self._log(f"❌ Failed to reach {url} -> {http_msg}", "FAIL")
+                    self._log(f"❌ Failed to reach {primary_http_url} -> {http_msg}", "FAIL")
 
             if ok:
                 success_count += 1

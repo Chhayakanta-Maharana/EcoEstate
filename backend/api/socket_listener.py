@@ -41,22 +41,33 @@ def get_gateway_config():
     cfg = dict(GATEWAY_CONFIG)
     cfg['is_active'] = _LISTENER_ACTIVE
     try:
-        # Prioritize local Wi-Fi / Ethernet IPs bound to hostname
-        host_ips = [
-            info[4][0] for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
-            if not info[4][0].startswith('127.')
-        ]
-        if host_ips:
-            # Prefer 192.168.x.x or 10.x.x.x
-            lan_pref = [ip for ip in host_ips if ip.startswith('192.168.')]
-            cfg['server_local_ip'] = lan_pref[0] if lan_pref else host_ips[0]
-            cfg['all_local_ips'] = host_ips
+        import os
+        if os.environ.get('RENDER') or os.environ.get('RENDER_EXTERNAL_HOSTNAME') or os.environ.get('RENDER_INSTANCE_ID'):
+            cfg['server_local_ip'] = os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'ecoestate.onrender.com')
+            cfg['is_cloud'] = True
         else:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(1.0)
-            s.connect(('8.8.8.8', 80))
-            cfg['server_local_ip'] = s.getsockname()[0]
-            s.close()
+            # Prioritize local Wi-Fi / Ethernet IPs bound to hostname
+            host_ips = [
+                info[4][0] for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
+                if not info[4][0].startswith('127.')
+            ]
+            if host_ips:
+                # Prefer 192.168.x.x
+                lan_pref = [ip for ip in host_ips if ip.startswith('192.168.')]
+                non_container = [ip for ip in host_ips if not ip.startswith('10.26.') and not ip.startswith('172.17.')]
+                if lan_pref:
+                    cfg['server_local_ip'] = lan_pref[0]
+                elif non_container:
+                    cfg['server_local_ip'] = non_container[0]
+                else:
+                    cfg['server_local_ip'] = host_ips[0]
+                cfg['all_local_ips'] = host_ips
+            else:
+                s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+                s.settimeout(1.0)
+                s.connect(('8.8.8.8', 80))
+                cfg['server_local_ip'] = s.getsockname()[0]
+                s.close()
     except Exception:
         cfg['server_local_ip'] = '127.0.0.1'
     return cfg
@@ -74,6 +85,9 @@ def update_gateway_config(new_cfg: dict):
     if 'tcp_port' in new_cfg and int(new_cfg['tcp_port']) != GATEWAY_CONFIG['tcp_port']:
         GATEWAY_CONFIG['tcp_port'] = int(new_cfg['tcp_port'])
         needs_restart = True
+
+    if 'http_port' in new_cfg and int(new_cfg['http_port']) != GATEWAY_CONFIG.get('http_port', 8000):
+        GATEWAY_CONFIG['http_port'] = int(new_cfg['http_port'])
 
     if 'preferred_protocol' in new_cfg:
         GATEWAY_CONFIG['preferred_protocol'] = new_cfg['preferred_protocol']

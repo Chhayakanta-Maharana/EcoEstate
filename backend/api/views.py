@@ -1653,18 +1653,25 @@ def iot_status_view(request):
             'metrics': {}
         }
 
+    req_host = request.get_host().split(':')[0]
+    raw_ip = gw_cfg.get('server_local_ip', req_host) if gw_cfg else req_host
+    if 'render.com' in req_host or raw_ip.startswith('10.26.') or os.environ.get('RENDER'):
+        gateway_ip = os.environ.get('RENDER_EXTERNAL_HOSTNAME', 'ecoestate.onrender.com')
+    else:
+        gateway_ip = raw_ip
+
     return Response({
         'lan_channel': {
             'status': 'ONLINE',
             'channel_name': 'Ethernet RJ45 / Industrial Modbus-TCP & UDP Broadcast',
             'interface': '0.0.0.0 (Binds all network interfaces)',
-            'gateway_ip': gw_cfg.get('server_local_ip', '192.168.1.50') if gw_cfg else '192.168.1.50',
+            'gateway_ip': gateway_ip,
             'subnet': '255.255.255.0',
             'broadcast_ip': '255.255.255.255',
             'protocols': [
                 f"UDP Broadcast (Port {gw_cfg.get('udp_port', 5005) if gw_cfg else 5005})",
                 f"Modbus-TCP / JSON (Port {gw_cfg.get('tcp_port', 5000) if gw_cfg else 5000})",
-                'HTTP/REST (Port 8000)'
+                f"HTTP/REST (Port {gw_cfg.get('http_port', 8000) if gw_cfg else 8000})"
             ],
             'active_wired_nodes': 12,
             'packet_rate_per_min': 1420,
