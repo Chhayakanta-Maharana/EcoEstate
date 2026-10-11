@@ -68,7 +68,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({ onNaviga
   }, []);
 
   // 1. Live Users list (Real from NeonDB or fallback to AuthContext)
-  const realUsersList = dbAnalytics?.users_directory || users.map((u) => ({
+  const fallbackUsersList = users.map((u) => ({
     id: u.id,
     name: u.name,
     email: u.email,
@@ -82,14 +82,20 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({ onNaviga
     source: 'Local Client State',
   }));
 
+  const realUsersList = (dbAnalytics?.users_directory && dbAnalytics.users_directory.length > 1)
+    ? dbAnalytics.users_directory
+    : fallbackUsersList;
+
   // 2. Real Facilities Data for Green Score Chart
-  const facilityScoreData = dbAnalytics?.facility_benchmarks || organizations.map((org) => ({
-    name: org.name.split(' ')[0] || org.name,
-    fullName: org.name,
-    score: org.sustainabilityScore,
-    type: org.type,
-    occupancy_pct: Math.round((org.occupancyCurrent / org.occupancyMax) * 100),
-  }));
+  const facilityScoreData = (dbAnalytics?.facility_benchmarks && dbAnalytics.facility_benchmarks.length > 0)
+    ? dbAnalytics.facility_benchmarks
+    : organizations.map((org) => ({
+        name: org.name.split(' ')[0] || org.name,
+        fullName: org.name,
+        score: org.sustainabilityScore,
+        type: org.type,
+        occupancy_pct: Math.round((org.occupancyCurrent / org.occupancyMax) * 100),
+      }));
 
   // 3. Real Dynamic Role Distribution for Donut Chart
   const donutColors: Record<string, string> = {
@@ -101,7 +107,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({ onNaviga
     ORG_OPERATOR: '#ec4899',
   };
 
-  const donutData = dbAnalytics?.role_distribution
+  const donutData = dbAnalytics?.role_distribution && Object.keys(dbAnalytics.role_distribution).length > 0
     ? Object.entries(dbAnalytics.role_distribution).map(([role, count]) => ({
         name: role.replace('_', ' '),
         value: Number(count),
@@ -146,9 +152,26 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({ onNaviga
   const institutionalUsersList = realUsersList.filter(
     (u: any) => u.role !== 'SUPERADMIN' && u.id !== 'user-superadmin' && u.id !== 'user-superadmin-01'
   );
-  const totalUsersCount = dbAnalytics?.total_users ?? institutionalUsersList.length;
-  const activeUsersCount = dbAnalytics?.active_users ?? institutionalUsersList.filter((u: any) => (u.status || 'Active') === 'Active').length;
-  const totalOrgsCount = dbAnalytics?.total_organizations || organizations.length;
+  const contextInstitutionalCount = users.filter(
+    (u) => u.role !== 'SUPERADMIN' && u.id !== 'user-superadmin' && u.id !== 'user-superadmin-01'
+  ).length;
+
+  const totalUsersCount = Math.max(
+    dbAnalytics?.total_users || 0,
+    institutionalUsersList.length,
+    contextInstitutionalCount
+  );
+
+  const activeUsersCount = Math.max(
+    dbAnalytics?.active_users || 0,
+    institutionalUsersList.filter((u: any) => (u.status || 'Active') === 'Active').length,
+    totalUsersCount
+  );
+
+  const totalOrgsCount = Math.max(
+    dbAnalytics?.total_organizations || 0,
+    organizations.length
+  );
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">

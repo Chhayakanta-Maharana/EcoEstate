@@ -59,9 +59,175 @@ def ensure_org_telemetry(org):
     except Exception as e:
         print(f"[ENSURE_ORG_ERROR] {e}")
 
+def auto_seed_cloud_if_empty():
+    """
+    Self-healing baseline seed:
+    If the database has 0 organizations (e.g. freshly deployed container on Render),
+    automatically populates the standard national organizations, staff members,
+    and SuperAdmin credentials so no user or laptop ever sees 0 estates or 0 users.
+    """
+    if Organization.objects.count() > 0:
+        return
+
+    orgs_data = [
+        {
+            'name': 'Government College of Engineering Kalahandi (GCEK)',
+            'facility_type': 'COLLEGE',
+            'category_label': 'Government Engineering College',
+            'city': 'Bhawanipatna',
+            'state': 'Odisha',
+            'area_sqft': 1500000,
+            'occupancy_current': 3200,
+            'occupancy_max': 5000,
+            'assigned_admin_name': 'Hari Pangi',
+            'assigned_admin_email': 'haripangi335@gmail.com',
+            'assigned_password': 'Hari@335',
+            'iot_gateway_ip': '192.168.0.191',
+            'sustainability_score': 83,
+            'carbon_target_reduction_pct': 28,
+            'description': 'Constituent college of BPUT featuring continuous optical CAAQMS, rooftop solar PV microgrid, and smart waste segregation.'
+        },
+        {
+            'name': 'BPUT State University & Engineering Campus',
+            'facility_type': 'COLLEGE',
+            'category_label': 'Technical University',
+            'city': 'Rourkela',
+            'state': 'Odisha',
+            'area_sqft': 2400000,
+            'occupancy_current': 8650,
+            'occupancy_max': 12000,
+            'assigned_admin_name': 'Prof. Ramesh Mohanty',
+            'assigned_admin_email': 'campus.estate@bput.ac.in',
+            'assigned_password': 'college@2026',
+            'iot_gateway_ip': '192.168.20.1',
+            'sustainability_score': 84,
+            'carbon_target_reduction_pct': 30,
+            'description': 'Premier state technical university campus with high solar rooftop deployment, 6 hostels, smart labs, and rain harvesting lakes.'
+        },
+        {
+            'name': 'AIIMS Apex Healthcare & Research Campus',
+            'facility_type': 'HOSPITAL',
+            'category_label': 'Super Specialty Hospital',
+            'city': 'New Delhi',
+            'state': 'Delhi NCR',
+            'area_sqft': 1850000,
+            'occupancy_current': 14200,
+            'occupancy_max': 18000,
+            'assigned_admin_name': 'Dr. Arvind Sharma',
+            'assigned_admin_email': 'hospital.admin@aiims.gov.in',
+            'assigned_password': 'hospital@2026',
+            'iot_gateway_ip': '192.168.10.1',
+            'sustainability_score': 88,
+            'carbon_target_reduction_pct': 25,
+            'description': 'Tertiary-care government hospital with 24/7 emergency, ICU wards, PSA oxygen plant, and green bio-medical waste segregation.'
+        },
+        {
+            'name': 'ONGC Green Energy & Refining Estate',
+            'facility_type': 'PSU',
+            'category_label': 'Central Public Sector Enterprise (CPSE)',
+            'city': 'Hazira',
+            'state': 'Gujarat',
+            'area_sqft': 4500000,
+            'occupancy_current': 6200,
+            'occupancy_max': 8500,
+            'assigned_admin_name': 'Sanjay Verma',
+            'assigned_admin_email': 'psu.operations@ongc.in',
+            'assigned_password': 'psu@2026',
+            'iot_gateway_ip': '192.168.30.1',
+            'sustainability_score': 79,
+            'carbon_target_reduction_pct': 35,
+            'description': 'Strategic national energy complex with continuous emissions monitoring (CEMS), high-voltage substations, and zero liquid discharge.'
+        },
+        {
+            'name': 'Tata Steel Green Steelmaking Complex',
+            'facility_type': 'INDUSTRY',
+            'category_label': 'Heavy Industrial & Manufacturing Estate',
+            'city': 'Jamshedpur',
+            'state': 'Jharkhand',
+            'area_sqft': 6200000,
+            'occupancy_current': 11400,
+            'occupancy_max': 15000,
+            'assigned_admin_name': 'Pooja Deshmukh',
+            'assigned_admin_email': 'superadmin@gmail.com',
+            'assigned_password': 'Hari@223',
+            'iot_gateway_ip': '192.168.40.1',
+            'sustainability_score': 81,
+            'carbon_target_reduction_pct': 40,
+            'description': 'Integrated manufacturing zone monitoring blast furnace emissions, heavy transport logistics, industrial water recycling, and slag processing.'
+        },
+        {
+            'name': 'BPUT Smart Engineering Campus',
+            'facility_type': 'COLLEGE',
+            'category_label': 'Technical University',
+            'city': 'Rourkela',
+            'state': 'Odisha',
+            'area_sqft': 2100000,
+            'occupancy_current': 7500,
+            'occupancy_max': 10000,
+            'assigned_admin_name': 'Dr. Chhayakanta Maharan',
+            'assigned_admin_email': 'chhayakanta.bput@gmail.com',
+            'assigned_password': 'BputSecure@2026',
+            'iot_gateway_ip': '192.168.20.10',
+            'sustainability_score': 86,
+            'carbon_target_reduction_pct': 32,
+            'description': 'Smart digital campus testbed.'
+        },
+        {
+            'name': 'Odisha',
+            'facility_type': 'HOSPITAL',
+            'category_label': 'State Healthcare Complex',
+            'city': 'Bhubaneswar',
+            'state': 'Odisha',
+            'area_sqft': 1950000,
+            'occupancy_current': 12000,
+            'occupancy_max': 16000,
+            'assigned_admin_name': 'Hari Pangi',
+            'assigned_admin_email': 'chhayakantamaharan@gmail.com',
+            'assigned_password': 'superadmin',
+            'iot_gateway_ip': '192.168.50.1',
+            'sustainability_score': 89,
+            'carbon_target_reduction_pct': 30,
+            'description': 'Odisha state health and bio-sanitation facility.'
+        }
+    ]
+
+    for d in orgs_data:
+        o, _ = Organization.objects.get_or_create(name=d['name'], defaults=d)
+        if o.assigned_admin_email:
+            StaffMember.objects.get_or_create(
+                email__iexact=o.assigned_admin_email.strip().lower(),
+                defaults={
+                    'name': o.assigned_admin_name or f"Admin of {o.name}",
+                    'email': o.assigned_admin_email.strip().lower(),
+                    'organization': o,
+                    'role': 'ORG_ADMIN',
+                    'title': f"Estate Administrator - {o.name}",
+                    'password': o.assigned_password or 'estate@2026',
+                    'status': 'Active'
+                }
+            )
+
+    try:
+        from .models import SuperAdminAccount
+        SuperAdminAccount.objects.get_or_create(
+            email='superadmin@ecoestate.gov.in',
+            defaults={
+                'name': 'Alex Carter',
+                'password': 'admin123',
+                'title': 'National Estate SuperAdmin'
+            }
+        )
+    except Exception:
+        pass
+
 class OrganizationViewSet(viewsets.ModelViewSet):
     queryset = Organization.objects.all().order_by('-created_at')
     serializer_class = OrganizationSerializer
+
+    def get_queryset(self):
+        if Organization.objects.count() == 0:
+            auto_seed_cloud_if_empty()
+        return super().get_queryset()
 
     def perform_create(self, serializer):
         org = serializer.save()
@@ -1383,6 +1549,8 @@ def admin_realtime_analytics_view(request):
     - Real GRIHA scores and occupancy percentages
     - Real Telemetry Ingestion Activity (LAN & WiFi)
     """
+    if Organization.objects.count() == 0:
+        auto_seed_cloud_if_empty()
     orgs = Organization.objects.all().order_by('-created_at')
     staff_members = StaffMember.objects.select_related('organization').all().order_by('-id')
     
