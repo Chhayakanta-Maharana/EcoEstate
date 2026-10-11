@@ -56,7 +56,7 @@ WSGI_APPLICATION = 'ecoestate_backend.wsgi.application'
 
 NEON_DB_URL = os.environ.get(
     'DATABASE_URL',
-    "postgresql://neondb_owner:npg_yIMNb4aKEZ8z@ep-weathered-fog-b5smac4m-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require"
+    "postgresql://neondb_owner:npg_jkwc5flaP1Io@ep-bold-scene-b4vfxua7-pooler.c-6.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
 )
 
 # Dual-Database Engine: 'default' (Local SQLite for zero-latency UI) + 'neondb' (National Cloud Hub)
