@@ -307,25 +307,32 @@ def get_local_ip() -> str:
 
 
 def normalize_ingest_url(raw_url: str) -> str:
-    """Clean and normalize ingest URL, fixing common typos."""
+    """Clean and normalize ingest URL, fixing common typos and ensuring port 8000 for LAN/WiFi IPs."""
     url = raw_url.strip()
     if not url:
         return CLOUD_INGEST_URL
     if not url.startswith("http://") and not url.startswith("https://"):
         url = "http://" + url
-    
+
     # Fix typo where colon is omitted before 8000 (e.g. 192.168.0.1918000)
     import re
     m = re.match(r'(https?://\d+\.\d+\.\d+\.\d{1,3})(8000|5000|5005)(.*)', url)
     if m:
         url = f"{m.group(1)}:{m.group(2)}{m.group(3)}"
-    
+
+    # If it's an IP address without an explicit port, append :8000 automatically
+    ip_m = re.match(r'^(https?://\d+\.\d+\.\d+\.\d+)(/.*)?$', url)
+    if ip_m and ':' not in ip_m.group(1).split('://')[1]:
+        base = ip_m.group(1) + ":8000"
+        path = ip_m.group(2) or ""
+        url = base + path
+
     if not url.endswith("/api/iot/ingest/") and not url.endswith("/api/iot/ingest"):
         if url.endswith("/"):
             url = url + "api/iot/ingest/"
         else:
             url = url + "/api/iot/ingest/"
-    
+
     if not url.endswith("/"):
         url = url + "/"
     return url

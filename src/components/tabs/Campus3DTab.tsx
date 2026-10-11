@@ -457,6 +457,104 @@ export const Campus3DTab: React.FC = () => {
     });
   }, [activeOrg?.id]);
 
+  // Continuously ingest and spawn dynamic pins for all live incoming hardware nodes from sender
+  useEffect(() => {
+    let isMounted = true;
+    const fetchLiveHardwareNodes = async () => {
+      try {
+        const liveRes = await DjangoApi.getLiveIoTNodes(activeOrg?.id);
+        if (!isMounted || !liveRes?.nodes || !Array.isArray(liveRes.nodes) || liveRes.nodes.length === 0) return;
+
+        setNodes((prevNodes) => {
+          const nodeMap = new Map<string, CampusNode>();
+          for (const n of prevNodes) {
+            nodeMap.set(n.id, n);
+            if ((n as any).device_id) nodeMap.set((n as any).device_id, n);
+          }
+
+          // Ingest each hardware node sent from the sender application
+          for (const rawNode of liveRes.nodes) {
+            const devId = rawNode.device_id || rawNode.id;
+            const existing = nodeMap.get(devId) || nodeMap.get(rawNode.id);
+
+            if (existing) {
+              // Update telemetry values while keeping pinned coordinates
+              const updated: CampusNode = {
+                ...existing,
+                pm25: rawNode.pm25 ?? existing.pm25,
+                pm10: rawNode.pm10 ?? existing.pm10,
+                temp: rawNode.temp ?? existing.temp,
+                humidity: rawNode.humidity ?? existing.humidity,
+                status: rawNode.status || existing.status,
+                secondaryLabel: rawNode.secondaryLabel || existing.secondaryLabel,
+                secondaryValue: rawNode.secondaryValue || existing.secondaryValue,
+                metric1Label: rawNode.metric1Label || existing.metric1Label,
+                metric1Value: rawNode.metric1Value || existing.metric1Value,
+                metric2Label: rawNode.metric2Label || existing.metric2Label,
+                metric2Value: rawNode.metric2Value || existing.metric2Value,
+                metric3Label: rawNode.metric3Label || existing.metric3Label,
+                metric3Value: rawNode.metric3Value || existing.metric3Value,
+                metric4Label: rawNode.metric4Label || existing.metric4Label,
+                metric4Value: rawNode.metric4Value || existing.metric4Value,
+                metrics: rawNode.metrics || existing.metrics,
+              };
+              nodeMap.set(existing.id, updated);
+            } else {
+              // Spawn dynamic new pin on 3D Campus for each newly received hardware node!
+              const newNode: CampusNode = {
+                id: devId,
+                name: rawNode.name || `${rawNode.type?.toUpperCase() || 'IoT'} Node (${devId})`,
+                locationLabel: rawNode.locationLabel || rawNode.location || 'Campus Node',
+                type: (rawNode.type as any) || 'aqi',
+                interfaceType: (rawNode.interfaceType as any) || 'WIFI',
+                xPct: rawNode.xPct ?? 50.0,
+                yPct: rawNode.yPct ?? 50.0,
+                stemHeightPx: rawNode.stemHeightPx || 60,
+                pm25: rawNode.pm25 ?? 25,
+                pm10: rawNode.pm10 ?? 45,
+                temp: rawNode.temp ?? 28,
+                humidity: rawNode.humidity ?? 55,
+                status: rawNode.status || 'optimal',
+                secondaryLabel: rawNode.secondaryLabel,
+                secondaryValue: rawNode.secondaryValue,
+                metric1Label: rawNode.metric1Label,
+                metric1Value: rawNode.metric1Value,
+                metric2Label: rawNode.metric2Label,
+                metric2Value: rawNode.metric2Value,
+                metric3Label: rawNode.metric3Label,
+                metric3Value: rawNode.metric3Value,
+                metric4Label: rawNode.metric4Label,
+                metric4Value: rawNode.metric4Value,
+                metrics: rawNode.metrics,
+              };
+              nodeMap.set(devId, newNode);
+            }
+          }
+
+          // Return deduped list
+          const uniqueList: CampusNode[] = [];
+          const seenIds = new Set<string>();
+          Array.from(nodeMap.values()).forEach((item) => {
+            if (!seenIds.has(item.id)) {
+              seenIds.add(item.id);
+              uniqueList.push(item);
+            }
+          });
+          return uniqueList;
+        });
+      } catch (err) {
+        // quiet polling error
+      }
+    };
+
+    fetchLiveHardwareNodes();
+    const interval = setInterval(fetchLiveHardwareNodes, 2500);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [activeOrg?.id]);
+
   // 3. Viewport Transform & Interactive State:
   // Default tiltPitch is 0deg so the image is clean, upright, and NOT skewed or slanted!
   const [zoomLevel, setZoomLevel] = useState<number>(1);

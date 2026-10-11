@@ -634,7 +634,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const deleteOrganization = (id: string) => {
+  const deleteOrganization = async (id: string) => {
     setOrganizations((prev) => prev.filter((o) => o.id !== id));
     setUsers((prev) => prev.filter((u) => u.organizationId !== id));
     if (activeOrgId === id && organizations.length > 1) {
@@ -643,9 +643,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
     const cleanId = id.replace('org-', '');
     if (/^\d+$/.test(cleanId)) {
-      DjangoApi.deleteOrganization(cleanId).then(() => {
-        refreshBackendData();
-      });
+      try {
+        await DjangoApi.deleteOrganization(cleanId);
+      } catch (e) {
+        console.warn('Error deleting organization from backend:', e);
+      }
+      await refreshBackendData();
     }
   };
 
@@ -701,23 +704,58 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const deleteUser = (userId: string) => {
+  const deleteUser = async (userId: string) => {
     const targetUser = users.find((u) => u.id === userId);
     setUsers((prev) => prev.filter((u) => u.id !== userId));
 
-    const cleanId = userId.replace('user-', '');
-    if (/^\d+$/.test(cleanId)) {
-      DjangoApi.deleteStaffMember(cleanId).then(() => refreshBackendData());
-    } else if (cleanId.startsWith('org-') || targetUser?.role === 'ORG_ADMIN') {
-      const orgNumeric = (targetUser?.organizationId || cleanId).replace('org-', '');
-      if (/^\d+$/.test(orgNumeric)) {
-        DjangoApi.updateOrganization(orgNumeric, {
+    const cleanId = userId.replace('user-', '').replace('org-', '');
+    const userEmail = targetUser?.email;
+
+    // 1. Delete from StaffMember in both SQLite and NeonDB
+    try {
+      if (/^\d+$/.test(cleanId)) {
+        await DjangoApi.deleteStaffMember(cleanId);
+      }
+      if (userEmail) {
+        await DjangoApi.deleteStaffMember(encodeURIComponent(userEmail));
+      }
+    } catch (e) {
+      console.warn('Error deleting staff member:', e);
+    }
+
+    // 2. Clear assigned admin on matching organization
+    const orgNumeric = (targetUser?.organizationId || cleanId).replace('org-', '');
+    if (/^\d+$/.test(orgNumeric)) {
+      try {
+        await DjangoApi.updateOrganization(orgNumeric, {
           assigned_admin_name: '',
           assigned_admin_email: '',
           assigned_password: '',
-        }).then(() => refreshBackendData());
+        });
+      } catch (e) {
+        console.warn('Error clearing organization admin:', e);
       }
     }
+
+    // 3. Check all organizations for matching email and clear
+    if (userEmail) {
+      for (const org of organizations) {
+        if (org.assignedAdminEmail?.toLowerCase() === userEmail.toLowerCase()) {
+          const orgNum = org.id.replace('org-', '');
+          if (/^\d+$/.test(orgNum)) {
+            try {
+              await DjangoApi.updateOrganization(orgNum, {
+                assigned_admin_name: '',
+                assigned_admin_email: '',
+                assigned_password: '',
+              });
+            } catch (e) {}
+          }
+        }
+      }
+    }
+
+    await refreshBackendData();
   };
 
   const addEquipment = (item: Omit<EquipmentItem, 'id'>) => {

@@ -4,7 +4,7 @@ import logging
 import threading
 from django.conf import settings
 from rest_framework import viewsets, status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
 from .models import (
     Organization,
@@ -350,14 +350,26 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         org_id = instance.id
         org_name = instance.name
         org_email = instance.assigned_admin_email
-        # Delete related staff members in SQLite
+        # Cascade delete related child records in SQLite
+        from .models import (
+            Equipment, Dustbin, AqiTelemetry, WaterTelemetry,
+            EnergyTelemetry, ParkingTelemetry
+        )
         StaffMember.objects.filter(organization=instance).delete()
+        Equipment.objects.filter(organization=instance).delete()
+        Dustbin.objects.filter(organization=instance).delete()
+        AqiTelemetry.objects.filter(organization=instance).delete()
+        WaterTelemetry.objects.filter(organization=instance).delete()
+        EnergyTelemetry.objects.filter(organization=instance).delete()
+        ParkingTelemetry.objects.filter(organization=instance).delete()
         instance.delete()
+
+        # Synchronously delete from NeonDB cloud
         try:
-            from .dual_db_sync import async_delete_organization_from_neondb
-            async_delete_organization_from_neondb(org_id=org_id, org_name=org_name, org_email=org_email)
-        except Exception:
-            pass
+            from .dual_db_sync import sync_delete_organization_from_neondb
+            sync_delete_organization_from_neondb(org_id=org_id, org_name=org_name, org_email=org_email)
+        except Exception as e:
+            print(f"[PERFORM_DESTROY_NEON_ERR] {e}")
 
 def resolve_org_from_param(org_id_param):
     if not org_id_param:
@@ -370,6 +382,7 @@ def resolve_org_from_param(org_id_param):
 class StaffMemberViewSet(viewsets.ModelViewSet):
     queryset = StaffMember.objects.all().order_by('-created_at')
     serializer_class = StaffMemberSerializer
+    lookup_value_regex = '[^/]+'
 
     def get_queryset(self):
         org_id = self.request.query_params.get('org_id')
@@ -390,6 +403,7 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
                 'password': staff.password,
                 'title': staff.title,
                 'organization_id': staff.organization.id if staff.organization else None,
+                'organization_name': staff.organization.name if staff.organization else None,
                 'status': staff.status,
             })
         except Exception:
@@ -406,20 +420,84 @@ class StaffMemberViewSet(viewsets.ModelViewSet):
                 'password': staff.password,
                 'title': staff.title,
                 'organization_id': staff.organization.id if staff.organization else None,
+                'organization_name': staff.organization.name if staff.organization else None,
                 'status': staff.status,
             })
         except Exception:
             pass
 
+    def destroy(self, request, *args, **kwargs):
+        import urllib.parse
+        raw_pk = kwargs.get('pk')
+        pk = urllib.parse.unquote(str(raw_pk)).strip() if raw_pk else ''
+        target = None
+        if pk and pk.isdigit():
+            target = StaffMember.objects.filter(pk=int(pk)).first()
+        if not target and pk and '@' in pk:
+            target = StaffMember.objects.filter(email__iexact=pk).first()
+
+        email = target.email if target else (pk if '@' in pk else None)
+        staff_id = target.id if target else (int(pk) if pk.isdigit() else None)
+
+        if target:
+            target.delete()
+        if email:
+            StaffMember.objects.filter(email__iexact=email).delete()
+            Organization.objects.filter(assigned_admin_email__iexact=email).update(
+                assigned_admin_name='',
+                assigned_admin_email='',
+                assigned_password=''
+            )
+
+        # Synchronously delete from NeonDB cloud
+        try:
+            from .dual_db_sync import sync_delete_staff_from_neondb
+            sync_delete_staff_from_neondb(staff_id=staff_id, staff_email=email)
+        except Exception as e:
+            print(f"[DESTROY_STAFF_NEON_ERR] {e}")
+
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @action(detail=False, methods=['delete', 'post'])
+    def delete_by_email(self, request):
+        email = request.data.get('email') or request.query_params.get('email')
+        if not email:
+            return Response({'error': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
+        email = email.strip()
+        StaffMember.objects.filter(email__iexact=email).delete()
+        Organization.objects.filter(assigned_admin_email__iexact=email).update(
+            assigned_admin_name='',
+            assigned_admin_email='',
+            assigned_password=''
+        )
+        try:
+            from .dual_db_sync import sync_delete_staff_from_neondb
+            sync_delete_staff_from_neondb(staff_email=email)
+        except Exception as e:
+            print(f"[DELETE_BY_EMAIL_NEON_ERR] {e}")
+        return Response({'status': 'deleted', 'email': email}, status=status.HTTP_200_OK)
+
     def perform_destroy(self, instance):
         staff_id = instance.id
         staff_email = instance.email
         instance.delete()
+
+        # Also clear assigned_admin_email on matching organizations in SQLite
+        if staff_email:
+            Organization.objects.filter(
+                assigned_admin_email__iexact=staff_email.strip()
+            ).update(
+                assigned_admin_name='',
+                assigned_admin_email='',
+                assigned_password=''
+            )
+
+        # Synchronously delete from NeonDB cloud
         try:
-            from .dual_db_sync import async_delete_staff_from_neondb
-            async_delete_staff_from_neondb(staff_id=staff_id, staff_email=staff_email)
-        except Exception:
-            pass
+            from .dual_db_sync import sync_delete_staff_from_neondb
+            sync_delete_staff_from_neondb(staff_id=staff_id, staff_email=staff_email)
+        except Exception as e:
+            print(f"[PERFORM_DESTROY_STAFF_NEON_ERR] {e}")
 
 class EquipmentViewSet(viewsets.ModelViewSet):
     queryset = Equipment.objects.all().order_by('id')
@@ -1721,15 +1799,16 @@ def admin_realtime_analytics_view(request):
     orgs = Organization.objects.all().order_by('-created_at')
     staff_members = StaffMember.objects.select_related('organization').all().order_by('-id')
     
-    # 1. Compile all database-assigned administrators and platform users 100% from NeonDB
+    # 1. Compile all database-assigned administrators and platform users 100% from database
+    sa_cfg = get_superadmin_credentials()
     real_users = [
         {
             'id': 'user-superadmin-01',
-            'name': 'Alex Carter',
-            'email': 'superadmin@ecoestate.gov.in',
+            'name': sa_cfg.get('name', 'Alex Carter'),
+            'email': sa_cfg.get('email', 'superadmin@ecoestate.gov.in'),
             'role': 'SUPERADMIN',
             'role_label': 'National SuperAdmin',
-            'title': 'Director General & National System Administrator',
+            'title': sa_cfg.get('title', 'Director General & National System Administrator'),
             'assigned_facility': 'National Platform',
             'facility_type': 'CENTRAL',
             'status': 'Active',
@@ -1944,12 +2023,26 @@ def superadmin_profile_update_view(request):
     except Exception:
         pass
 
-    # 3. Asynchronously sync to NeonDB cloud
+    # 3. Synchronously sync to NeonDB cloud
     try:
         from .dual_db_sync import async_replicate_superadmin_to_neondb
-        async_replicate_superadmin_to_neondb(updated)
-    except Exception:
-        pass
+        sa_neon = SuperAdminAccount.objects.using('neondb').first()
+        if sa_neon:
+            sa_neon.name = new_name
+            sa_neon.email = new_email
+            sa_neon.title = new_title
+            if new_password:
+                sa_neon.password = new_password
+            sa_neon.save(using='neondb')
+        else:
+            SuperAdminAccount.objects.using('neondb').create(
+                name=new_name,
+                email=new_email,
+                title=new_title,
+                password=active_password
+            )
+    except Exception as e:
+        logging.getLogger(__name__).warning(f"NeonDB SuperAdmin save notice: {e}")
 
     return Response({
         'success': True,
@@ -1970,7 +2063,7 @@ def api_change_password_view(request):
     Authenticated change password endpoint:
     - Rule: Regular users CANNOT change email/login ID, ONLY password!
     - Updates directly in the database (Organization.assigned_password or StaffMember.password).
-    - If SuperAdmin, updates SuperAdminAccount in the database and replicates to NeonDB.
+    - If SuperAdmin, updates SuperAdminAccount in the database and syncs to NeonDB.
     """
     from .models import SuperAdminAccount
     data = request.data
@@ -1989,8 +2082,23 @@ def api_change_password_view(request):
             sa, _ = SuperAdminAccount.objects.get_or_create(id=1, defaults={'email': sa_cfg['email'], 'name': sa_cfg['name'], 'password': new_password})
             sa.password = new_password
             sa.save()
-            from .dual_db_sync import async_replicate_superadmin_to_neondb
-            async_replicate_superadmin_to_neondb({'password': new_password, 'email': sa_cfg['email']})
+            # Also update JSON config
+            try:
+                with open(SUPERADMIN_CONFIG_PATH, 'w', encoding='utf-8') as f:
+                    sa_cfg['current_password'] = new_password
+                    json.dump({'name': sa.name, 'email': sa.email, 'title': sa.title, 'password': new_password}, f, indent=2)
+            except Exception:
+                pass
+            # Synchronously update NeonDB
+            try:
+                sa_neon = SuperAdminAccount.objects.using('neondb').first()
+                if sa_neon:
+                    sa_neon.password = new_password
+                    sa_neon.save(using='neondb')
+                else:
+                    SuperAdminAccount.objects.using('neondb').create(name=sa.name, email=sa.email, title=sa.title, password=new_password)
+            except Exception as e_neon:
+                logging.getLogger(__name__).warning(f"NeonDB SuperAdmin password update: {e_neon}")
         except Exception as e:
             logging.getLogger(__name__).warning(f"SuperAdmin DB password update: {e}")
         return Response({'success': True, 'message': 'SuperAdmin password updated successfully in database.'}, status=status.HTTP_200_OK)
@@ -2002,9 +2110,8 @@ def api_change_password_view(request):
         orgs.update(assigned_password=new_password)
         updated = True
         try:
-            from .dual_db_sync import async_replicate_organization_to_neondb
-            for o in orgs:
-                async_replicate_organization_to_neondb({'name': o.name, 'assigned_admin_email': o.assigned_admin_email, 'assigned_password': new_password})
+            # Synchronously update NeonDB Organization table
+            Organization.objects.using('neondb').filter(assigned_admin_email__iexact=email).update(assigned_password=new_password)
         except Exception:
             pass
 
@@ -2014,9 +2121,8 @@ def api_change_password_view(request):
         staff_members.update(password=new_password)
         updated = True
         try:
-            from .dual_db_sync import async_replicate_staff_to_neondb
-            for sm in staff_members:
-                async_replicate_staff_to_neondb({'email': sm.email, 'password': new_password})
+            # Synchronously update NeonDB StaffMember table
+            StaffMember.objects.using('neondb').filter(email__iexact=email).update(password=new_password)
         except Exception:
             pass
 
@@ -2111,15 +2217,43 @@ def api_login_view(request):
     try:
         from django.db import connections
         if 'neondb' in connections.databases:
+            # Check NeonDB Organization Admin
+            cloud_org = Organization.objects.using('neondb').filter(assigned_admin_email__iexact=email).first()
+            if cloud_org and cloud_org.assigned_password and password == cloud_org.assigned_password.strip():
+                # Sync locally
+                local_org, _ = Organization.objects.get_or_create(
+                    name=cloud_org.name,
+                    defaults={
+                        'facility_type': cloud_org.facility_type,
+                        'category_label': cloud_org.category_label,
+                        'city': cloud_org.city,
+                        'state': cloud_org.state,
+                        'area_sqft': cloud_org.area_sqft,
+                        'assigned_admin_name': cloud_org.assigned_admin_name,
+                        'assigned_admin_email': cloud_org.assigned_admin_email,
+                        'assigned_password': cloud_org.assigned_password,
+                    }
+                )
+                return Response({
+                    'success': True,
+                    'user': {
+                        'id': f"user-org-{local_org.id}",
+                        'name': local_org.assigned_admin_name or f"Admin of {local_org.name}",
+                        'email': local_org.assigned_admin_email,
+                        'role': 'ORG_ADMIN',
+                        'organizationId': f"org-{local_org.id}",
+                        'organizationName': local_org.name,
+                        'title': f"Estate Administrator - {local_org.name}",
+                        'status': 'Active',
+                    },
+                    'redirect_url': f"/user/org-{local_org.id}",
+                }, status=status.HTTP_200_OK)
+
+            # Check NeonDB Staff Member
             cloud_staff = StaffMember.objects.using('neondb').filter(email__iexact=email).first()
             if cloud_staff:
-                accepted_cloud = {
-                    (cloud_staff.password or '').strip(),
-                    'estate@2026',
-                    'admin123',
-                    'college@2026'
-                }
-                if password in {p for p in accepted_cloud if p}:
+                active_cloud_pass = (cloud_staff.password or '').strip()
+                if active_cloud_pass and password == active_cloud_pass:
                     local_org = Organization.objects.first()
                     local_copy, _ = StaffMember.objects.update_or_create(
                         email__iexact=email,
@@ -2127,7 +2261,7 @@ def api_login_view(request):
                             'name': cloud_staff.name,
                             'role': cloud_staff.role,
                             'title': cloud_staff.title,
-                            'password': cloud_staff.password or password,
+                            'password': active_cloud_pass,
                             'organization': local_org,
                             'status': 'Active'
                         }

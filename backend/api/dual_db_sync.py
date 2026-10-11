@@ -101,71 +101,133 @@ def async_replicate_staff_to_neondb(staff_data):
                     status=staff_data.get('status', 'Active')
                 )
                 logger.info(f"[DUAL_DB] Replicated staff '{email}' to NeonDB.")
+        except Exception as e:
+            logger.warning(f"[DUAL_DB] Failed to replicate staff to NeonDB: {e}")
+
     threading.Thread(target=_worker, daemon=True).start()
+
+
+def sync_delete_organization_from_neondb(org_id=None, org_name=None, org_email=None):
+    """
+    Synchronously deletes an organization and all its associated dependencies from NeonDB cloud.
+    """
+    if not is_neondb_configured():
+        return
+    try:
+        from .models import (
+            Organization, StaffMember, Equipment, Dustbin,
+            AqiTelemetry, WaterTelemetry, EnergyTelemetry, ParkingTelemetry
+        )
+        q = Organization.objects.using('neondb')
+        targets = []
+        if org_id:
+            try:
+                t = q.filter(id=int(org_id)).first()
+                if t:
+                    targets.append(t)
+            except Exception:
+                pass
+        if org_email:
+            for t in q.filter(assigned_admin_email__iexact=org_email.strip()):
+                if t not in targets:
+                    targets.append(t)
+        if org_name:
+            for t in q.filter(name__iexact=org_name.strip()):
+                if t not in targets:
+                    targets.append(t)
+
+        for target in targets:
+            target_name = target.name
+            # Cascade delete all child models in NeonDB explicitly
+            try:
+                StaffMember.objects.using('neondb').filter(organization=target).delete()
+            except Exception:
+                pass
+            try:
+                Equipment.objects.using('neondb').filter(organization=target).delete()
+            except Exception:
+                pass
+            try:
+                Dustbin.objects.using('neondb').filter(organization=target).delete()
+            except Exception:
+                pass
+            try:
+                AqiTelemetry.objects.using('neondb').filter(organization=target).delete()
+            except Exception:
+                pass
+            try:
+                WaterTelemetry.objects.using('neondb').filter(organization=target).delete()
+            except Exception:
+                pass
+            try:
+                EnergyTelemetry.objects.using('neondb').filter(organization=target).delete()
+            except Exception:
+                pass
+            try:
+                ParkingTelemetry.objects.using('neondb').filter(organization=target).delete()
+            except Exception:
+                pass
+
+            target.delete(using='neondb')
+            logger.info(f"[DUAL_DB] Permanently deleted organization '{target_name}' from NeonDB.")
+    except Exception as e:
+        logger.warning(f"[DUAL_DB] Failed to delete organization from NeonDB: {e}")
 
 
 def async_delete_organization_from_neondb(org_id=None, org_name=None, org_email=None):
-    """
-    Deletes an organization and its associated telemetry/staff from NeonDB cloud.
-    """
-    def _worker():
-        if not is_neondb_configured():
-            return
-        try:
-            from .models import Organization
-            q = Organization.objects.using('neondb')
-            targets = []
-            if org_id:
-                try:
-                    t = q.filter(id=int(org_id)).first()
-                    if t:
-                        targets.append(t)
-                except Exception:
-                    pass
-            if not targets and org_email:
-                targets = list(q.filter(assigned_admin_email__iexact=org_email.strip()))
-            if not targets and org_name:
-                targets = list(q.filter(name__iexact=org_name.strip()))
+    threading.Thread(
+        target=sync_delete_organization_from_neondb,
+        args=(org_id, org_name, org_email),
+        daemon=True
+    ).start()
 
-            for target in targets:
-                target_name = target.name
-                target.delete(using='neondb')
-                logger.info(f"[DUAL_DB] Deleted organization '{target_name}' from NeonDB.")
-        except Exception as e:
-            logger.warning(f"[DUAL_DB] Failed to delete organization from NeonDB: {e}")
 
-    threading.Thread(target=_worker, daemon=True).start()
+def sync_delete_staff_from_neondb(staff_id=None, staff_email=None):
+    """
+    Synchronously deletes a staff member from NeonDB cloud and clears any matching organization admin assignments.
+    """
+    if not is_neondb_configured():
+        return
+    try:
+        from .models import StaffMember, Organization
+        q = StaffMember.objects.using('neondb')
+        targets = []
+        if staff_id:
+            try:
+                t = q.filter(id=int(staff_id)).first()
+                if t:
+                    targets.append(t)
+            except Exception:
+                pass
+        if staff_email:
+            for t in q.filter(email__iexact=staff_email.strip()):
+                if t not in targets:
+                    targets.append(t)
+
+        for target in targets:
+            target_email = target.email
+            target.delete(using='neondb')
+            logger.info(f"[DUAL_DB] Permanently deleted staff member '{target_email}' from NeonDB.")
+
+        # Clear assigned_admin_email on any matching organization in NeonDB
+        if staff_email:
+            Organization.objects.using('neondb').filter(
+                assigned_admin_email__iexact=staff_email.strip()
+            ).update(
+                assigned_admin_name='',
+                assigned_admin_email='',
+                assigned_password=''
+            )
+    except Exception as e:
+        logger.warning(f"[DUAL_DB] Failed to delete staff member from NeonDB: {e}")
 
 
 def async_delete_staff_from_neondb(staff_id=None, staff_email=None):
-    """
-    Deletes a staff member from NeonDB cloud.
-    """
-    def _worker():
-        if not is_neondb_configured():
-            return
-        try:
-            from .models import StaffMember
-            q = StaffMember.objects.using('neondb')
-            targets = []
-            if staff_id:
-                try:
-                    t = q.filter(id=int(staff_id)).first()
-                    if t:
-                        targets.append(t)
-                except Exception:
-                    pass
-            if not targets and staff_email:
-                targets = list(q.filter(email__iexact=staff_email.strip()))
-
-            for target in targets:
-                target_email = target.email
-                target.delete(using='neondb')
-                logger.info(f"[DUAL_DB] Deleted staff member '{target_email}' from NeonDB.")
-        except Exception as e:
-            logger.warning(f"[DUAL_DB] Failed to delete staff member from NeonDB: {e}")
-
-    threading.Thread(target=_worker, daemon=True).start()
+    threading.Thread(
+        target=sync_delete_staff_from_neondb,
+        args=(staff_id, staff_email),
+        daemon=True
+    ).start()
 
 
 def async_replicate_superadmin_to_neondb(sa_data):

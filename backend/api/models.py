@@ -17,9 +17,9 @@ class Organization(models.Model):
     area_sqft = models.BigIntegerField(default=1000000)
     occupancy_current = models.IntegerField(default=5000)
     occupancy_max = models.IntegerField(default=10000)
-    assigned_admin_name = models.CharField(max_length=255)
+    assigned_admin_name = models.CharField(max_length=255, blank=True, default='')
     assigned_admin_email = models.EmailField(blank=True, default='')
-    assigned_password = models.CharField(max_length=255, default='estate@2026')
+    assigned_password = models.CharField(max_length=255, blank=True, default='estate@2026')
 
     iot_gateway_ip = models.GenericIPAddressField(default='192.168.1.1')
     iot_status = models.CharField(max_length=50, default='ONLINE')

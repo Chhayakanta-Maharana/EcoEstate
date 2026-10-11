@@ -93,9 +93,6 @@ export const DjangoApi = {
     }
   },
 
-
-
-  // Update 3D Twin Campus Image and Nodes in NeonDB
   async updateCampusTwin(orgId: string | number, payload: { campus_image_url?: string; campus_nodes_json?: string }): Promise<BackendOrg | null> {
     try {
       const numericId = String(orgId).replace(/^org-/, '');
