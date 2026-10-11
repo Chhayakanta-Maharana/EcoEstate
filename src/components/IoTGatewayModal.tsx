@@ -54,16 +54,10 @@ export const IoTGatewayModal: React.FC<IoTGatewayModalProps> = ({ isOpen, onClos
   const [isSavingConfig, setIsSavingConfig] = useState(false);
   const [configToast, setConfigToast] = useState<string | null>(null);
 
-  // Fetch status, gateway config, and live packets
-  const refreshData = async () => {
+  // Load saved gateway configuration on modal mount/open
+  const loadConfig = async () => {
     try {
-      const [statusRes, packetsRes, configRes] = await Promise.all([
-        DjangoApi.getIoTStatus(),
-        DjangoApi.getIoTPackets(30),
-        DjangoApi.getIoTGatewayConfig(),
-      ]);
-      if (statusRes) setGatewayStatus(statusRes);
-      if (packetsRes?.packets) setPacketStream(packetsRes.packets);
+      const configRes = await DjangoApi.getIoTGatewayConfig();
       if (configRes?.config) {
         setPreferredProtocol(configRes.config.preferred_protocol || 'UDP_BROADCAST');
         setUdpPort(configRes.config.udp_port || 5005);
@@ -71,14 +65,29 @@ export const IoTGatewayModal: React.FC<IoTGatewayModalProps> = ({ isOpen, onClos
         setUdpBroadcastEnabled(configRes.config.udp_broadcast_enabled !== false);
       }
     } catch (e) {
+      console.warn('Could not load IoT gateway config', e);
+    }
+  };
+
+  // Poll live telemetry stream & gateway status only (strictly preserves user form inputs)
+  const pollLiveTelemetry = async () => {
+    try {
+      const [statusRes, packetsRes] = await Promise.all([
+        DjangoApi.getIoTStatus(),
+        DjangoApi.getIoTPackets(30),
+      ]);
+      if (statusRes) setGatewayStatus(statusRes);
+      if (packetsRes?.packets) setPacketStream(packetsRes.packets);
+    } catch (e) {
       console.warn('Could not refresh IoT telemetry', e);
     }
   };
 
   useEffect(() => {
     if (isOpen) {
-      refreshData();
-      const interval = setInterval(refreshData, 2500);
+      loadConfig();
+      pollLiveTelemetry();
+      const interval = setInterval(pollLiveTelemetry, 2500);
       return () => clearInterval(interval);
     }
   }, [isOpen]);
@@ -95,7 +104,7 @@ export const IoTGatewayModal: React.FC<IoTGatewayModalProps> = ({ isOpen, onClos
       if (res?.status === 'success') {
         setConfigToast('✅ IoT Gateway Settings Applied! Socket listeners synchronized on 0.0.0.0.');
         setTimeout(() => setConfigToast(null), 4000);
-        refreshData();
+        pollLiveTelemetry();
       }
     } catch (err) {
       console.error('Failed to save IoT config', err);
@@ -306,7 +315,7 @@ except Exception as e:
               <span className="hidden sm:inline">Admin Config</span>
             </button>
             <button
-              onClick={refreshData}
+              onClick={pollLiveTelemetry}
               title="Refresh Telemetry Pipeline"
               className="p-2 rounded-xl border border-[#ece3d6] dark:border-[#151722] bg-white dark:bg-[#0a0b12] text-stone-600 dark:text-slate-300 hover:text-cyan-500 transition-colors cursor-pointer"
             >
