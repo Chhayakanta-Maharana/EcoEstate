@@ -35,7 +35,8 @@ export const WasteTab: React.FC<WasteTabProps> = ({ org }) => {
       ]).then(([data, status]) => {
         if (isMounted) {
           if (Array.isArray(data)) setDbDustbins(data);
-          if (status?.active_stream) setActiveStream(status.active_stream);
+          const wasteStream = status?.category_streams?.WASTE || (status?.active_stream?.category === 'WASTE' ? status?.active_stream : null);
+          setActiveStream(wasteStream || null);
         }
       });
     };
@@ -49,40 +50,39 @@ export const WasteTab: React.FC<WasteTabProps> = ({ org }) => {
     };
   }, [activeOrg?.id]);
 
-  const currentCategory = activeStream?.category || null;
-  const isWasteActive = currentCategory === 'WASTE';
+  const isStreamLive = Boolean(activeStream?.is_active ?? (activeStream?.status === 'ACTIVE'));
+  const isWasteActive = isStreamLive && activeStream?.category === 'WASTE';
 
   const streamMetrics = isWasteActive ? (activeStream?.metrics || {}) : {};
-  const streamFill = streamMetrics.fill_percentage !== undefined ? Number(streamMetrics.fill_percentage) : 35;
-  const streamBattery = streamMetrics.battery_pct !== undefined ? Number(streamMetrics.battery_pct) : 94;
+  const streamFill = streamMetrics.fill_percentage !== undefined ? Number(streamMetrics.fill_percentage) : undefined;
+  const streamBattery = streamMetrics.battery_pct !== undefined ? Number(streamMetrics.battery_pct) : undefined;
 
-  const baseBins = dbDustbins.length > 0 ? dbDustbins : (isWasteActive ? [{
-    id: 1,
-    bin_code: activeStream?.device_id || 'BIN-LIVE-01',
-    zone: activeStream?.location || 'Central Campus Plaza',
-    bin_type: 'Dry Waste',
-    fill_percentage: streamFill,
-    battery_pct: streamBattery,
-    predicted_overflow_mins: 120,
-    status: streamFill >= 85 ? 'Critical' : (streamFill >= 70 ? 'Warning' : 'Normal'),
-    last_emptied: 'Just now'
-  }] : []);
+  const baseBins = dbDustbins.length > 0 ? dbDustbins : [
+    {
+      id: 1,
+      bin_code: activeStream?.device_id || 'WIFI-ESP32-BIN-02',
+      zone: activeStream?.location || 'Student Food Court & Canteen Plaza',
+      bin_type: 'Dry Waste',
+      fill_percentage: streamFill ?? 35,
+      battery_pct: streamBattery ?? 94,
+      predicted_overflow_mins: 120,
+      status: (streamFill ?? 35) >= 85 ? 'Critical' : ((streamFill ?? 35) >= 70 ? 'Warning' : 'Normal'),
+      last_emptied: 'Just now'
+    }
+  ];
 
-  // Strict Stream Isolation:
-  // If WASTE is active -> show live metrics
-  // If ANOTHER category is active -> zero out (fillPercentage: 0, batteryPct: 0)
-  // If no stream active -> show standard or awaiting
   const dustbins = baseBins.map((b: any) => {
-    const isInactive = currentCategory !== null && !isWasteActive;
+    const liveFill = (isWasteActive && streamFill !== undefined) ? streamFill : b.fill_percentage;
+    const liveBat = (isWasteActive && streamBattery !== undefined) ? streamBattery : b.battery_pct;
     return {
       id: b.bin_code || `BIN-${b.id}`,
       zone: b.zone,
       binType: b.bin_type,
-      fillPercentage: isInactive ? 0 : (isWasteActive && streamMetrics.fill_percentage !== undefined ? Number(streamMetrics.fill_percentage) : b.fill_percentage),
-      batteryPct: isInactive ? 0 : (isWasteActive && streamMetrics.battery_pct !== undefined ? Number(streamMetrics.battery_pct) : b.battery_pct),
-      predictedOverflowMins: isInactive ? 0 : b.predicted_overflow_mins,
-      status: isInactive ? 'Idle (Inactive Stream)' : b.status,
-      lastEmptied: b.last_emptied,
+      fillPercentage: liveFill,
+      batteryPct: liveBat,
+      predictedOverflowMins: b.predicted_overflow_mins || 120,
+      status: liveFill >= 85 ? 'Critical' : (liveFill >= 70 ? 'Warning' : 'Normal'),
+      lastEmptied: b.last_emptied || 'Just now',
     };
   });
 
@@ -111,10 +111,6 @@ export const WasteTab: React.FC<WasteTabProps> = ({ org }) => {
             {isWasteActive ? (
               <span className="flex items-center gap-1 text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/30 font-bold">
                 <Activity className="w-3 h-3 animate-pulse text-purple-400" /> LIVE STREAM ACTIVE (WASTE)
-              </span>
-            ) : currentCategory !== null ? (
-              <span className="flex items-center gap-1 text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/30 font-bold">
-                <Activity className="w-3 h-3" /> INACTIVE STREAM ({currentCategory} ACTIVE) • SENSORS SET TO 0
               </span>
             ) : dustbins.length > 0 ? (
               <span className="flex items-center gap-1 text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full border border-purple-500/30">

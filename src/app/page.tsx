@@ -1,16 +1,21 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/context/AuthContext';
 import LoginPage from '@/components/LoginPage';
 
 export default function Home() {
   const router = useRouter();
-  const { currentUser, isSuperAdmin, activeOrg } = useAuth();
+  const { currentUser, isAuthReady, isSuperAdmin, activeOrg } = useAuth();
+  const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    if (currentUser) {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (mounted && isAuthReady && currentUser) {
       if (isSuperAdmin) {
         router.push('/admin/dashboard');
       } else {
@@ -18,9 +23,21 @@ export default function Home() {
         router.push(`/user/${targetOrg}`);
       }
     }
-  }, [currentUser, isSuperAdmin, activeOrg, router]);
+  }, [mounted, isAuthReady, currentUser, isSuperAdmin, activeOrg, router]);
 
-  // If user is already authenticated, show the dark loading spinner while redirecting to dashboard
+  // Initial SSR & first client hydration pass: render identical loading shell
+  if (!mounted || !isAuthReady) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#020305] text-white" suppressHydrationWarning>
+        <div className="flex flex-col items-center gap-3">
+          <span className="w-8 h-8 border-3 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+          <p className="text-xs font-semibold text-slate-400">Loading EcoEstate...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // If user is authenticated once mounted, show redirect spinner
   if (currentUser) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#020305] text-white">
@@ -32,6 +49,7 @@ export default function Home() {
     );
   }
 
-  // If not authenticated, render LoginPage directly without any delay or unstyled screen
+  // If not authenticated, render LoginPage
   return <LoginPage />;
 }
+

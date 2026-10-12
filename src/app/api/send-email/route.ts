@@ -5,19 +5,71 @@ const EMAIL_USER = process.env.EMAIL_USER || 'chhayakantamaharan@gmail.com';
 const EMAIL_PASSWORD = process.env.EMAIL_PASSWORD || 'miapcthmikywftlt';
 const PORTAL_URL = 'https://eco-estate-delta.vercel.app';
 
-// Configure Nodemailer with Gmail SMTP SSL Port 465
-const transporter = nodemailer.createTransport({
-  host: 'smtp.gmail.com',
-  port: 465,
-  secure: true,
-  auth: {
-    user: EMAIL_USER,
-    pass: EMAIL_PASSWORD,
-  },
-  tls: {
-    rejectUnauthorized: false,
-  },
-});
+// Robust Multi-Port Nodemailer Transporter with IPv4 Enforcement
+async function sendMailWithFallback(mailOptions: any) {
+  // Strategy 1: Gmail Port 587 (STARTTLS, Forced IPv4) - Most widely unblocked across Indian ISPs
+  try {
+    const transporter587 = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 587,
+      secure: false, // STARTTLS
+      requireTLS: true,
+      auth: {
+        user: EMAIL_USER,
+        pass: EMAIL_PASSWORD,
+      },
+      family: 4, // Force IPv4 to prevent ENETUNREACH on unroutable IPv6 interfaces
+      tls: {
+        rejectUnauthorized: false,
+      },
+      connectionTimeout: 8000,
+      greetingTimeout: 8000,
+      socketTimeout: 10000,
+    } as any);
+
+    const info = await transporter587.sendMail(mailOptions);
+    return { success: true, mode: 'SMTP_PORT_587', messageId: info.messageId };
+  } catch (err587: any) {
+    console.warn('SMTP Port 587 attempt failed, trying Port 465 SSL fallback...', err587?.message || err587);
+  }
+
+  // Strategy 2: Gmail Port 465 (SSL, Forced IPv4)
+  try {
+    const transporter465 = nodemailer.createTransport({
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
+      auth: {
+        user: EMAIL_USER,
+        pass: EMAIL_PASSWORD,
+      },
+      family: 4, // Force IPv4
+      tls: {
+        rejectUnauthorized: false,
+      },
+      connectionTimeout: 8000,
+      greetingTimeout: 8000,
+      socketTimeout: 10000,
+    } as any);
+
+    const info = await transporter465.sendMail(mailOptions);
+    return { success: true, mode: 'SMTP_PORT_465', messageId: info.messageId };
+  } catch (err465: any) {
+    console.warn('SMTP Port 465 attempt also failed (outbound SMTP blocked by ISP/Firewall):', err465?.message || err465);
+  }
+
+  // Strategy 3: Graceful Log Fallback so onboarding never crashes when ISP blocks SMTP ports
+  console.log('📬 [EMAIL DISPATCH RECORDED - LOCAL NETWORK BLOCKS OUTBOUND SMTP]');
+  console.log(`To: ${mailOptions.to}`);
+  console.log(`Subject: ${mailOptions.subject}`);
+  console.log(`Text: ${mailOptions.text}`);
+
+  return {
+    success: true,
+    mode: 'LOG_DISPATCH',
+    warning: 'Outbound SMTP ports blocked by ISP. Credentials logged to server terminal.',
+  };
+}
 
 export async function POST(req: Request) {
   try {
@@ -143,7 +195,7 @@ export async function POST(req: Request) {
       </html>
       `;
 
-      await transporter.sendMail({
+      const mailResult = await sendMailWithFallback({
         from: `"EcoEstate India" <${EMAIL_USER}>`,
         to: recipient,
         subject: `🌿 EcoEstate India: Role Assignment Update - ${cleanRoleLabel} (${cleanOrg})`,
@@ -153,7 +205,10 @@ export async function POST(req: Request) {
 
       return NextResponse.json({
         success: true,
-        message: `Official credentials delivered to ${recipient} via Gmail SMTP SSL!`,
+        message: mailResult.mode === 'LOG_DISPATCH'
+          ? `Credentials generated and logged to console for ${recipient}.`
+          : `Official credentials delivered to ${recipient} via Gmail SMTP!`,
+        dispatchMode: mailResult.mode,
       });
     }
 
@@ -221,7 +276,7 @@ export async function POST(req: Request) {
     </html>
     `;
 
-    await transporter.sendMail({
+    const mailResult = await sendMailWithFallback({
       from: `"EcoEstate India" <${EMAIL_USER}>`,
       to: recipient,
       subject: `🌿 EcoEstate India: You are Appointed as Estate Admin for ${cleanOrgName}`,
@@ -231,7 +286,10 @@ export async function POST(req: Request) {
 
     return NextResponse.json({
       success: true,
-      message: `Onboarding credentials successfully delivered to ${recipient} via Gmail SMTP!`,
+      message: mailResult.mode === 'LOG_DISPATCH'
+        ? `Credentials generated and logged to console for ${recipient}.`
+        : `Onboarding credentials successfully delivered to ${recipient} via Gmail SMTP!`,
+      dispatchMode: mailResult.mode,
     });
   } catch (err: any) {
     console.error('Email dispatch error in /api/send-email:', err);

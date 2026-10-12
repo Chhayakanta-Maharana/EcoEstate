@@ -407,29 +407,14 @@ except Exception as e:
                     <label className="font-bold text-stone-700 dark:text-slate-300 flex items-center gap-1">
                       <Globe className="w-3.5 h-3.5 text-cyan-500" /> HTTP REST Port:
                     </label>
-                    <span className="text-[10px] text-cyan-500 font-bold">Editable</span>
+                    <span className="text-[10px] text-emerald-500 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">Standard Port: 8000</span>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <input
-                      type="number"
-                      value={httpPort}
-                      onChange={(e) => setHttpPort(Number(e.target.value) || 8000)}
-                      className="w-full p-2 rounded-xl border border-[#ece3d6] dark:border-[#1d2035] bg-white dark:bg-[#121422] text-stone-900 dark:text-white font-mono font-bold outline-none focus:border-cyan-500"
-                      placeholder="8000"
-                    />
-                    <button
-                      onClick={() => setHttpPort(8000)}
-                      className="px-2 py-2 rounded-xl text-[10px] font-mono font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/20"
-                    >
-                      8000
-                    </button>
-                    <button
-                      onClick={() => setHttpPort(8080)}
-                      className="px-2 py-2 rounded-xl text-[10px] font-mono font-bold bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/20"
-                    >
-                      8080
-                    </button>
-                  </div>
+                  <input
+                    type="number"
+                    value={8000}
+                    readOnly
+                    className="w-full p-2 rounded-xl border border-[#ece3d6] dark:border-[#1d2035] bg-stone-100 dark:bg-[#121422] text-stone-900 dark:text-cyan-400 font-mono font-bold outline-none cursor-not-allowed"
+                  />
                 </div>
 
                 {/* UDP Port Config */}
@@ -438,14 +423,13 @@ except Exception as e:
                     <label className="font-bold text-stone-700 dark:text-slate-300 flex items-center gap-1">
                       <Network className="w-3.5 h-3.5 text-blue-500" /> UDP Broadcast Port:
                     </label>
-                    <span className="text-[10px] text-blue-500 font-bold">Editable</span>
+                    <span className="text-[10px] text-emerald-500 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">Standard Port: 5005</span>
                   </div>
                   <input
                     type="number"
-                    value={udpPort}
-                    onChange={(e) => setUdpPort(Number(e.target.value) || 5005)}
-                    className="w-full p-2 rounded-xl border border-[#ece3d6] dark:border-[#1d2035] bg-white dark:bg-[#121422] text-stone-900 dark:text-white font-mono font-bold outline-none focus:border-cyan-500"
-                    placeholder="5005"
+                    value={5005}
+                    readOnly
+                    className="w-full p-2 rounded-xl border border-[#ece3d6] dark:border-[#1d2035] bg-stone-100 dark:bg-[#121422] text-stone-900 dark:text-blue-400 font-mono font-bold outline-none cursor-not-allowed"
                   />
                 </div>
 
@@ -455,14 +439,13 @@ except Exception as e:
                     <label className="font-bold text-stone-700 dark:text-slate-300 flex items-center gap-1">
                       <Server className="w-3.5 h-3.5 text-emerald-500" /> TCP Socket Port:
                     </label>
-                    <span className="text-[10px] text-emerald-500 font-bold">Editable</span>
+                    <span className="text-[10px] text-emerald-500 font-bold bg-emerald-500/10 px-2 py-0.5 rounded-md border border-emerald-500/20">Standard Port: 5000</span>
                   </div>
                   <input
                     type="number"
-                    value={tcpPort}
-                    onChange={(e) => setTcpPort(Number(e.target.value) || 5000)}
-                    className="w-full p-2 rounded-xl border border-[#ece3d6] dark:border-[#1d2035] bg-white dark:bg-[#121422] text-stone-900 dark:text-white font-mono font-bold outline-none focus:border-cyan-500"
-                    placeholder="5000"
+                    value={5000}
+                    readOnly
+                    className="w-full p-2 rounded-xl border border-[#ece3d6] dark:border-[#1d2035] bg-stone-100 dark:bg-[#121422] text-stone-900 dark:text-emerald-400 font-mono font-bold outline-none cursor-not-allowed"
                   />
                 </div>
               </div>
@@ -596,17 +579,12 @@ except Exception as e:
                 </div>
                 <div className="p-2 rounded-xl bg-white dark:bg-[#121422] border border-cyan-500/40 relative">
                   <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-[10px] text-stone-400 block font-sans">HTTP Port (Editable)</span>
-                    <span className="text-[9px] text-cyan-500 font-bold uppercase">Change Port</span>
+                    <span className="text-[10px] text-stone-400 block font-sans">HTTP Port</span>
+                    <span className="text-[9px] text-emerald-500 font-bold uppercase">Standard (8000)</span>
                   </div>
                   <div className="flex items-center gap-1">
                     <span className="text-cyan-400 font-bold text-xs">:</span>
-                    <input
-                      type="number"
-                      value={httpPort}
-                      onChange={(e) => setHttpPort(Number(e.target.value) || 8000)}
-                      className="w-16 px-1.5 py-0.5 rounded bg-cyan-500/15 border border-cyan-500/50 text-cyan-500 dark:text-cyan-400 font-mono font-bold text-xs outline-none focus:border-cyan-400"
-                    />
+                    <span className="font-mono font-bold text-xs text-cyan-400">8000</span>
                     <span className="font-mono text-[10px] text-stone-500 dark:text-cyan-300 truncate">/api/iot/ingest/</span>
                   </div>
                 </div>

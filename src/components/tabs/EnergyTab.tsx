@@ -10,6 +10,7 @@ import {
   Activity,
   Leaf,
   Radio,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   ResponsiveContainer,
@@ -29,69 +30,86 @@ interface EnergyTabProps {
 export const EnergyTab: React.FC<EnergyTabProps> = ({ org }) => {
   const { activeOrg: contextOrg } = useAuth();
   const activeOrg = org || contextOrg;
-  const [dbEnergy, setDbEnergy] = useState<any>(null);
-  const [activeStream, setActiveStream] = useState<any>(null);
+
+  // Initialize immediately from client cache for 0ms tab-switch hydration
+  const initialStatus = DjangoApi.getCachedIoTStatus();
+  const initialDbEnergy = DjangoApi.getCachedEnergyTelemetry(activeOrg?.id);
+  const initialEnergyStream = initialStatus?.category_streams?.ENERGY || (['ENERGY', 'ENERGY_TRANSFORMER', 'SOLAR_ARRAY', 'SOLAR'].includes(initialStatus?.active_stream?.category) ? initialStatus?.active_stream : null);
+
+  const [dbEnergy, setDbEnergy] = useState<any>(initialDbEnergy);
+  const [activeStream, setActiveStream] = useState<any>(initialEnergyStream);
 
   useEffect(() => {
     if (!activeOrg?.id) return;
     let isMounted = true;
 
-    const fetchEnergy = () => {
-      Promise.all([
-        DjangoApi.getEnergyTelemetry(activeOrg.id),
-        DjangoApi.getIoTStatus(),
-      ]).then(([data, status]) => {
-        if (isMounted) {
-          if (data) setDbEnergy(data);
-          if (status?.active_stream) setActiveStream(status.active_stream);
+    // 1. High-speed In-Memory IoT Stream Poller (every 350ms) - Ultra-fast & non-blocking
+    const fetchLiveStream = () => {
+      DjangoApi.getIoTStatus().then((status) => {
+        if (isMounted && status) {
+          const energyStream = status?.category_streams?.ENERGY || (['ENERGY', 'ENERGY_TRANSFORMER', 'SOLAR_ARRAY', 'SOLAR'].includes(status?.active_stream?.category) ? status?.active_stream : null);
+          if (energyStream) setActiveStream(energyStream);
         }
-      });
+      }).catch(() => null);
     };
 
-    fetchEnergy();
-    const interval = setInterval(fetchEnergy, 1200);
+    // 2. NeonDB PostgreSQL History Sync (every 3500ms) - Never blocks live telemetry
+    const fetchDbHistory = () => {
+      DjangoApi.getEnergyTelemetry(activeOrg.id).then((data) => {
+        if (isMounted && data) setDbEnergy(data);
+      }).catch(() => null);
+    };
+
+    fetchLiveStream();
+    fetchDbHistory();
+
+    const streamInterval = setInterval(fetchLiveStream, 350);
+    const dbInterval = setInterval(fetchDbHistory, 3500);
 
     return () => {
       isMounted = false;
-      clearInterval(interval);
+      clearInterval(streamInterval);
+      clearInterval(dbInterval);
     };
   }, [activeOrg?.id]);
 
-  const currentCategory = activeStream?.category || null;
-  const isEnergyActive = currentCategory === 'ENERGY';
+  const isStreamLive = Boolean(activeStream?.is_active ?? (activeStream?.status === 'ACTIVE'));
+  const isEnergyActive = isStreamLive && (activeStream?.category === 'ENERGY' || activeStream?.category === 'ENERGY_TRANSFORMER' || activeStream?.category === 'SOLAR_ARRAY');
 
-  // Strict stream isolation with direct streaming fallback:
-  // - If no stream sent yet: null (shows '--')
-  // - If ENERGY stream is active: shows live packet metrics (from activeStream.metrics or dbEnergy)
-  // - If ANOTHER stream is active: strictly shows 0
   const streamMetrics = isEnergyActive ? (activeStream?.metrics || {}) : {};
   const streamLoad = streamMetrics.active_load_kw !== undefined ? Number(streamMetrics.active_load_kw) : (streamMetrics.current_load_kw !== undefined ? Number(streamMetrics.current_load_kw) : undefined);
   const streamPf = streamMetrics.power_factor !== undefined ? Number(streamMetrics.power_factor) : undefined;
   const streamSolar = streamMetrics.solar_kw !== undefined ? Number(streamMetrics.solar_kw) : (streamMetrics.solar_rooftop_kw !== undefined ? Number(streamMetrics.solar_rooftop_kw) : undefined);
   const streamDaily = streamLoad !== undefined ? Number((streamLoad * 14).toFixed(1)) : undefined;
 
-  const hasStreamData = isEnergyActive && (streamLoad !== undefined || Boolean(activeStream));
-  const hasData = isEnergyActive && (hasStreamData || Boolean(dbEnergy && (dbEnergy.current_load_kw !== undefined || dbEnergy.solar_rooftop_kw !== undefined)));
+  const hasDbEnergy = Boolean(dbEnergy && (dbEnergy.current_load_kw !== undefined || dbEnergy.solar_rooftop_kw !== undefined));
+  const hasData = (streamLoad !== undefined) || hasDbEnergy;
 
-  const loadKw = currentCategory === null ? null : (isEnergyActive ? Number(dbEnergy?.current_load_kw ?? (streamLoad ?? 420)) : 0);
-  const solarKw = currentCategory === null ? null : (isEnergyActive ? Number(dbEnergy?.solar_rooftop_kw ?? (streamSolar ?? 180)) : 0);
-  const dailyTotalKwh = currentCategory === null ? null : (isEnergyActive ? Number(dbEnergy?.daily_total_kwh ?? (streamDaily ?? 5880)) : 0);
-  const gridPowerKw = currentCategory === null ? null : (isEnergyActive ? Number(dbEnergy?.grid_power_kw ?? Math.max(0, (loadKw || 0) - (solarKw || 0))) : 0);
-  const powerFactor = currentCategory === null ? null : (isEnergyActive ? Number(dbEnergy?.power_factor ?? (streamPf ?? 0.98)) : 0);
-  const carbonKg = currentCategory === null ? null : (isEnergyActive ? Number(dbEnergy?.carbon_emissions_kg ?? Math.round((loadKw || 0) * 0.82 * 14)) : 0);
-  const savingsToday = currentCategory === null ? null : (isEnergyActive ? Number(dbEnergy?.savings_inr_today ?? Math.round((solarKw || 0) * 8 * 7)) : 0);
+  const loadKw: number | null = streamLoad ?? dbEnergy?.current_load_kw ?? null;
+  const solarKw: number | null = streamSolar ?? dbEnergy?.solar_rooftop_kw ?? null;
+  const dailyTotalKwh: number | null = streamDaily ?? dbEnergy?.daily_total_kwh ?? (loadKw !== null ? Number((loadKw * 14).toFixed(1)) : null);
+  const gridPowerKw: number | null = (hasData && loadKw !== null && solarKw !== null)
+    ? Number(dbEnergy?.grid_power_kw ?? Math.max(0, loadKw - solarKw))
+    : null;
+  const powerFactor: number | null = streamPf ?? dbEnergy?.power_factor ?? null;
+  const carbonKg: number | null = (hasData && loadKw !== null)
+    ? Number(dbEnergy?.carbon_emissions_kg ?? Math.round(loadKw * 0.82 * 14))
+    : null;
+  const savingsToday: number | null = (hasData && solarKw !== null)
+    ? Number(dbEnergy?.savings_inr_today ?? Math.round(solarKw * 8 * 7))
+    : null;
 
-  const solarPct = (isEnergyActive && loadKw && loadKw > 0 && solarKw !== null)
+  const solarPct = (loadKw !== null && solarKw !== null && loadKw > 0)
     ? Math.round((solarKw / loadKw) * 100)
-    : 0;
+    : null;
 
-  const liveTrend24h = (isEnergyActive && loadKw !== null && solarKw !== null && loadKw > 0)
+  const liveTrend24h = (loadKw !== null && loadKw > 0)
     ? [
         { time: '02:00', grid: Math.round(loadKw * 0.45), solar: 0, load: Math.round(loadKw * 0.45) },
-        { time: '06:00', grid: Math.round(loadKw * 0.52), solar: Math.round(solarKw * 0.12), load: Math.round(loadKw * 0.58) },
-        { time: '10:00', grid: Math.round(loadKw * 0.72), solar: Math.round(solarKw * 0.86), load: Math.round(loadKw * 0.92) },
-        { time: '13:00', grid: Math.round(loadKw * 0.62), solar: Math.round(solarKw * 0.98), load: Math.round(loadKw * 1.0) },
-        { time: '16:00', grid: Math.round(loadKw * 0.78), solar: Math.round(solarKw * 0.62), load: Math.round(loadKw * 0.95) },
+        { time: '06:00', grid: Math.round(loadKw * 0.52), solar: Math.round((solarKw ?? 0) * 0.12), load: Math.round(loadKw * 0.58) },
+        { time: '10:00', grid: Math.round(loadKw * 0.72), solar: Math.round((solarKw ?? 0) * 0.86), load: Math.round(loadKw * 0.92) },
+        { time: '13:00', grid: Math.round(loadKw * 0.62), solar: Math.round((solarKw ?? 0) * 0.98), load: Math.round(loadKw * 1.0) },
+        { time: '16:00', grid: Math.round(loadKw * 0.78), solar: Math.round((solarKw ?? 0) * 0.62), load: Math.round(loadKw * 0.95) },
         { time: '19:00', grid: Math.round(loadKw * 0.94), solar: 0, load: Math.round(loadKw * 0.94) },
         { time: '22:00', grid: Math.round(loadKw * 0.62), solar: 0, load: Math.round(loadKw * 0.62) },
       ]
@@ -104,9 +122,13 @@ export const EnergyTab: React.FC<EnergyTabProps> = ({ org }) => {
         <div>
           <div className="flex items-center gap-2 text-xs font-semibold text-amber-400 mb-1">
             <Zap className="w-4 h-4" /> Smart Grid, Solar Rooftop Microgrid & Power Quality
-            {hasData ? (
-              <span className="flex items-center gap-1 text-[10px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-full border border-amber-500/20">
+            {isEnergyActive && isStreamLive ? (
+              <span className="flex items-center gap-1 text-[10px] bg-amber-500/10 text-amber-400 px-2 py-0.5 rounded-full border border-amber-500/20 font-bold">
                 <Activity className="w-3 h-3 animate-pulse" /> LIVE STREAM ACTIVE
+              </span>
+            ) : hasData ? (
+              <span className="flex items-center gap-1 text-[10px] bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded-full border border-cyan-500/20 font-bold">
+                <ShieldCheck className="w-3 h-3" /> LATEST TELEMETRY INGESTED
               </span>
             ) : (
               <span className="flex items-center gap-1 text-[10px] bg-stone-500/20 text-stone-300 px-2 py-0.5 rounded-full border border-stone-500/30">

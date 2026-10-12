@@ -55,5 +55,10 @@ lerna-debug.log*
 .DS_Store
 Thumbs.db
 build_desktop/
+build_india/
+build_sender/
+frontend/
+Capto_*.mp4
 *.spec
 *.exe
+

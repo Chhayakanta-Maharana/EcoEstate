@@ -67,11 +67,18 @@ def is_url_reachable(url: str, timeout: float = 1.2) -> bool:
         return False
 
 
+def get_app_base_dir() -> str:
+    """Returns the true directory where the executable or script is located."""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 def ensure_local_frontend_if_present():
-    """Spawns Next.js dev server if package.json exists and port 3000 is not yet active."""
-    if is_url_reachable("http://localhost:3000", timeout=0.8):
+    """Spawns Next.js dev server if package.json exists and neither port 3000 nor 3001 is yet active."""
+    if is_url_reachable("http://localhost:3000", timeout=0.8) or is_url_reachable("http://localhost:3001", timeout=0.8):
         return
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    script_dir = get_app_base_dir()
     pkg_json = os.path.join(script_dir, "package.json")
     if os.path.exists(pkg_json):
         try:
@@ -85,10 +92,13 @@ def ensure_local_frontend_if_present():
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
             )
             _CHILD_PROCESSES.append(proc)
-            for _ in range(8):
+            for _ in range(12):
                 time.sleep(1.0)
                 if is_url_reachable("http://localhost:3000", timeout=0.8):
-                    print("[EcoEstate Desktop] -> Local Next.js server ready.")
+                    print("[EcoEstate Desktop] -> Local Next.js server ready on port 3000.")
+                    break
+                if is_url_reachable("http://localhost:3001", timeout=0.8):
+                    print("[EcoEstate Desktop] -> Local Next.js server ready on port 3001.")
                     break
         except Exception as e:
             print(f"[EcoEstate Desktop] Frontend spawn notice: {e}")
@@ -96,13 +106,18 @@ def ensure_local_frontend_if_present():
 
 def resolve_startup_url() -> tuple[str, str]:
     """
-    Auto-detects whether to launch Localhost or Cloud Production.
+    Auto-detects whether to launch Localhost (port 3000 or 3001) or Cloud Production.
     Returns: (target_url, mode_name)
     """
     print("[EcoEstate Desktop] Probing Localhost (http://localhost:3000)...")
     if is_url_reachable(LOCAL_FRONTEND_URL, timeout=1.5):
-        print("[EcoEstate Desktop] -> Localhost Dev Server is Active!")
+        print("[EcoEstate Desktop] -> Localhost Dev Server is Active (Port 3000)!")
         return LOCAL_FRONTEND_URL, "LOCAL_DEV"
+
+    print("[EcoEstate Desktop] Probing Localhost Port 3001...")
+    if is_url_reachable("http://localhost:3001", timeout=1.5):
+        print("[EcoEstate Desktop] -> Localhost Dev Server is Active (Port 3001)!")
+        return "http://localhost:3001", "LOCAL_DEV_3001"
 
     print("[EcoEstate Desktop] Localhost not active. Probing Production Cloud (eco-estate-delta.vercel.app)...")
     if is_url_reachable(PROD_FRONTEND_URL, timeout=2.5):
@@ -123,7 +138,7 @@ def ensure_local_backend_if_present():
         return
 
     # Check if backend directory exists relative to script / exe
-    script_dir = os.path.dirname(os.path.abspath(__file__))
+    script_dir = get_app_base_dir()
     manage_py = os.path.join(script_dir, "backend", "manage.py")
     venv_python = os.path.join(script_dir, ".venv310", "Scripts", "python.exe")
 

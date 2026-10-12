@@ -53,34 +53,28 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isAuthReady, setIsAuthReady] = useState<boolean>(false);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [organizations, setOrganizations] = useState<Organization[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [activeOrgId, setActiveOrgId] = useState<string>('');
 
-  // Restore current user from localStorage if available
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+  useEffect(() => {
     if (typeof window !== 'undefined') {
       const savedUser = localStorage.getItem('ecoestate-current-user');
       if (savedUser) {
         try {
-          return JSON.parse(savedUser);
+          setCurrentUser(JSON.parse(savedUser));
         } catch (e) {
-          return null;
+          setCurrentUser(null);
         }
       }
+      const savedOrgId = localStorage.getItem('ecoestate-active-org-id');
+      if (savedOrgId) {
+        setActiveOrgId(savedOrgId);
+      }
     }
-    return null;
-  });
-
-  useEffect(() => {
     setIsAuthReady(true);
   }, []);
-
-  const [organizations, setOrganizations] = useState<Organization[]>([]);
-  const [users, setUsers] = useState<User[]>([]);
-  const [activeOrgId, setActiveOrgId] = useState<string>(() => {
-    if (typeof window !== 'undefined') {
-      return localStorage.getItem('ecoestate-active-org-id') || '';
-    }
-    return '';
-  });
 
   const [isSimulatingIoT, setIsSimulatingIoT] = useState<boolean>(true);
   const [dataSource, setDataSource] = useState<DataSourceType>('loading');

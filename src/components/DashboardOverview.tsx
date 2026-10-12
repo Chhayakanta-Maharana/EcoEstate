@@ -62,28 +62,46 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
   const [timeRange, setTimeRange] = useState('7D');
   const [isShapModalOpen, setIsShapModalOpen] = useState(false);
 
-  // Live Database States from NeonDB PostgreSQL
-  const [dbAqi, setDbAqi] = useState<any>(null);
-  const [dbWater, setDbWater] = useState<any>(null);
-  const [dbEnergy, setDbEnergy] = useState<any>(null);
-  const [dbParking, setDbParking] = useState<any>(null);
+  // Immediate Cache Hydration from Client Store for 0ms tab return
+  const initialIotStatus = DjangoApi.getCachedIoTStatus();
+
+  // Live Database States from NeonDB PostgreSQL (hydrated from cache first)
+  const [dbAqi, setDbAqi] = useState<any>(() => DjangoApi.getCachedAqiTelemetry(activeOrg?.id));
+  const [dbWater, setDbWater] = useState<any>(() => DjangoApi.getCachedWaterTelemetry(activeOrg?.id));
+  const [dbEnergy, setDbEnergy] = useState<any>(() => DjangoApi.getCachedEnergyTelemetry(activeOrg?.id));
+  const [dbParking, setDbParking] = useState<any>(() => DjangoApi.getCachedParkingTelemetry(activeOrg?.id));
   const [dbEquipment, setDbEquipment] = useState<any[]>([]);
   const [dbRecommendations, setDbRecommendations] = useState<any[]>([]);
-  const [activeStream, setActiveStream] = useState<any>(null);
+  const [activeStream, setActiveStream] = useState<any>(() => initialIotStatus?.active_stream || null);
+  const [categoryStreams, setCategoryStreams] = useState<any>(() => initialIotStatus?.category_streams || {});
 
   useEffect(() => {
     if (!activeOrg?.id) return;
     let isMounted = true;
-    const fetchOrgData = async () => {
+
+    // 1. High-Speed In-Memory IoT Stream Poller (every 350ms for instant real-time packet rendering)
+    const fetchLiveStream = async () => {
       try {
-        const [aqiData, waterData, energyData, parkingData, eqData, recData, iotStatus] = await Promise.all([
+        const iotStatus = await DjangoApi.getIoTStatus();
+        if (isMounted && iotStatus) {
+          if (iotStatus.category_streams) setCategoryStreams(iotStatus.category_streams);
+          if (iotStatus.active_stream) setActiveStream(iotStatus.active_stream);
+        }
+      } catch (e) {
+        // quiet in-memory polling catch
+      }
+    };
+
+    // 2. Database History & Aggregates Poller (every 3500ms to preserve DB connection health)
+    const fetchDbHistorical = async () => {
+      try {
+        const [aqiData, waterData, energyData, parkingData, eqData, recData] = await Promise.all([
           DjangoApi.getAqiTelemetry(activeOrg.id),
           DjangoApi.getWaterTelemetry(activeOrg.id),
           DjangoApi.getEnergyTelemetry(activeOrg.id),
           DjangoApi.getParkingTelemetry(activeOrg.id),
           DjangoApi.getEquipment(activeOrg.id),
           DjangoApi.getRecommendations(activeOrg.id),
-          DjangoApi.getIoTStatus(),
         ]);
         if (isMounted) {
           if (aqiData) setDbAqi(aqiData);
@@ -92,80 +110,93 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
           if (parkingData) setDbParking(parkingData);
           if (Array.isArray(eqData)) setDbEquipment(eqData);
           if (Array.isArray(recData)) setDbRecommendations(recData);
-          if (iotStatus?.active_stream) setActiveStream(iotStatus.active_stream);
         }
       } catch (err) {
-        console.warn('Live telemetry fetch fallback:', err);
+        console.warn('DB historical telemetry sync notice:', err);
       }
     };
-    fetchOrgData();
-    const interval = setInterval(fetchOrgData, 1200);
+
+    fetchLiveStream();
+    fetchDbHistorical();
+
+    const streamInterval = setInterval(fetchLiveStream, 350);
+    const dbInterval = setInterval(fetchDbHistorical, 3500);
+
     return () => {
       isMounted = false;
-      clearInterval(interval);
+      clearInterval(streamInterval);
+      clearInterval(dbInterval);
     };
   }, [activeOrg?.id]);
 
-  const isStreamLive = Boolean(activeStream?.is_active ?? (activeStream?.status === 'ACTIVE'));
-  const currentCategory = isStreamLive ? (activeStream?.category || null) : null;
+  const currentCategory = activeStream?.category || null;
 
-  // Strict Stream Isolation:
-  // - If no packet arrived: show '--'
-  // - If active category matches: show live packet values
-  // - If active category does NOT match: strictly show 0 (idle)
-  const isAqiActive = currentCategory === 'AQI';
-  const isEnergyActive = currentCategory === 'ENERGY';
-  const isWaterActive = currentCategory === 'WATER';
+  const aqiStream = categoryStreams?.AQI || (currentCategory === 'AQI' ? activeStream : null);
+  const energyStream = categoryStreams?.ENERGY || (['ENERGY', 'ENERGY_TRANSFORMER', 'SOLAR_ARRAY', 'SOLAR'].includes(currentCategory) ? activeStream : null);
+  const waterStream = categoryStreams?.WATER || (currentCategory === 'WATER' || currentCategory?.startsWith('WATER_') ? activeStream : null);
 
-  const streamMetrics = activeStream?.metrics || {};
+  const isAqiActive = Boolean(aqiStream?.is_active ?? (aqiStream?.status === 'ACTIVE'));
+  const isEnergyActive = Boolean(energyStream?.is_active ?? (energyStream?.status === 'ACTIVE'));
+  const isWaterActive = Boolean(waterStream?.is_active ?? (waterStream?.status === 'ACTIVE'));
 
-  const streamPm25 = streamMetrics.pm25 !== undefined ? Number(streamMetrics.pm25) : (streamMetrics.pm25_ug_m3 !== undefined ? Number(streamMetrics.pm25_ug_m3) : undefined);
-  const streamComputedAqi = streamPm25 !== undefined ? Math.round(streamPm25 * 2.5) : (streamMetrics.pm10_ug_m3 ? Math.round(Number(streamMetrics.pm10_ug_m3)) : 55);
+  const aqiMetrics = aqiStream?.metrics || {};
+  const energyMetrics = energyStream?.metrics || {};
+  const waterMetrics = waterStream?.metrics || {};
 
-  const hasAqiData = isAqiActive && (streamPm25 !== undefined || Boolean(dbAqi && (dbAqi.overall_aqi !== undefined || dbAqi.pm25 !== undefined)));
+  const streamPm25 = aqiMetrics.pm25 !== undefined ? Number(aqiMetrics.pm25) : (aqiMetrics.pm25_ug_m3 !== undefined ? Number(aqiMetrics.pm25_ug_m3) : undefined);
+  const streamComputedAqi = streamPm25 !== undefined ? Math.round(streamPm25 * 2.5) : (aqiMetrics.pm10_ug_m3 ? Math.round(Number(aqiMetrics.pm10_ug_m3)) : (aqiMetrics.overall_aqi !== undefined ? Number(aqiMetrics.overall_aqi) : (aqiMetrics.aqi !== undefined ? Number(aqiMetrics.aqi) : undefined)));
+
+  const effectiveOverallAqi = isAqiActive
+    ? (streamComputedAqi ?? dbAqi?.overall_aqi ?? null)
+    : (dbAqi?.overall_aqi ?? null);
 
   const aqi = {
-    overallAqi: currentCategory === null ? '--' : (isAqiActive ? (dbAqi?.overall_aqi ?? streamComputedAqi) : 0),
-    status: currentCategory === null ? '--' : (isAqiActive ? (dbAqi?.status ?? (streamComputedAqi <= 50 ? 'Good' : 'Moderate')) : 'Idle (0)'),
-    pm25: currentCategory === null ? '--' : (isAqiActive ? (dbAqi?.pm25 ?? (streamPm25 ?? 0)) : 0),
-    co2: currentCategory === null ? '--' : (isAqiActive ? (dbAqi?.co2 ?? (streamMetrics.co2_ppm ?? streamMetrics.co2 ?? 0)) : 0),
-    voc: currentCategory === null ? '--' : (isAqiActive ? (dbAqi?.voc ?? (streamMetrics.voc_ppb ?? streamMetrics.voc ?? 0)) : 0),
+    overallAqi: effectiveOverallAqi,
+    status: dbAqi?.status ?? (effectiveOverallAqi ? (effectiveOverallAqi <= 50 ? 'Good' : effectiveOverallAqi <= 100 ? 'Moderate' : 'Poor') : '--'),
+    pm25: isAqiActive ? (streamPm25 ?? dbAqi?.pm25 ?? null) : (dbAqi?.pm25 ?? null),
+    co2: isAqiActive ? (aqiMetrics.co2_ppm ?? aqiMetrics.co2 ?? dbAqi?.co2 ?? null) : (dbAqi?.co2 ?? null),
+    voc: isAqiActive ? (aqiMetrics.voc_ppb ?? aqiMetrics.voc ?? dbAqi?.voc ?? null) : (dbAqi?.voc ?? null),
   };
 
-  const streamLoad = streamMetrics.active_load_kw !== undefined ? Number(streamMetrics.active_load_kw) : (streamMetrics.current_load_kw !== undefined ? Number(streamMetrics.current_load_kw) : undefined);
-  const streamSolar = streamMetrics.solar_kw !== undefined ? Number(streamMetrics.solar_kw) : (streamMetrics.solar_rooftop_kw !== undefined ? Number(streamMetrics.solar_rooftop_kw) : undefined);
-  const hasEnergyData = isEnergyActive && (streamLoad !== undefined || Boolean(dbEnergy && (dbEnergy.current_load_kw !== undefined || dbEnergy.solar_rooftop_kw !== undefined)));
+  const streamLoad = energyMetrics.active_load_kw !== undefined ? Number(energyMetrics.active_load_kw) : (energyMetrics.current_load_kw !== undefined ? Number(energyMetrics.current_load_kw) : (energyMetrics.load_kw !== undefined ? Number(energyMetrics.load_kw) : undefined));
+  const streamSolar = energyMetrics.solar_kw !== undefined ? Number(energyMetrics.solar_kw) : (energyMetrics.solar_rooftop_kw !== undefined ? Number(energyMetrics.solar_rooftop_kw) : undefined);
 
-  const loadKw = currentCategory === null ? null : (isEnergyActive ? Number(dbEnergy?.current_load_kw ?? (streamLoad ?? 420)) : 0);
-  const solarKw = currentCategory === null ? null : (isEnergyActive ? Number(dbEnergy?.solar_rooftop_kw ?? (streamSolar ?? 180)) : 0);
-  const liveTrend24h = (isEnergyActive && loadKw !== null && solarKw !== null && loadKw > 0) ? [
+  const loadKw = isEnergyActive ? (streamLoad ?? dbEnergy?.current_load_kw ?? null) : (dbEnergy?.current_load_kw ?? null);
+  const solarKw = isEnergyActive ? (streamSolar ?? dbEnergy?.solar_rooftop_kw ?? null) : (dbEnergy?.solar_rooftop_kw ?? null);
+  const liveTrend24h = (loadKw !== null && loadKw > 0) ? [
     { time: '02:00', grid: Math.round(loadKw * 0.45), solar: 0, load: Math.round(loadKw * 0.45) },
-    { time: '06:00', grid: Math.round(loadKw * 0.52), solar: Math.round(solarKw * 0.12), load: Math.round(loadKw * 0.58) },
-    { time: '10:00', grid: Math.round(loadKw * 0.72), solar: Math.round(solarKw * 0.86), load: Math.round(loadKw * 0.92) },
-    { time: '13:00', grid: Math.round(loadKw * 0.62), solar: Math.round(solarKw * 0.98), load: Math.round(loadKw * 1.0) },
-    { time: '16:00', grid: Math.round(loadKw * 0.78), solar: Math.round(solarKw * 0.62), load: Math.round(loadKw * 0.95) },
+    { time: '06:00', grid: Math.round(loadKw * 0.52), solar: Math.round((solarKw ?? 0) * 0.12), load: Math.round(loadKw * 0.58) },
+    { time: '10:00', grid: Math.round(loadKw * 0.72), solar: Math.round((solarKw ?? 0) * 0.86), load: Math.round(loadKw * 0.92) },
+    { time: '13:00', grid: Math.round(loadKw * 0.62), solar: Math.round((solarKw ?? 0) * 0.98), load: Math.round(loadKw * 1.0) },
+    { time: '16:00', grid: Math.round(loadKw * 0.78), solar: Math.round((solarKw ?? 0) * 0.62), load: Math.round(loadKw * 0.95) },
     { time: '19:00', grid: Math.round(loadKw * 0.94), solar: 0, load: Math.round(loadKw * 0.94) },
     { time: '22:00', grid: Math.round(loadKw * 0.62), solar: 0, load: Math.round(loadKw * 0.62) },
   ] : [];
 
+  const streamPeak = energyMetrics.peak_load_kw !== undefined ? Number(energyMetrics.peak_load_kw) : (loadKw !== null ? Math.round(loadKw * 1.15) : undefined);
+
   const energy = {
-    currentLoadKw: currentCategory === null ? '--' : (isEnergyActive ? (dbEnergy?.current_load_kw ?? (streamLoad ?? 420)) : 0),
-    solarRooftopKw: currentCategory === null ? '--' : (isEnergyActive ? (dbEnergy?.solar_rooftop_kw ?? (streamSolar ?? 180)) : 0),
-    peakLoadKw: currentCategory === null ? '--' : (isEnergyActive ? (dbEnergy?.peak_load_kw ?? Math.round((streamLoad ?? 420) * 1.15)) : 0),
-    powerFactor: currentCategory === null ? '--' : (isEnergyActive ? (dbEnergy?.power_factor ?? (streamMetrics.power_factor ?? 0.98)) : 0),
-    savingsInrToday: currentCategory === null ? '--' : (isEnergyActive ? (dbEnergy?.savings_inr_today ?? Math.round((streamSolar ?? 180) * 8 * 7)) : 0),
+    currentLoadKw: loadKw,
+    solarRooftopKw: solarKw,
+    peakLoadKw: isEnergyActive ? (streamPeak ?? dbEnergy?.peak_load_kw ?? null) : (dbEnergy?.peak_load_kw ?? null),
+    powerFactor: isEnergyActive ? (energyMetrics.power_factor ?? dbEnergy?.power_factor ?? null) : (dbEnergy?.power_factor ?? null),
+    savingsInrToday: dbEnergy?.savings_inr_today ?? (solarKw !== null ? Math.round(solarKw * 8 * 7) : null),
     trend24h: liveTrend24h,
   };
 
-  const streamFlow = streamMetrics.flow_rate_lps !== undefined ? Number(streamMetrics.flow_rate_lps) : undefined;
-  const streamDailyWater = streamFlow !== undefined ? Number((streamFlow * 3.6 * 8).toFixed(1)) : undefined;
-  const hasWaterData = isWaterActive && (streamFlow !== undefined || Boolean(dbWater && (dbWater.stp_recycle_rate_pct !== undefined || dbWater.daily_consumption_kl !== undefined || dbWater.flow_rate_lps !== undefined)));
+  const streamFlow = waterMetrics.flow_rate_lps !== undefined ? Number(waterMetrics.flow_rate_lps) : (waterMetrics.flow !== undefined ? Number(waterMetrics.flow) : undefined);
+  const streamDailyWater = waterMetrics.daily_consumption_kl !== undefined ? Number(waterMetrics.daily_consumption_kl) : (streamFlow !== undefined ? Number((streamFlow * 3.6 * 8).toFixed(1)) : undefined);
+  const streamStpWater = waterMetrics.stp_treated_water_kl !== undefined ? Number(waterMetrics.stp_treated_water_kl) : (streamDailyWater !== undefined ? Number((streamDailyWater * 0.72).toFixed(1)) : undefined);
+  const streamRecycleRate = waterMetrics.stp_recycle_rate_pct !== undefined ? Number(waterMetrics.stp_recycle_rate_pct) : (waterMetrics.recycle_rate_pct !== undefined ? Number(waterMetrics.recycle_rate_pct) : (waterMetrics.tank_level_pct !== undefined ? Number(waterMetrics.tank_level_pct) : (isWaterActive ? 72 : null)));
+
+  const effectiveDailyWater = isWaterActive ? (streamDailyWater ?? dbWater?.daily_consumption_kl ?? null) : (dbWater?.daily_consumption_kl ?? null);
+  const effectiveStpWater = isWaterActive ? (streamStpWater ?? dbWater?.stp_treated_water_kl ?? null) : (dbWater?.stp_treated_water_kl ?? null);
 
   const water = {
-    stpTreatedWaterKL: currentCategory === null ? '--' : (isWaterActive ? (dbWater?.stp_treated_water_kl ?? (streamDailyWater ? Number((streamDailyWater * 0.72).toFixed(1)) : 230)) : 0),
-    dailyConsumptionKL: currentCategory === null ? '--' : (isWaterActive ? (dbWater?.daily_consumption_kl ?? (streamDailyWater ?? 320)) : 0),
-    stpRecycleRatePct: currentCategory === null ? '--' : (isWaterActive ? (dbWater?.stp_recycle_rate_pct ?? 72) : 0),
-    phLevel: currentCategory === null ? '--' : (isWaterActive ? (dbWater?.ph_level ?? (streamMetrics.ph_level ?? 7.2)) : 0),
+    stpTreatedWaterKL: effectiveStpWater,
+    dailyConsumptionKL: effectiveDailyWater,
+    stpRecycleRatePct: isWaterActive ? (streamRecycleRate ?? dbWater?.stp_recycle_rate_pct ?? null) : (dbWater?.stp_recycle_rate_pct ?? null),
+    phLevel: isWaterActive ? (waterMetrics.ph_level ?? dbWater?.ph_level ?? null) : (dbWater?.ph_level ?? null),
   };
 
   const effectiveEquipments = dbEquipment.map((eq) => ({
@@ -197,16 +228,19 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
   }));
 
   // Resource Consumption Donut Data from live database
-  const gridPower = Math.max(0, energy.currentLoadKw - energy.solarRooftopKw);
-  const totalLoad = Math.max(1, energy.currentLoadKw);
-  const solarSharePct = Math.round((energy.solarRooftopKw / totalLoad) * 100);
-  const gridSharePct = Math.round((gridPower / totalLoad) * 100);
-  const auxSharePct = Math.max(0, 100 - solarSharePct - gridSharePct);
+  const hasLiveEnergy = energy.currentLoadKw !== null && energy.currentLoadKw !== undefined && Number(energy.currentLoadKw) > 0;
+  const gridPower = hasLiveEnergy ? Math.max(0, (energy.currentLoadKw ?? 0) - (energy.solarRooftopKw ?? 0)) : 0;
+  const totalLoad = hasLiveEnergy ? Math.max(1, energy.currentLoadKw ?? 0) : 0;
+  const solarSharePct = hasLiveEnergy ? Math.round(((energy.solarRooftopKw ?? 0) / totalLoad) * 100) : 0;
+  const gridSharePct = hasLiveEnergy ? Math.round((gridPower / totalLoad) * 100) : 0;
+  const auxSharePct = hasLiveEnergy ? Math.max(0, 100 - solarSharePct - gridSharePct) : 0;
 
-  const consumptionDonut = [
+  const consumptionDonut = hasLiveEnergy ? [
     { name: 'Grid Base Load', value: gridSharePct || 65, color: '#06b6d4' },
     { name: 'Solar Rooftop Yield', value: solarSharePct || 25, color: '#10b981' },
     { name: 'Auxiliary & Utilities', value: auxSharePct || 10, color: '#a855f7' },
+  ] : [
+    { name: 'Awaiting Feed', value: 100, color: '#334155' },
   ];
 
   // Dynamic real-time facility zones based on live NeonDB data
@@ -214,29 +248,29 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
     {
       id: 'zone-1',
       name: `${(activeOrg?.name || 'Central').split(' ')[0] || 'Central'} Environmental CAAQMS Node`,
-      metric: `AQI ${aqi.overallAqi} (${aqi.status})`,
-      status: aqi.overallAqi < 100 ? 'normal' : 'warning',
-      color: aqi.overallAqi < 100 ? 'text-emerald-500' : 'text-amber-500',
+      metric: aqi.overallAqi !== null ? `AQI ${aqi.overallAqi} (${aqi.status})` : 'AQI -- (Awaiting Feed)',
+      status: aqi.overallAqi !== null && aqi.overallAqi < 100 ? 'normal' : 'warning',
+      color: aqi.overallAqi !== null && aqi.overallAqi < 100 ? 'text-emerald-500' : 'text-amber-500',
     },
     {
       id: 'zone-2',
-      name: `Rooftop Solar Substation (${Math.round(energy.solarRooftopKw * 1.2)} kWp)`,
-      metric: `${energy.solarRooftopKw} kW Active Generation`,
+      name: `Rooftop Solar Substation (${energy.solarRooftopKw !== null ? Math.round(Number(energy.solarRooftopKw) * 1.2) : '--'} kWp)`,
+      metric: energy.solarRooftopKw !== null ? `${energy.solarRooftopKw} kW Active Generation` : '-- kW Generation',
       status: 'normal',
       color: 'text-amber-500',
     },
     {
       id: 'zone-3',
       name: 'MBBR Sewage Treatment & STP Recycling Plant',
-      metric: `${water.stpRecycleRatePct}% Reused (${water.stpTreatedWaterKL} kL)`,
+      metric: water.stpTreatedWaterKL !== null ? `${water.stpRecycleRatePct ?? '--'}% Reused (${water.stpTreatedWaterKL} kL)` : '-- kL Treated',
       status: 'normal',
       color: 'text-cyan-500',
     },
     {
       id: 'zone-4',
       name: 'Main Substation & Transformer Bay',
-      metric: `Power Factor ${energy.powerFactor}`,
-      status: energy.powerFactor >= 0.95 ? 'normal' : 'warning',
+      metric: energy.powerFactor !== null ? `Power Factor ${energy.powerFactor}` : 'Power Factor --',
+      status: energy.powerFactor !== null && Number(energy.powerFactor) >= 0.95 ? 'normal' : 'warning',
       color: 'text-purple-500',
     },
   ];
@@ -345,25 +379,33 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
               <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Campus Air Quality</span>
               {isAqiActive && <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-ping" />}
             </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-50 dark:bg-cyan-500/20 text-cyan-700 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-500/30">
-              {currentCategory === null ? '--' : (isAqiActive ? aqi.status : 'Idle (0)')}
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+              isAqiActive
+                ? 'bg-cyan-50 dark:bg-cyan-500/20 text-cyan-700 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-500/30'
+                : aqi.overallAqi !== null
+                  ? 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30'
+                  : 'bg-stone-100 dark:bg-slate-800/60 text-stone-400 dark:text-slate-500 border border-stone-200 dark:border-slate-800'
+            }`}>
+              {isAqiActive ? (aqi.status && aqi.status !== '--' ? aqi.status : 'Live Sync') : (aqi.overallAqi !== null ? (aqi.status || 'Good') : '--')}
             </span>
           </div>
           <div className="flex items-baseline justify-between">
             <div>
-              <span className="text-3xl font-black text-stone-900 dark:text-white">
-                {currentCategory === null ? '--' : (isAqiActive ? aqi.overallAqi : 0)}
+              <span className={`text-3xl font-black ${aqi.overallAqi !== null ? 'text-stone-900 dark:text-white' : 'text-stone-400 dark:text-slate-500'}`}>
+                {aqi.overallAqi ?? '--'}
               </span>
-              <span className="text-xs font-mono text-stone-400 dark:text-slate-400 ml-1">NAQI</span>
+              <span className="text-xs font-mono text-stone-400 dark:text-slate-500 ml-1">NAQI</span>
             </div>
-            <svg className="w-20 h-7 text-cyan-500" viewBox="0 0 100 35" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M0 25 Q20 30 40 15 T80 8 T100 5" strokeLinecap="round" />
-            </svg>
+            {aqi.overallAqi !== null ? (
+              <svg className="w-20 h-7 text-cyan-500" viewBox="0 0 100 35" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M0 25 Q20 30 40 15 T80 8 T100 5" strokeLinecap="round" />
+              </svg>
+            ) : (
+              <span className="text-[10px] font-mono text-stone-400 dark:text-slate-600">--</span>
+            )}
           </div>
           <p className="text-[11px] text-cyan-600 dark:text-cyan-400 font-semibold truncate">
-            {currentCategory === null
-              ? 'PM2.5: -- • CO2: --'
-              : (isAqiActive ? `PM2.5: ${aqi.pm25} µg/m³ • CO2: ${aqi.co2} ppm` : 'PM2.5: 0 µg/m³ • CO2: 0 ppm (Idle)')}
+            {`PM2.5: ${aqi.pm25 !== null && aqi.pm25 !== undefined ? aqi.pm25 : '--'} µg/m³ • CO2: ${aqi.co2 !== null && aqi.co2 !== undefined ? aqi.co2 : '--'} ppm`}
           </p>
         </div>
 
@@ -381,25 +423,31 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
               <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Substation Load</span>
               {isEnergyActive && <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-ping" />}
             </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30">
-              {currentCategory === null ? 'Solar --' : (isEnergyActive && solarKw !== null ? `Solar ${(solarKw / 1000).toFixed(1)} MW` : 'Solar 0 MW')}
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+              solarKw !== null && solarKw !== undefined
+                ? 'bg-amber-50 dark:bg-amber-500/20 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-500/30'
+                : 'bg-stone-100 dark:bg-slate-800/60 text-stone-400 dark:text-slate-500 border border-stone-200 dark:border-slate-800'
+            }`}>
+              {solarKw !== null && solarKw !== undefined ? `Solar ${(Number(solarKw) / 1000).toFixed(1)} MW` : 'Solar -- MW'}
             </span>
           </div>
           <div className="flex items-baseline justify-between">
             <div>
-              <span className="text-3xl font-black text-stone-900 dark:text-white">
-                {currentCategory === null ? '--' : (isEnergyActive ? energy.currentLoadKw : 0)}
+              <span className={`text-3xl font-black ${energy.currentLoadKw !== null && energy.currentLoadKw !== undefined ? 'text-stone-900 dark:text-white' : 'text-stone-400 dark:text-slate-500'}`}>
+                {energy.currentLoadKw ?? '--'}
               </span>
-              <span className="text-xs font-mono text-stone-400 dark:text-slate-400 ml-1">kW</span>
+              <span className="text-xs font-mono text-stone-400 dark:text-slate-500 ml-1">kW</span>
             </div>
-            <svg className="w-20 h-7 text-amber-500" viewBox="0 0 100 35" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M0 28 Q25 5 50 20 T100 8" strokeLinecap="round" />
-            </svg>
+            {energy.currentLoadKw !== null && energy.currentLoadKw !== undefined ? (
+              <svg className="w-20 h-7 text-amber-500" viewBox="0 0 100 35" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M0 28 Q25 5 50 20 T100 8" strokeLinecap="round" />
+              </svg>
+            ) : (
+              <span className="text-[10px] font-mono text-stone-400 dark:text-slate-600">--</span>
+            )}
           </div>
           <p className="text-[11px] text-amber-600 dark:text-amber-400 font-semibold truncate">
-            {currentCategory === null
-              ? 'Peak: -- • PF --'
-              : (isEnergyActive ? `Peak: ${energy.peakLoadKw} kW • PF ${energy.powerFactor}` : 'Peak: 0 kW • PF 0.0 (Idle)')}
+            {`Peak: ${energy.peakLoadKw ?? '--'} kW • PF ${energy.powerFactor ?? '--'}`}
           </p>
         </div>
 
@@ -417,25 +465,31 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
               <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Daily Water Treated</span>
               {isWaterActive && <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-ping" />}
             </div>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30">
-              {currentCategory === null ? 'STP --' : (isWaterActive ? `STP ${water.stpRecycleRatePct}%` : 'STP 0%')}
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+              water.stpRecycleRatePct !== null && water.stpRecycleRatePct !== undefined
+                ? 'bg-blue-50 dark:bg-blue-500/20 text-blue-700 dark:text-blue-400 border border-blue-200 dark:border-blue-500/30'
+                : 'bg-stone-100 dark:bg-slate-800/60 text-stone-400 dark:text-slate-500 border border-stone-200 dark:border-slate-800'
+            }`}>
+              {water.stpRecycleRatePct !== null && water.stpRecycleRatePct !== undefined ? `STP ${water.stpRecycleRatePct}%` : 'STP --%'}
             </span>
           </div>
           <div className="flex items-baseline justify-between">
             <div>
-              <span className="text-3xl font-black text-stone-900 dark:text-white">
-                {currentCategory === null ? '--' : (isWaterActive ? water.stpTreatedWaterKL : 0)}
+              <span className={`text-3xl font-black ${water.stpTreatedWaterKL !== null && water.stpTreatedWaterKL !== undefined ? 'text-stone-900 dark:text-white' : 'text-stone-400 dark:text-slate-500'}`}>
+                {water.stpTreatedWaterKL ?? '--'}
               </span>
-              <span className="text-xs font-mono text-stone-400 dark:text-slate-400 ml-1">kL / day</span>
+              <span className="text-xs font-mono text-stone-400 dark:text-slate-500 ml-1">kL / day</span>
             </div>
-            <svg className="w-20 h-7 text-blue-500" viewBox="0 0 100 35" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M0 15 Q30 30 60 10 T100 20" strokeLinecap="round" />
-            </svg>
+            {water.stpTreatedWaterKL !== null && water.stpTreatedWaterKL !== undefined ? (
+              <svg className="w-20 h-7 text-blue-500" viewBox="0 0 100 35" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M0 15 Q30 30 60 10 T100 20" strokeLinecap="round" />
+              </svg>
+            ) : (
+              <span className="text-[10px] font-mono text-stone-400 dark:text-slate-600">--</span>
+            )}
           </div>
           <p className="text-[11px] text-blue-600 dark:text-blue-400 font-semibold truncate">
-            {currentCategory === null
-              ? 'Total Flow: -- • pH --'
-              : (isWaterActive ? `Total Flow: ${water.dailyConsumptionKL} kL • pH ${water.phLevel}` : 'Total Flow: 0 kL • pH 0.0 (Idle)')}
+            {`Total Flow: ${water.dailyConsumptionKL ?? '--'} kL • pH ${water.phLevel ?? '--'}`}
           </p>
         </div>
 
@@ -446,22 +500,32 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
         >
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-stone-500 dark:text-slate-400">Asset Twin Health</span>
-            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30">
-              {avgHealth !== null ? `${avgHealth}% Health` : '--'}
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+              avgHealth !== null
+                ? 'bg-emerald-50 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-500/30'
+                : 'bg-stone-100 dark:bg-slate-800/60 text-stone-400 dark:text-slate-500 border border-stone-200 dark:border-slate-800'
+            }`}>
+              {avgHealth !== null ? `${avgHealth}% Health` : '--% Health'}
             </span>
           </div>
           <div className="flex items-baseline justify-between">
             <div>
-              <span className="text-3xl font-black text-stone-900 dark:text-white">{hasEquipment ? effectiveEquipments.length : '--'}</span>
-              <span className="text-xs font-mono text-stone-400 dark:text-slate-400 ml-1">Assets Online</span>
+              <span className={`text-3xl font-black ${hasEquipment ? 'text-stone-900 dark:text-white' : 'text-stone-400 dark:text-slate-500'}`}>
+                {hasEquipment ? effectiveEquipments.length : '--'}
+              </span>
+              <span className="text-xs font-mono text-stone-400 dark:text-slate-500 ml-1">Assets Online</span>
             </div>
-            <span className="text-xs text-emerald-600 dark:text-emerald-400 font-bold">
-              {hasEquipment ? (criticalEquipments.length > 0 ? `${criticalEquipments.length} Service` : 'All Optimal') : '--'}
+            <span className={`text-xs font-bold ${
+              hasEquipment ? 'text-emerald-600 dark:text-emerald-400' : 'text-stone-400 dark:text-slate-500'
+            }`}>
+              {hasEquipment
+                ? (criticalEquipments.length > 0 ? `${criticalEquipments.length} Service` : 'All Optimal')
+                : 'Awaiting Sync'}
             </span>
           </div>
           <div className="flex items-center justify-between text-[11px] pt-1 border-t border-[#ece3d6]/60 dark:border-[#151722]/60">
-            <span className="text-emerald-600 dark:text-emerald-400 font-semibold truncate">
-              {hasEquipment ? 'Vibration & Thermal Synced' : 'Awaiting Sensor Telemetry'}
+            <span className="text-stone-500 dark:text-slate-400 font-semibold truncate">
+              {hasEquipment ? 'Vibration & Thermal Synced' : 'Awaiting IoT Telemetry'}
             </span>
             <button
               onClick={(e) => {
@@ -508,49 +572,61 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
 
           {/* Chart */}
           <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={energy.trend24h}>
-                <defs>
-                  <linearGradient id="cyanNeonFacility" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.0} />
-                  </linearGradient>
-                  <linearGradient id="purpleNeonFacility" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#a855f7" stopOpacity={0.35} />
-                    <stop offset="95%" stopColor="#a855f7" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} />
-                <YAxis stroke="#94a3b8" fontSize={11} unit=" kW" />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#07080e',
-                    borderColor: '#06b6d4',
-                    borderRadius: '10px',
-                    fontSize: '11px',
-                    color: '#ffffff',
-                  }}
-                  itemStyle={{ color: '#ffffff', fontWeight: 700 }}
-                  labelStyle={{ color: '#38bdf8', fontWeight: 700 }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="load"
-                  stroke="#06b6d4"
-                  strokeWidth={3}
-                  fill="url(#cyanNeonFacility)"
-                  name="Facility Demand"
-                />
-                <Area
-                  type="monotone"
-                  dataKey="solar"
-                  stroke="#a855f7"
-                  strokeWidth={3}
-                  fill="url(#purpleNeonFacility)"
-                  name="Solar Inverter"
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            {energy.trend24h && energy.trend24h.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={energy.trend24h}>
+                  <defs>
+                    <linearGradient id="cyanNeonFacility" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.0} />
+                    </linearGradient>
+                    <linearGradient id="purpleNeonFacility" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#a855f7" stopOpacity={0.35} />
+                      <stop offset="95%" stopColor="#a855f7" stopOpacity={0.0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="time" stroke="#94a3b8" fontSize={11} />
+                  <YAxis stroke="#94a3b8" fontSize={11} unit=" kW" />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: '#07080e',
+                      borderColor: '#06b6d4',
+                      borderRadius: '10px',
+                      fontSize: '11px',
+                      color: '#ffffff',
+                    }}
+                    itemStyle={{ color: '#ffffff', fontWeight: 700 }}
+                    labelStyle={{ color: '#38bdf8', fontWeight: 700 }}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="load"
+                    stroke="#06b6d4"
+                    strokeWidth={3}
+                    fill="url(#cyanNeonFacility)"
+                    name="Facility Demand"
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="solar"
+                    stroke="#a855f7"
+                    strokeWidth={3}
+                    fill="url(#purpleNeonFacility)"
+                    name="Solar Inverter"
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full w-full flex flex-col items-center justify-center border border-dashed border-stone-200 dark:border-slate-800 rounded-2xl p-6 text-center">
+                <div className="w-10 h-10 rounded-2xl bg-cyan-500/10 flex items-center justify-center mb-2">
+                  <Activity className="w-5 h-5 text-cyan-400 animate-pulse" />
+                </div>
+                <h4 className="text-xs font-bold text-stone-700 dark:text-slate-300">Awaiting live telemetry feed...</h4>
+                <p className="text-[11px] text-stone-400 dark:text-slate-500 max-w-sm mt-1">
+                  Connect sensors or run <code className="text-cyan-400 font-mono">run_sender.bat</code> to stream live Substation Load &amp; Solar curves.
+                </p>
+              </div>
+            )}
           </div>
         </div>
 
@@ -585,15 +661,21 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({ onNavigate
           <div className="flex items-center justify-around text-xs font-semibold pt-2 border-t border-[#ece3d6] dark:border-[#151722]">
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-cyan-400" />
-              <span className="text-stone-700 dark:text-slate-300">HVAC 45%</span>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full bg-purple-400" />
-              <span className="text-stone-700 dark:text-slate-300">Labs 30%</span>
+              <span className="text-stone-700 dark:text-slate-300">
+                Grid {hasLiveEnergy ? `${gridSharePct}%` : '--%'}
+              </span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
-              <span className="text-stone-700 dark:text-slate-300">Solar 25%</span>
+              <span className="text-stone-700 dark:text-slate-300">
+                Solar {hasLiveEnergy ? `${solarSharePct}%` : '--%'}
+              </span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full bg-purple-400" />
+              <span className="text-stone-700 dark:text-slate-300">
+                Aux {hasLiveEnergy ? `${auxSharePct}%` : '--%'}
+              </span>
             </div>
           </div>
         </div>

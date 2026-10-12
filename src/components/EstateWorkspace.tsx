@@ -206,6 +206,22 @@ export const EstateWorkspace: React.FC<EstateWorkspaceProps> = ({
     }
   }, [effectiveRole, currentRoleProfile, currentView]);
 
+  // Continuous workspace-level background IoT stream heartbeat
+  // Ensures client telemetry cache is always warm and up-to-date across instant sidebar tab navigations
+  useEffect(() => {
+    const pulseTelemetry = () => {
+      DjangoApi.getIoTStatus().catch(() => null);
+      if (displayOrg?.id) {
+        DjangoApi.getLiveIoTNodes(displayOrg.id).catch(() => null);
+      }
+    };
+    pulseTelemetry();
+    const interval = setInterval(pulseTelemetry, 400);
+    return () => {
+      clearInterval(interval);
+    };
+  }, [displayOrg?.id]);
+
   const getOrgIcon = (type?: string) => {
     switch (type) {
       case 'HOSPITAL':
@@ -518,8 +534,8 @@ export const EstateWorkspace: React.FC<EstateWorkspaceProps> = ({
                     <span className="font-extrabold uppercase text-cyan-700 dark:text-cyan-300">
                       LIVE: {activeStream.category}
                     </span>
-                    <span className="text-[10px] text-stone-400 dark:text-slate-400 font-sans hidden md:inline">
-                      • Inactive set to 0
+                    <span className="text-[10px] text-emerald-500 font-sans hidden md:inline">
+                      • Dual Gateway Live
                     </span>
                   </div>
                 </>

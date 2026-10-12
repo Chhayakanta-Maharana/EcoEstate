@@ -28,24 +28,38 @@ interface WaterTabProps {
 export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
   const { activeOrg: contextOrg } = useAuth();
   const activeOrg = org || contextOrg;
-  const [dbWater, setDbWater] = useState<any>(null);
-  const [activeStream, setActiveStream] = useState<any>(null);
-  const [liveNodes, setLiveNodes] = useState<any[]>([]);
-  const [waterSummary, setWaterSummary] = useState<any>(null);
+
+  // Initialize immediately from client cache for 0ms tab-switch hydration
+  const initialStatus = DjangoApi.getCachedIoTStatus();
+  const initialNodes = DjangoApi.getCachedLiveIoTNodes(activeOrg?.id);
+  const initialDbWater = DjangoApi.getCachedWaterTelemetry(activeOrg?.id);
+  const initialWaterStream = initialStatus?.category_streams?.WATER || (initialStatus?.active_stream?.category === 'WATER' ? initialStatus?.active_stream : null);
+
+  const [dbWater, setDbWater] = useState<any>(initialDbWater);
+  const [activeStream, setActiveStream] = useState<any>(initialWaterStream);
+  const [liveNodes, setLiveNodes] = useState<any[]>(() => {
+    if (initialNodes?.nodes && Array.isArray(initialNodes.nodes)) {
+      return initialNodes.nodes.filter((n: any) => n.type === 'water');
+    }
+    return [];
+  });
+  const [waterSummary, setWaterSummary] = useState<any>(() => initialNodes?.summary?.water || null);
 
   useEffect(() => {
     if (!activeOrg?.id) return;
     let isMounted = true;
 
-    const fetchWater = () => {
+    // 1. High-speed In-Memory IoT Stream Poller (every 350ms) - Ultra-fast & non-blocking
+    const fetchLiveStream = () => {
       Promise.all([
-        DjangoApi.getWaterTelemetry(activeOrg.id),
-        DjangoApi.getIoTStatus(),
-        DjangoApi.getLiveIoTNodes(activeOrg.id),
-      ]).then(([data, status, nodesData]) => {
+        DjangoApi.getIoTStatus().catch(() => null),
+        DjangoApi.getLiveIoTNodes(activeOrg.id).catch(() => null),
+      ]).then(([status, nodesData]) => {
         if (isMounted) {
-          if (data) setDbWater(data);
-          if (status?.active_stream) setActiveStream(status.active_stream);
+          if (status) {
+            const waterStream = status?.category_streams?.WATER || (status?.active_stream?.category === 'WATER' ? status?.active_stream : null);
+            if (waterStream) setActiveStream(waterStream);
+          }
           if (nodesData?.nodes) {
             const wNodes = nodesData.nodes.filter((n: any) => n.type === 'water');
             setLiveNodes(wNodes);
@@ -57,22 +71,29 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
       });
     };
 
-    fetchWater();
-    const interval = setInterval(fetchWater, 1200);
+    // 2. NeonDB PostgreSQL History Sync (every 3500ms) - Never blocks live telemetry
+    const fetchDbHistory = () => {
+      DjangoApi.getWaterTelemetry(activeOrg.id).then((data) => {
+        if (isMounted && data) setDbWater(data);
+      }).catch(() => null);
+    };
+
+    fetchLiveStream();
+    fetchDbHistory();
+
+    const streamInterval = setInterval(fetchLiveStream, 350);
+    const dbInterval = setInterval(fetchDbHistory, 3500);
 
     return () => {
       isMounted = false;
-      clearInterval(interval);
+      clearInterval(streamInterval);
+      clearInterval(dbInterval);
     };
   }, [activeOrg?.id]);
 
-  const currentCategory = activeStream?.category || null;
-  const isWaterActive = currentCategory === 'WATER';
+  const isStreamLive = Boolean(activeStream?.is_active ?? (activeStream?.status === 'ACTIVE')) || liveNodes.length > 0;
+  const isWaterActive = isStreamLive && (activeStream?.category === 'WATER' || liveNodes.length > 0 || !activeStream);
 
-  // Strict stream isolation with direct streaming fallback:
-  // - If no stream sent yet: null (shows '--')
-  // - If WATER stream is active: shows live packet metrics (from activeStream.metrics or dbWater)
-  // - If ANOTHER stream is active: strictly shows 0
   const streamMetrics = isWaterActive ? (activeStream?.metrics || {}) : {};
   const streamFlow = streamMetrics.flow_rate_lps !== undefined ? Number(streamMetrics.flow_rate_lps) : undefined;
   const streamTank = streamMetrics.tank_level_pct !== undefined ? Number(streamMetrics.tank_level_pct) : (streamMetrics.underground_tank_pct !== undefined ? Number(streamMetrics.underground_tank_pct) : undefined);
@@ -81,18 +102,18 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
   const streamDaily = streamFlow !== undefined ? Number((streamFlow * 3.6 * 8).toFixed(1)) : undefined;
   const streamStp = streamDaily !== undefined ? Number((streamDaily * 0.72).toFixed(1)) : undefined;
 
-  const hasStreamData = isWaterActive && (streamFlow !== undefined || Boolean(activeStream));
-  const hasData = isWaterActive && (hasStreamData || Boolean(dbWater && (dbWater.stp_recycle_rate_pct !== undefined || dbWater.daily_consumption_kl !== undefined || dbWater.flow_rate_lps !== undefined)));
+  const hasDbWater = Boolean(dbWater && (dbWater.stp_recycle_rate_pct !== undefined || dbWater.daily_consumption_kl !== undefined || dbWater.flow_rate_lps !== undefined));
+  const hasData = (streamFlow !== undefined) || hasDbWater || liveNodes.length > 0;
 
-  const dailyKL = currentCategory === null ? null : (isWaterActive ? Number(dbWater?.daily_consumption_kl ?? (streamDaily ?? 320)) : 0);
-  const stpKL = currentCategory === null ? null : (isWaterActive ? Number(dbWater?.stp_treated_water_kl ?? (streamStp ?? 230)) : 0);
-  const flowRate = currentCategory === null ? null : (isWaterActive ? Number(dbWater?.flow_rate_lps ?? (streamFlow ?? 18.2)) : 0);
-  const undergroundTank = currentCategory === null ? null : (isWaterActive ? Number(dbWater?.underground_tank_level_pct ?? (streamTank ?? 78)) : 0);
-  const overheadTank = currentCategory === null ? null : (isWaterActive ? Number(dbWater?.overhead_tank_level_pct ?? (streamTank ?? 78)) : 0);
-  const recycleRate = currentCategory === null ? null : (isWaterActive ? Number(dbWater?.stp_recycle_rate_pct ?? 72) : 0);
-  const phVal = currentCategory === null ? null : (isWaterActive ? Number(dbWater?.ph_level ?? (streamPh ?? 7.2)) : 0);
-  const turbVal = currentCategory === null ? null : (isWaterActive ? Number(dbWater?.turbidity_ntu ?? (streamTurb ?? 1.5)) : 0);
-  const leakAlerts = currentCategory === null ? 0 : (isWaterActive ? Number(dbWater?.leak_alert_count || 0) : 0);
+  const flowRate: number | null = streamFlow ?? dbWater?.flow_rate_lps ?? null;
+  const undergroundTank: number | null = streamTank ?? dbWater?.underground_tank_level_pct ?? null;
+  const overheadTank: number | null = streamTank ?? dbWater?.overhead_tank_level_pct ?? null;
+  const phVal: number | null = streamPh ?? dbWater?.ph_level ?? null;
+  const turbVal: number | null = streamTurb ?? dbWater?.turbidity_ntu ?? null;
+  const dailyKL: number | null = streamDaily ?? dbWater?.daily_consumption_kl ?? (flowRate !== null ? Number((flowRate * 3.6 * 8).toFixed(1)) : null);
+  const stpKL: number | null = streamStp ?? dbWater?.stp_treated_water_kl ?? (dailyKL !== null ? Number((dailyKL * 0.72).toFixed(1)) : null);
+  const recycleRate: number | null = dbWater?.stp_recycle_rate_pct ?? (flowRate !== null ? 72 : null);
+  const leakAlerts = Number(dbWater?.leak_alert_count || 0);
 
   // Individual water sources from the live hardware mesh
   const sumpNode = liveNodes.find((n: any) => n.id?.includes('SUMP') || n.name?.includes('Sump') || n.category === 'WATER_UNDERGROUND_SUMP');
@@ -108,13 +129,13 @@ export const WaterTab: React.FC<WaterTabProps> = ({ org }) => {
     ? Math.round((liveNodes.reduce((acc, n) => acc + (parseFloat(String(n.metric1Value || n.metrics?.flow_rate_lps || 0)) || 0), 0) / campusWaterCount) * 10) / 10
     : flowRate;
   const campusAvgTank = campusWaterCount > 0
-    ? Math.round(liveNodes.reduce((acc, n) => acc + (parseFloat(String(n.metric2Value || n.metrics?.tank_level_pct || 75)) || 75), 0) / campusWaterCount)
+    ? Math.round(liveNodes.reduce((acc, n) => acc + (parseFloat(String(n.metric2Value || n.metrics?.tank_level_pct || 0)) || 0), 0) / campusWaterCount)
     : undergroundTank;
   const campusAvgPh = campusWaterCount > 0
-    ? Math.round((liveNodes.reduce((acc, n) => acc + (parseFloat(String(n.metric3Value || n.metrics?.ph_level || 7.2)) || 7.2), 0) / campusWaterCount) * 10) / 10
+    ? Math.round((liveNodes.reduce((acc, n) => acc + (parseFloat(String(n.metric3Value || n.metrics?.ph_level || 0)) || 0), 0) / campusWaterCount) * 10) / 10
     : phVal;
   const campusAvgTurb = campusWaterCount > 0
-    ? Math.round((liveNodes.reduce((acc, n) => acc + (parseFloat(String(n.metric4Value || n.metrics?.turbidity_ntu || 1.5)) || 1.5), 0) / campusWaterCount) * 10) / 10
+    ? Math.round((liveNodes.reduce((acc, n) => acc + (parseFloat(String(n.metric4Value || n.metrics?.turbidity_ntu || 0)) || 0), 0) / campusWaterCount) * 10) / 10
     : turbVal;
 
   const sumpLevel = sumpNode ? (sumpNode.metrics?.tank_level_pct ?? undergroundTank) : undergroundTank;

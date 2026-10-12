@@ -120,7 +120,11 @@ class ParkingVisionProcessor:
                 except Exception:
                     pass
             
-            source = int(source_path_or_url) if isinstance(source_path_or_url, str) and source_path_or_url.isdigit() else source_path_or_url
+            source = str(source_path_or_url).strip()
+            if source.isdigit():
+                source = int(source)
+            elif os.path.exists(source):
+                source = os.path.normpath(source)
 
             self.cap = cv2.VideoCapture(source)
             if not self.cap.isOpened():
@@ -149,22 +153,7 @@ class ParkingVisionProcessor:
         self.last_process_time = now
 
         if not HAS_OPENCV or self.cap is None or not self.is_open:
-            sim_occ = max(5, int(self.total_slots * 0.45) + random.randint(-1, 1))
-            sim_occ = min(self.total_slots, sim_occ)
-            return {
-                "total_slots": self.total_slots,
-                "occupied_slots": sim_occ,
-                "available_slots": max(0, self.total_slots - sim_occ),
-                "occupancy_rate_pct": round((sim_occ / self.total_slots) * 100),
-                "ev_charging_occupied": min(self.ev_slots, int(sim_occ * 0.18)),
-                "ev_charging_total": self.ev_slots,
-                "entry_flow_rate": random.randint(18, 26),
-                "camera_fps": 30.0,
-                "frame_idx": self.current_frame_idx,
-                "total_frames": self.total_frames,
-                "detected_vehicles": sim_occ,
-                "model_status": "Simulated Optical Engine"
-            }
+            return self._fallback_metrics()
 
         ret, frame = self.cap.read()
         if not ret or frame is None:
@@ -260,6 +249,22 @@ class ParkingVisionProcessor:
 
     def _fallback_metrics(self):
         sim_occ = max(10, int(self.total_slots * 0.5))
+        frame_b64 = None
+        for img_path in [
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "BPUT", "college_parking.jpg"),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "BPUT", "college_lot_c.jpg")
+        ]:
+            if os.path.exists(img_path):
+                try:
+                    f = cv2.imread(img_path)
+                    if f is not None:
+                        f_res = cv2.resize(f, (640, 360))
+                        _, enc = cv2.imencode(".jpg", f_res, [int(cv2.IMWRITE_JPEG_QUALITY), 65])
+                        frame_b64 = base64.b64encode(enc.tobytes()).decode("ascii")
+                        break
+                except Exception:
+                    pass
+
         return {
             "total_slots": self.total_slots,
             "occupied_slots": sim_occ,
@@ -270,9 +275,10 @@ class ParkingVisionProcessor:
             "entry_flow_rate": 24,
             "camera_fps": 30.0,
             "frame_idx": self.current_frame_idx,
-            "total_frames": self.total_frames,
+            "total_frames": self.total_frames or 100,
             "detected_vehicles": sim_occ,
-            "model_status": "Optical Engine Standby"
+            "model_status": "Optical Engine Standby",
+            "frame_base64": frame_b64
         }
 
     def close(self):
@@ -284,9 +290,11 @@ class ParkingVisionProcessor:
             self.cap = None
         self.is_open = False
 
-# Default configurations
+# Standard fixed system ports (Standardized & Non-editable for reliable data reception)
 DEFAULT_TCP_PORT = 5000
 DEFAULT_UDP_PORT = 5005
+DEFAULT_HTTP_PORT = 8000
+RECEIVER_FALLBACK_IP = "127.0.0.1"
 
 import concurrent.futures
 
@@ -421,8 +429,8 @@ def discover_server_url(base_ip: str = "", port: int = 8000) -> tuple[str, str]:
 
 # Auto-detect host IP for shared WiFi support
 DETECTED_LOCAL_IP = get_local_ip()
-DEFAULT_HOST = "255.255.255.255"
-DEFAULT_HTTP_URL = CLOUD_INGEST_URL
+DEFAULT_HOST = RECEIVER_FALLBACK_IP
+DEFAULT_HTTP_URL = f"http://{RECEIVER_FALLBACK_IP}:8000/api/iot/ingest/"
 
 # Sensor Presets with Healthy vs Anomaly telemetry
 SENSOR_TEMPLATES = {
@@ -770,7 +778,7 @@ def send_packet_lan_udp(host: str, port: int, payload: dict) -> tuple[bool, str]
         return False, f"UDP Datagram Error ({host}:{port}): {e}"
 
 
-def send_packet_wifi_http(url: str, payload: dict, timeout: float = 2.5) -> tuple[bool, str]:
+def send_packet_wifi_http(url: str, payload: dict, timeout: float = 8.0) -> tuple[bool, str]:
     """Sends telemetry payload via HTTP REST API simulating WiFi ESP32 node with fast timeout."""
     try:
         data_bytes = json.dumps(payload).encode('utf-8')
@@ -821,12 +829,18 @@ class IoTSenderGui:
         self.video_status_label = None
         self.btn_video_toggle = None
 
-        # Integrated Computer Vision Video Processing Model
+        # Integrated Computer Vision Video Processing Model (Authentic Camera Frames)
         self.vision_processor = ParkingVisionProcessor(total_slots=80, ev_slots=12)
-        sample_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "sample_parking_feed.mp4")
-        if os.path.exists(sample_path):
-            self.video_file_var.set(sample_path)
-            self.vision_processor.load_source(sample_path)
+        real_sources = [
+            "H:/PBUT hack/BLK-HDPTZ12_Security_Camera_Parking_Lot_Surveillance_Video.mp4",
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "sample_parking_feed.mp4"),
+            os.path.join(os.path.dirname(os.path.abspath(__file__)), "BPUT", "college_parking.jpg")
+        ]
+        for src in real_sources:
+            if os.path.exists(src):
+                self.video_file_var.set(src)
+                self.vision_processor.load_source(src)
+                break
 
         self._apply_dark_style()
         self._build_ui()
@@ -916,14 +930,21 @@ class IoTSenderGui:
         lan_grid = tk.Frame(lan_frame, bg="#0d111f")
         lan_grid.pack(fill="x", padx=10, pady=4)
 
-        tk.Label(lan_grid, text="Gateway Host / Broadcast:", bg="#0d111f", fg="#94a3b8").grid(row=0, column=0, sticky="w", pady=2)
-        self.lan_host_var = tk.StringVar(value="255.255.255.255")
-        tk.Entry(lan_grid, textvariable=self.lan_host_var, width=16, bg="#070913", fg="#ffffff", insertbackground="#ffffff").grid(row=0, column=1, sticky="w", padx=5, pady=2)
+        tk.Label(lan_grid, text="Gateway Host / Receiver IP:", bg="#0d111f", fg="#94a3b8").grid(row=0, column=0, sticky="w", pady=2)
+        self.lan_host_var = tk.StringVar(value="192.168.0.191")
+        tk.Entry(lan_grid, textvariable=self.lan_host_var, width=18, bg="#070913", fg="#ffffff", insertbackground="#ffffff", font=("Consolas", 9)).grid(row=0, column=1, sticky="w", padx=5, pady=2)
 
         # Broadcast helper buttons
         btn_box = tk.Frame(lan_grid, bg="#0d111f")
         btn_box.grid(row=0, column=2, columnspan=2, sticky="w", padx=5)
         
+        btn_rcv = tk.Button(
+            btn_box, text="🎯 Receiver (192.168.0.191)", font=("Segoe UI", 7, "bold"),
+            bg="#064e3b", fg="#6ee7b7", activebackground="#047857", activeforeground="#ffffff",
+            bd=0, padx=5, pady=1, cursor="hand2", command=lambda: self._set_target_ip("192.168.0.191")
+        )
+        btn_rcv.pack(side="left", padx=2)
+
         btn_bcast = tk.Button(
             btn_box, text="📡 255.255.255.255", font=("Segoe UI", 7, "bold"),
             bg="#1e3a8a", fg="#93c5fd", activebackground="#2563eb", activeforeground="#ffffff",
@@ -932,22 +953,27 @@ class IoTSenderGui:
         btn_bcast.pack(side="left", padx=2)
 
         btn_local = tk.Button(
-            btn_box, text=f"🎯 Local IP ({self.detected_ip})", font=("Segoe UI", 7, "bold"),
-            bg="#064e3b", fg="#6ee7b7", activebackground="#047857", activeforeground="#ffffff",
-            bd=0, padx=5, pady=1, cursor="hand2", command=lambda: self.lan_host_var.set(self.detected_ip)
+            btn_box, text=f"🏠 Localhost", font=("Segoe UI", 7, "bold"),
+            bg="#374151", fg="#e5e7eb", activebackground="#4b5563", activeforeground="#ffffff",
+            bd=0, padx=5, pady=1, cursor="hand2", command=lambda: self._set_target_ip("127.0.0.1")
         )
         btn_local.pack(side="left", padx=2)
 
+        # Strictly Non-editable Fixed Port Label
         tk.Label(lan_grid, text="Port (UDP/TCP):", bg="#0d111f", fg="#94a3b8").grid(row=1, column=0, sticky="w", pady=2)
         self.lan_port_var = tk.StringVar(value="5005")
-        tk.Entry(lan_grid, textvariable=self.lan_port_var, width=16, bg="#070913", fg="#ffffff", insertbackground="#ffffff").grid(row=1, column=1, sticky="w", padx=5, pady=2)
+        port_badge_lan = tk.Label(
+            lan_grid, text="🔒 5005 UDP / 5000 TCP (Fixed Standard)", font=("Consolas", 8, "bold"),
+            bg="#1e293b", fg="#38bdf8", padx=6, pady=2, relief="solid", bd=1
+        )
+        port_badge_lan.grid(row=1, column=1, sticky="w", padx=5, pady=2)
 
         tk.Label(lan_grid, text="Device LAN IP:", bg="#0d111f", fg="#94a3b8").grid(row=1, column=2, sticky="w", padx=(10, 0), pady=2)
         self.lan_dev_ip_var = tk.StringVar(value=self.detected_ip)
         tk.Entry(lan_grid, textvariable=self.lan_dev_ip_var, width=16, bg="#070913", fg="#ffffff", insertbackground="#ffffff").grid(row=1, column=3, sticky="w", padx=5, pady=2)
 
         # Detected IP info label
-        ip_info = tk.Label(lan_frame, text=f"🌐 0.0.0.0 Receiver Compatible • Subnet Broadcast: 255.255.255.255:5005 (UDP)", bg="#0d111f", fg="#10b981", font=("Segoe UI", 8, "bold"))
+        ip_info = tk.Label(lan_frame, text=f"🌐 Dual Transmission: Sends Unicast to Receiver IP AND Subnet Broadcast (255.255.255.255:5005)", bg="#0d111f", fg="#10b981", font=("Segoe UI", 8, "bold"))
         ip_info.pack(anchor="w", padx=10, pady=(4, 6))
 
         # TAB 2: WIFI (ESP32)
@@ -957,90 +983,82 @@ class IoTSenderGui:
         wifi_grid = tk.Frame(wifi_frame, bg="#0d111f")
         wifi_grid.pack(fill="x", padx=10, pady=6)
 
-        tk.Label(wifi_grid, text="HTTP Ingest URL:", bg="#0d111f", fg="#94a3b8").grid(row=0, column=0, sticky="w", pady=2)
-        self.wifi_url_var = tk.StringVar(value=DEFAULT_HTTP_URL)
-        url_entry = tk.Entry(wifi_grid, textvariable=self.wifi_url_var, width=32, bg="#070913", fg="#ffffff", insertbackground="#ffffff")
-        url_entry.grid(row=0, column=1, sticky="w", padx=4, pady=2)
+        # Target Receiver IP Input Field
+        tk.Label(wifi_grid, text="Target Receiver IP:", bg="#0d111f", fg="#38bdf8", font=("Segoe UI", 9, "bold")).grid(row=0, column=0, sticky="w", pady=2)
+        self.target_ip_var = tk.StringVar(value="192.168.0.191")
+        target_ip_entry = tk.Entry(wifi_grid, textvariable=self.target_ip_var, width=18, bg="#070913", fg="#38bdf8", insertbackground="#ffffff", font=("Consolas", 9, "bold"))
+        target_ip_entry.grid(row=0, column=1, sticky="w", padx=4, pady=2)
 
-        # Dedicated editable Port box
-        tk.Label(wifi_grid, text="Port:", bg="#0d111f", fg="#38bdf8", font=("Segoe UI", 8, "bold")).grid(row=0, column=2, sticky="w", padx=(6, 2), pady=2)
+        # Strictly Non-editable Fixed Port Label (No typing allowed)
+        tk.Label(wifi_grid, text="Port:", bg="#0d111f", fg="#94a3b8", font=("Segoe UI", 8)).grid(row=0, column=2, sticky="w", padx=(6, 2), pady=2)
         self.wifi_port_var = tk.StringVar(value="8000")
-        port_entry = tk.Entry(wifi_grid, textvariable=self.wifi_port_var, width=7, bg="#070913", fg="#38bdf8", insertbackground="#ffffff", font=("Consolas", 9, "bold"))
-        port_entry.grid(row=0, column=3, sticky="w", padx=2, pady=2)
+        port_badge_wifi = tk.Label(
+            wifi_grid, text="🔒 8000 (Fixed Standard)", font=("Consolas", 8, "bold"),
+            bg="#1e293b", fg="#38bdf8", padx=6, pady=2, relief="solid", bd=1
+        )
+        port_badge_wifi.grid(row=0, column=3, sticky="w", padx=2, pady=2)
 
-        def _on_port_changed(*args):
-            p = self.wifi_port_var.get().strip()
-            if not p or not p.isdigit():
-                return
-            cur = self.wifi_url_var.get().strip()
-            import re
-            m = re.search(r':\d{2,5}(/api/iot/ingest/?)', cur)
-            if m:
-                self.wifi_url_var.set(cur[:m.start()] + f":{p}" + m.group(1))
-            elif "127.0.0.1" in cur or "localhost" in cur or (hasattr(self, 'detected_ip') and self.detected_ip in cur):
-                self.wifi_url_var.set(f"http://127.0.0.1:{p}/api/iot/ingest/")
+        # HTTP Ingest URL (Auto-derived from Target IP, locked to port 8000)
+        tk.Label(wifi_grid, text="HTTP Ingest URL:", bg="#0d111f", fg="#94a3b8").grid(row=1, column=0, sticky="w", pady=2)
+        self.wifi_url_var = tk.StringVar(value="http://192.168.0.191:8000/api/iot/ingest/")
+        url_entry = tk.Entry(wifi_grid, textvariable=self.wifi_url_var, width=38, bg="#070913", fg="#ffffff", insertbackground="#ffffff", font=("Consolas", 8))
+        url_entry.grid(row=1, column=1, columnspan=3, sticky="w", padx=4, pady=2)
 
-        self.wifi_port_var.trace_add("write", _on_port_changed)
+        def _on_target_ip_changed(*args):
+            tip = self.target_ip_var.get().strip()
+            if tip:
+                self.lan_host_var.set(tip)
+                if tip == "127.0.0.1" or tip.lower() == "localhost":
+                    self.wifi_url_var.set("http://127.0.0.1:8000/api/iot/ingest/")
+                elif "onrender.com" in tip or tip.startswith("http"):
+                    self.wifi_url_var.set(tip)
+                else:
+                    self.wifi_url_var.set(f"http://{tip}:8000/api/iot/ingest/")
 
-        def _set_http_port(p_val: str):
-            self.wifi_port_var.set(p_val)
-            _on_port_changed()
+        self.target_ip_var.trace_add("write", _on_target_ip_changed)
 
         # Preset & Auto-Discover buttons row
         btn_wifi_box = tk.Frame(wifi_grid, bg="#0d111f")
-        btn_wifi_box.grid(row=1, column=1, columnspan=4, sticky="w", padx=4, pady=2)
+        btn_wifi_box.grid(row=2, column=1, columnspan=4, sticky="w", padx=4, pady=3)
 
-        btn_cloud = tk.Button(
-            btn_wifi_box, text="🌐 Cloud (Render)", font=("Segoe UI", 7, "bold"),
-            bg="#1e3a8a", fg="#93c5fd", activebackground="#2563eb", activeforeground="#ffffff",
-            bd=0, padx=5, pady=1, cursor="hand2", command=lambda: self.wifi_url_var.set(CLOUD_INGEST_URL)
+        btn_rcv_wifi = tk.Button(
+            btn_wifi_box, text="🎯 Receiver (192.168.0.191)", font=("Segoe UI", 7, "bold"),
+            bg="#064e3b", fg="#6ee7b7", activebackground="#047857", activeforeground="#ffffff",
+            bd=0, padx=6, pady=2, cursor="hand2", command=lambda: self._set_target_ip("192.168.0.191")
         )
-        btn_cloud.pack(side="left", padx=2)
+        btn_rcv_wifi.pack(side="left", padx=2)
 
         btn_local_http = tk.Button(
             btn_wifi_box, text="🏠 Localhost", font=("Segoe UI", 7, "bold"),
             bg="#374151", fg="#e5e7eb", activebackground="#4b5563", activeforeground="#ffffff",
-            bd=0, padx=5, pady=1, cursor="hand2", command=lambda: self.wifi_url_var.set(f"http://127.0.0.1:{self.wifi_port_var.get().strip() or '8000'}/api/iot/ingest/")
+            bd=0, padx=6, pady=2, cursor="hand2", command=lambda: self._set_target_ip("127.0.0.1")
         )
         btn_local_http.pack(side="left", padx=2)
 
-        # Quick port buttons
-        btn_p8000 = tk.Button(
-            btn_wifi_box, text=":8000", font=("Consolas", 7, "bold"),
-            bg="#0f172a", fg="#38bdf8", bd=0, padx=4, pady=1, cursor="hand2", command=lambda: _set_http_port("8000")
+        btn_cloud = tk.Button(
+            btn_wifi_box, text="🌐 Cloud (Render)", font=("Segoe UI", 7, "bold"),
+            bg="#1e3a8a", fg="#93c5fd", activebackground="#2563eb", activeforeground="#ffffff",
+            bd=0, padx=6, pady=2, cursor="hand2", command=lambda: self._set_cloud_target()
         )
-        btn_p8000.pack(side="left", padx=2)
-
-        btn_p8080 = tk.Button(
-            btn_wifi_box, text=":8080", font=("Consolas", 7, "bold"),
-            bg="#0f172a", fg="#38bdf8", bd=0, padx=4, pady=1, cursor="hand2", command=lambda: _set_http_port("8080")
-        )
-        btn_p8080.pack(side="left", padx=2)
+        btn_cloud.pack(side="left", padx=2)
 
         btn_discover = tk.Button(
-            btn_wifi_box, text="🔍 Subnet Scan", font=("Segoe UI", 7, "bold"),
-            bg="#064e3b", fg="#6ee7b7", activebackground="#047857", activeforeground="#ffffff",
-            bd=0, padx=6, pady=1, cursor="hand2", command=self._discover_server
+            btn_wifi_box, text="🔍 Auto Subnet Scan", font=("Segoe UI", 7, "bold"),
+            bg="#0f766e", fg="#5eead4", activebackground="#14b8a6", activeforeground="#ffffff",
+            bd=0, padx=6, pady=2, cursor="hand2", command=self._discover_server
         )
         btn_discover.pack(side="left", padx=2)
 
-        self.btn_use_auto_ip = tk.Button(
-            btn_wifi_box, text="⚡ Use Auto-Found IP", font=("Segoe UI", 7, "bold"),
-            bg="#0f766e", fg="#5eead4", activebackground="#14b8a6", activeforeground="#ffffff",
-            bd=0, padx=6, pady=1, cursor="hand2", command=self._apply_auto_found_ip
-        )
-        self.btn_use_auto_ip.pack(side="left", padx=2)
-
-        tk.Label(wifi_grid, text="WiFi SSID:", bg="#0d111f", fg="#94a3b8").grid(row=2, column=0, sticky="w", pady=2)
+        tk.Label(wifi_grid, text="WiFi SSID:", bg="#0d111f", fg="#94a3b8").grid(row=3, column=0, sticky="w", pady=2)
         self.wifi_ssid_var = tk.StringVar(value="EcoEstate_IoT_Grid")
-        tk.Entry(wifi_grid, textvariable=self.wifi_ssid_var, width=18, bg="#070913", fg="#ffffff", insertbackground="#ffffff").grid(row=2, column=1, sticky="w", padx=5, pady=2)
+        tk.Entry(wifi_grid, textvariable=self.wifi_ssid_var, width=18, bg="#070913", fg="#ffffff", insertbackground="#ffffff").grid(row=3, column=1, sticky="w", padx=5, pady=2)
 
-        tk.Label(wifi_grid, text="Signal (RSSI dBm):", bg="#0d111f", fg="#94a3b8").grid(row=2, column=2, sticky="w", padx=(10, 0), pady=2)
+        tk.Label(wifi_grid, text="Signal (RSSI dBm):", bg="#0d111f", fg="#94a3b8").grid(row=3, column=2, sticky="w", padx=(10, 0), pady=2)
         self.wifi_rssi_var = tk.IntVar(value=-54)
-        tk.Scale(wifi_grid, from_=-90, to=-30, orient="horizontal", variable=self.wifi_rssi_var, bg="#0d111f", fg="#38bdf8", highlightthickness=0, length=120).grid(row=2, column=3, sticky="w", padx=5)
+        tk.Scale(wifi_grid, from_=-90, to=-30, orient="horizontal", variable=self.wifi_rssi_var, bg="#0d111f", fg="#38bdf8", highlightthickness=0, length=120).grid(row=3, column=3, sticky="w", padx=5)
 
         # Server IP helper label
-        wifi_help = tk.Label(wifi_frame, text=f"💡 Local IP: {self.detected_ip} • Click 'Subnet Scan' to auto-find server or 'Cloud (Render)'", bg="#0d111f", fg="#10b981", font=("Segoe UI", 8))
+        wifi_help = tk.Label(wifi_frame, text=f"💡 Local Machine: {self.detected_ip} • Target Receiver Port: 8000 (HTTP) & 5005 (UDP) Fixed", bg="#0d111f", fg="#10b981", font=("Segoe UI", 8))
         wifi_help.pack(anchor="w", padx=10, pady=(2, 6))
 
         # TAB 3: VIDEO FOOTAGE & IP CAMERA INGEST
@@ -1060,6 +1078,7 @@ class IoTSenderGui:
         self.sensor_combo = ttk.Combobox(
             s_row, textvariable=self.sensor_choice_var, state="readonly", width=38,
             values=[
+                "ALL_PARAMETERS (Full Estate Multi-Sensor Fleet - All Parameters)",
                 "WATER_PUMP (STP Raw Sewage Lift Pump #4)",
                 "WATER_OVERHEAD_TANK (Overhead Water Reservoir Tank OHT-01)",
                 "WATER_UNDERGROUND_SUMP (Underground Storage Sump UG-SUMP)",
@@ -1127,14 +1146,21 @@ class IoTSenderGui:
 
         btn_send_top = tk.Button(
             action_bar_top, text="🚀 Send Single Packet", font=("Segoe UI", 9, "bold"),
-            bg="#0284c7", fg="#ffffff", activebackground="#0369a1", bd=0, padx=14, pady=5,
+            bg="#0284c7", fg="#ffffff", activebackground="#0369a1", bd=0, padx=12, pady=5,
             cursor="hand2", command=self.send_single_packet
         )
-        btn_send_top.pack(side="left", padx=(0, 6))
+        btn_send_top.pack(side="left", padx=(0, 4))
+
+        self.btn_send_all_top = tk.Button(
+            action_bar_top, text="🌐 Send All Parameters", font=("Segoe UI", 9, "bold"),
+            bg="#0d9488", fg="#ffffff", activebackground="#0f766e", bd=0, padx=12, pady=5,
+            cursor="hand2", command=self.send_all_parameters
+        )
+        self.btn_send_all_top.pack(side="left", padx=(0, 4))
 
         self.btn_stream_top = tk.Button(
             action_bar_top, text="▶ Start Auto-Stream", font=("Segoe UI", 9, "bold"),
-            bg="#16a34a", fg="#ffffff", activebackground="#15803d", bd=0, padx=14, pady=5,
+            bg="#16a34a", fg="#ffffff", activebackground="#15803d", bd=0, padx=12, pady=5,
             cursor="hand2", command=self.toggle_stream
         )
         self.btn_stream_top.pack(side="left", padx=4)
@@ -1150,17 +1176,24 @@ class IoTSenderGui:
 
         self.btn_send_single = tk.Button(
             action_box, text="🚀 Send Single Packet", font=("Segoe UI", 10, "bold"),
-            bg="#0284c7", fg="#ffffff", activebackground="#0369a1", bd=0, padx=16, pady=6,
+            bg="#0284c7", fg="#ffffff", activebackground="#0369a1", bd=0, padx=14, pady=6,
             cursor="hand2", command=self.send_single_packet
         )
-        self.btn_send_single.pack(side="left", padx=4)
+        self.btn_send_single.pack(side="left", padx=3)
+
+        self.btn_send_all = tk.Button(
+            action_box, text="🌐 Send All Parameters", font=("Segoe UI", 10, "bold"),
+            bg="#0d9488", fg="#ffffff", activebackground="#0f766e", bd=0, padx=14, pady=6,
+            cursor="hand2", command=self.send_all_parameters
+        )
+        self.btn_send_all.pack(side="left", padx=3)
 
         self.btn_stream_toggle = tk.Button(
             action_box, text="▶ Start Auto-Stream", font=("Segoe UI", 10, "bold"),
-            bg="#16a34a", fg="#ffffff", activebackground="#15803d", bd=0, padx=16, pady=6,
+            bg="#16a34a", fg="#ffffff", activebackground="#15803d", bd=0, padx=14, pady=6,
             cursor="hand2", command=self.toggle_stream
         )
-        self.btn_stream_toggle.pack(side="left", padx=4)
+        self.btn_stream_toggle.pack(side="left", padx=3)
 
         # Rate selector bottom
         tk.Label(action_box, text="Interval:", bg="#0d111f", fg="#94a3b8").pack(side="left", padx=(10, 2))
@@ -1267,31 +1300,39 @@ class IoTSenderGui:
     def _update_fleet_label(self):
         key = self._get_selected_key()
         count = max(1, min(30, self.fleet_count_var.get()))
-        self.fleet_info_label.config(text=f"• {count} {key.split('_')[0]} Nodes Online")
+        if key == "ALL_PARAMETERS":
+            self.fleet_info_label.config(text="• Full Estate Fleet (8 Domains Active)")
+        else:
+            self.fleet_info_label.config(text=f"• {count} {key.split('_')[0]} Nodes Online")
 
     def _on_sensor_changed(self):
         key = self._get_selected_key()
-        tmpl = SENSOR_TEMPLATES.get(key, SENSOR_TEMPLATES["WATER_PUMP"])
-        self.loc_label.config(text=f"📍 Location: {tmpl['location']}  |  Node: {tmpl['device_id']}")
+        if key == "ALL_PARAMETERS":
+            self.loc_label.config(text="📍 Entire Campus Grid • Multi-Source Estate Fleet (AQI, Water, Energy, HVAC, Waste, Parking)")
+            tmpl = SENSOR_TEMPLATES["AIR_QUALITY_STATION"]
+            self._update_fleet_label()
+        else:
+            tmpl = SENSOR_TEMPLATES.get(key, SENSOR_TEMPLATES["WATER_PUMP"])
+            self.loc_label.config(text=f"📍 Location: {tmpl['location']}  |  Node: {tmpl['device_id']}")
 
-        # Auto-adjust default fleet size based on category type
-        cat_default_fleet = {
-            "AIR_QUALITY_STATION": 8,
-            "DUSTBIN": 5,
-            "WATER_PUMP": 6,
-            "WATER_OVERHEAD_TANK": 4,
-            "WATER_UNDERGROUND_SUMP": 3,
-            "WATER_BOREWELL": 2,
-            "WATER_RAINWATER": 2,
-            "WATER_RO_PLANT": 2,
-            "ENERGY_TRANSFORMER": 3,
-            "SOLAR_ARRAY": 3,
-            "PARKING_GATEWAY": 2,
-            "CHILLER_HVAC": 2,
-        }
-        if key in cat_default_fleet:
-            self.fleet_count_var.set(cat_default_fleet[key])
-        self._update_fleet_label()
+            # Auto-adjust default fleet size based on category type
+            cat_default_fleet = {
+                "AIR_QUALITY_STATION": 8,
+                "DUSTBIN": 5,
+                "WATER_PUMP": 6,
+                "WATER_OVERHEAD_TANK": 4,
+                "WATER_UNDERGROUND_SUMP": 3,
+                "WATER_BOREWELL": 2,
+                "WATER_RAINWATER": 2,
+                "WATER_RO_PLANT": 2,
+                "ENERGY_TRANSFORMER": 3,
+                "SOLAR_ARRAY": 3,
+                "PARKING_GATEWAY": 2,
+                "CHILLER_HVAC": 2,
+            }
+            if key in cat_default_fleet:
+                self.fleet_count_var.set(cat_default_fleet[key])
+            self._update_fleet_label()
 
         # Re-build telemetry sliders
         for w in self.sliders_container.winfo_children():
@@ -1342,17 +1383,31 @@ class IoTSenderGui:
         
         threading.Thread(target=_scan, daemon=True).start()
 
+    def _set_target_ip(self, ip: str):
+        if hasattr(self, 'target_ip_var'):
+            self.target_ip_var.set(ip)
+        self.lan_host_var.set(ip)
+        if ip == "127.0.0.1" or ip.lower() == "localhost":
+            self.wifi_url_var.set("http://127.0.0.1:8000/api/iot/ingest/")
+        else:
+            self.wifi_url_var.set(f"http://{ip}:8000/api/iot/ingest/")
+        self.wifi_port_var.set("8000")
+        self._log(f"🎯 Target Receiver IP set to {ip} (HTTP: 8000, UDP: 5005 Fixed)", "INFO")
+
+    def _set_cloud_target(self):
+        self.wifi_url_var.set(CLOUD_INGEST_URL)
+        if hasattr(self, 'target_ip_var'):
+            self.target_ip_var.set("ecoestate.onrender.com")
+        self._log("🌐 Target set to Cloud Production Ingest (Render)", "INFO")
+
     def _on_discover_result(self, url: str, desc: str = ""):
         self.wifi_url_var.set(url)
-        # Also extract and set editable port if present
-        import re
-        p_m = re.search(r':(\d{2,5})(/api/iot/ingest/?)', url)
-        if p_m:
-            self.wifi_port_var.set(p_m.group(1))
-        # Also update LAN host based on discovered URL
+        self.wifi_port_var.set("8000")
         try:
             host_part = url.split("//")[1].split(":")[0]
             self.lan_host_var.set(host_part)
+            if hasattr(self, 'target_ip_var'):
+                self.target_ip_var.set(host_part)
         except Exception:
             host_part = url
 
@@ -1360,7 +1415,7 @@ class IoTSenderGui:
             self.conn_status_label.config(text=f"🌐 Cloud Production Ingest", fg="#60a5fa", bg="#1e293b")
             self._log(f"🌐 Connected to Cloud Production Ingest: {url} ({desc})", "INFO")
         else:
-            self.conn_status_label.config(text=f"🟢 Auto-Connected: {host_part}", fg="#34d399", bg="#064e3b")
+            self.conn_status_label.config(text=f"🟢 Auto-Connected: {host_part}:8000", fg="#34d399", bg="#064e3b")
             self._log(f"✅ Auto-Connected to Host: {url} [{desc}]", "SUCCESS")
 
     def _set_healthy_preset(self):
@@ -1456,7 +1511,7 @@ class IoTSenderGui:
                     groq_key = os.environ.get("GROQ_API_KEY", "")
                     sys_prompt = f"You are the EcoEstate India Multi-Behavior AI Copilot for {org_type} estate. Cluster: {cluster}. Output JSON strictly with keys: persona_summary, urgency, answer, sensor_evaluations, immediate_actions, maintenance_steps, required_tools, spare_parts, compliance_standards."
                     groq_payload = {
-                        "model": "openai/gpt-oss-120b",
+                        "model": "llama-3.3-70b-versatile",
                         "messages": [
                             {"role": "system", "content": sys_prompt},
                             {"role": "user", "content": json.dumps(payload_data)}
@@ -1474,7 +1529,7 @@ class IoTSenderGui:
                         },
                         method="POST"
                     )
-                    with urllib.request.urlopen(g_req, timeout=8.0) as g_res:
+                    with urllib.request.urlopen(g_req, timeout=3.0) as g_res:
                         g_json = json.loads(g_res.read().decode("utf-8"))
                         raw_c = g_json["choices"][0]["message"]["content"].strip()
                         if raw_c.startswith("```json"): raw_c = raw_c[7:]
@@ -1627,8 +1682,24 @@ class IoTSenderGui:
         )
         btn_close.pack(anchor="e", padx=14, pady=8)
 
-    def _gather_multi_payloads(self) -> list[dict]:
-        key = self._get_selected_key()
+    def _gather_multi_payloads(self, target_key: str | None = None, fleet_override: int | None = None) -> list[dict]:
+        key = target_key or self._get_selected_key()
+        if key == "ALL_PARAMETERS":
+            all_keys = [
+                "AIR_QUALITY_STATION",
+                "WATER_PUMP",
+                "WATER_OVERHEAD_TANK",
+                "ENERGY_TRANSFORMER",
+                "SOLAR_ARRAY",
+                "CHILLER_HVAC",
+                "DUSTBIN",
+                "PARKING_GATEWAY"
+            ]
+            combined = []
+            for k in all_keys:
+                combined.extend(self._gather_multi_payloads(target_key=k, fleet_override=1))
+            return combined
+
         tmpl = SENSOR_TEMPLATES.get(key, SENSOR_TEMPLATES["WATER_PUMP"])
 
         # Determine active channel from notebook tab
@@ -1640,11 +1711,15 @@ class IoTSenderGui:
         for k, var in self.metric_vars.items():
             base_metrics[k] = round(var.get(), 2)
 
+        # If gathering for a different template than currently active UI slider, use template healthy baseline
+        if target_key and target_key != self._get_selected_key():
+            base_metrics = dict(tmpl.get("healthy", {}))
+
         source = "LAN" if is_lan else "WIFI"
         proto = self.lan_protocol_var.get() if is_lan else "HTTP"
         dev_ip = self.lan_dev_ip_var.get() if is_lan else "192.168.1.145"
 
-        n_count = max(1, min(30, self.fleet_count_var.get()))
+        n_count = fleet_override if fleet_override is not None else max(1, min(30, self.fleet_count_var.get()))
         payloads = []
 
         campus_locations = [
@@ -1824,6 +1899,9 @@ class IoTSenderGui:
                     "mac_address": f"00:1B:44:11:3A:{i:02X}" if is_lan else f"30:AE:A4:7F:8C:{i:02X}",
                     "signal_dbm": None if is_lan else (self.wifi_rssi_var.get() - (i % 6)),
                     "metrics": node_metrics,
+                    "org_id": 13,
+                    "organization": "BPUT",
+                    "org_name": "BPUT",
                 })
 
         # Attach full fleet device IDs to each payload so backend matches count instantaneously
@@ -1834,96 +1912,114 @@ class IoTSenderGui:
 
         return payloads
 
-    def send_single_packet(self):
-        payloads = self._gather_multi_payloads()
+    def _transmit_payload_list(self, payloads: list[dict], batch_label: str = "FLEET"):
         total_nodes = len(payloads)
+        if total_nodes == 0:
+            return
         success_count = 0
-        last_proto = "UDP"
+        last_proto = "UDP/HTTP:8000"
         last_msg = ""
 
-        # Retrieve user-editable ports
-        configured_http_port = self.wifi_port_var.get().strip() or "8000"
-        try:
-            configured_udp_port = int(self.lan_port_var.get().strip())
-        except Exception:
-            configured_udp_port = DEFAULT_UDP_PORT
+        # Fixed Standard System Ports (Standardized & Non-editable)
+        configured_http_port = 8000
+        configured_udp_port = 5005
+        configured_tcp_port = 5000
 
-        try:
-            configured_tcp_port = int(self.lan_port_var.get().strip())
-        except Exception:
-            configured_tcp_port = DEFAULT_TCP_PORT
+        # Retrieve Target Receiver IP
+        target_ip = "127.0.0.1"
+        if hasattr(self, 'target_ip_var'):
+            tip_val = self.target_ip_var.get().strip()
+            if tip_val:
+                target_ip = tip_val
 
-        raw_url = self.wifi_url_var.get().strip() or DEFAULT_HTTP_URL
-        primary_http_url = normalize_ingest_url(raw_url, default_port=configured_http_port)
-        local_http_url = f"http://127.0.0.1:{configured_http_port}/api/iot/ingest/"
+        raw_url = self.wifi_url_var.get().strip() or f"http://{target_ip}:8000/api/iot/ingest/"
+        primary_http_url = normalize_ingest_url(raw_url, default_port="8000")
+        local_http_url = f"http://127.0.0.1:8000/api/iot/ingest/"
 
-        # Send all N sensor nodes in the fleet
-        for payload in payloads:
-            is_lan = (payload["source"] == "LAN")
+        def _send_single_node(payload):
+            # Guarantee organization context is attached (BPUT org id 15)
+            payload["org_id"] = 15
+            payload["organization"] = "BPUT"
+            payload["org_name"] = "BPUT"
+
+            is_lan = (payload.get("source") == "LAN")
             proto = payload.get("protocol", "TCP")
 
-            if is_lan:
-                host = self.lan_host_var.get().strip() or "255.255.255.255"
-                if proto == "TCP":
-                    ok, msg = send_packet_lan_tcp(host, configured_tcp_port, payload)
-                else:
-                    ok, msg = send_packet_lan_udp(host, configured_udp_port, payload)
-                    if host != "127.0.0.1":
-                        send_packet_lan_udp("127.0.0.1", configured_udp_port, payload)
+            # Emits direct unicast UDP datagram to target IP AND broadcast 255.255.255.255
+            udp_targets = set()
+            if target_ip and target_ip != "255.255.255.255" and "onrender.com" not in target_ip:
+                udp_targets.add(target_ip)
+            lan_h = self.lan_host_var.get().strip() if hasattr(self, 'lan_host_var') else ""
+            if lan_h and lan_h != "255.255.255.255":
+                udp_targets.add(lan_h)
+            udp_targets.add("127.0.0.1")
+            udp_targets.add("255.255.255.255")
 
-                # Asynchronously mirror to both Localhost and Cloud REST endpoints to guarantee receiver sees data
-                def _bg_lan_sync(p=payload, l_url=local_http_url):
-                    send_packet_wifi_http(l_url, p, timeout=1.5)
-                    send_packet_wifi_http(CLOUD_INGEST_URL, p, timeout=2.5)
-                threading.Thread(target=_bg_lan_sync, daemon=True).start()
+            for ut in udp_targets:
+                try:
+                    send_packet_lan_udp(ut, configured_udp_port, payload)
+                except Exception:
+                    pass
 
-                last_proto = proto
-                last_msg = msg
+            if is_lan and proto == "TCP":
+                tcp_host = lan_h or target_ip or "127.0.0.1"
+                ok, msg = send_packet_lan_tcp(tcp_host, configured_tcp_port, payload)
+                return ok, "TCP:5000", msg
             else:
-                # Primary HTTP POST to target endpoint
-                http_ok, http_msg = send_packet_wifi_http(primary_http_url, payload, timeout=2.5)
+                # Fast HTTP POST with 0.8s timeout
+                http_ok, http_msg = send_packet_wifi_http(primary_http_url, payload, timeout=0.8)
 
-                # Asynchronously mirror to cloud and/or local endpoint so receiver updates regardless of environment
-                def _bg_wifi_sync(p=payload, p_url=primary_http_url, l_url=local_http_url):
-                    if "ecoestate.onrender.com" not in p_url:
-                        send_packet_wifi_http(CLOUD_INGEST_URL, p, timeout=2.5)
-                    if "127.0.0.1" not in p_url and "localhost" not in p_url:
-                        send_packet_wifi_http(l_url, p, timeout=1.5)
-                threading.Thread(target=_bg_wifi_sync, daemon=True).start()
-
-                # If primary URL fails (e.g. unreachable IP or timeout), fall back immediately
-                if not http_ok:
-                    fb_ok, fb_msg = send_packet_wifi_http(local_http_url, payload, timeout=1.5)
+                if not http_ok and primary_http_url != local_http_url:
+                    fb_ok, fb_msg = send_packet_wifi_http(local_http_url, payload, timeout=0.8)
                     if fb_ok:
-                        http_ok, http_msg = True, f"Delivered via Localhost (Port {configured_http_port})"
-                    else:
-                        fb_c_ok, fb_c_msg = send_packet_wifi_http(CLOUD_INGEST_URL, payload, timeout=2.5)
-                        if fb_c_ok:
-                            http_ok, http_msg = True, "Delivered via Cloud Production Ingest"
+                        http_ok, http_msg = True, "Delivered via Localhost:8000"
 
-                # Parallel broadcast on UDP for low-latency listener (both broadcast and localhost)
-                send_packet_lan_udp("255.255.255.255", configured_udp_port, payload)
-                send_packet_lan_udp("127.0.0.1", configured_udp_port, payload)
+                return http_ok, "WiFi-HTTP:8000", http_msg
 
-                ok = http_ok
-                last_proto = f"WiFi-HTTP:{configured_http_port}"
-                last_msg = http_msg
-                if not http_ok:
-                    self._log(f"❌ Failed to reach {primary_http_url} -> {http_msg}", "FAIL")
+        # Parallel transmission across thread pool for zero-delay fleet ingest
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, total_nodes)) as executor:
+            results = list(executor.map(_send_single_node, payloads))
 
+        for (ok, proto, msg) in results:
+            last_proto = proto
+            last_msg = msg
             if ok:
                 success_count += 1
 
         self.packet_count += total_nodes
         self.stat_tx_label.config(text=f"Packets Sent: {self.packet_count}")
 
-        sens_type = payloads[0].get("sensor_type", "TELEMETRY")
         if success_count == total_nodes:
-            self._log(f"📡 Multi-Node Fleet: Sent {total_nodes} nodes for [{sens_type}] ({payloads[0]['device_id']} to {payloads[-1]['device_id']}) -> Delivered!", "SUCCESS")
+            self._log(f"📡 Multi-Node Fleet: Sent {total_nodes} nodes for [{batch_label}] -> Delivered Successfully!", "SUCCESS")
             self.stat_last_label.config(text=f"Fleet Active ({total_nodes} Nodes)", fg="#34d399")
         else:
-            self._log(f"⚠️ Fleet Sent: {success_count}/{total_nodes} nodes delivered via {last_proto}.", "WARN")
+            self._log(f"⚠️ Fleet Sent: {success_count}/{total_nodes} nodes delivered for [{batch_label}] via {last_proto}.", "WARN")
             self.stat_last_label.config(text=f"Partial ({success_count}/{total_nodes})", fg="#fbbf24")
+
+    def send_single_packet(self):
+        key = self._get_selected_key()
+        if key == "ALL_PARAMETERS":
+            self.send_all_parameters()
+            return
+        payloads = self._gather_multi_payloads()
+        self._transmit_payload_list(payloads, batch_label=key)
+
+    def send_all_parameters(self):
+        """Transmits telemetry across all estate parameter domains simultaneously (AQI, Water, Energy, Equipment, Waste, Parking)."""
+        all_keys = [
+            "AIR_QUALITY_STATION",
+            "WATER_PUMP",
+            "WATER_OVERHEAD_TANK",
+            "ENERGY_TRANSFORMER",
+            "SOLAR_ARRAY",
+            "CHILLER_HVAC",
+            "DUSTBIN",
+            "PARKING_GATEWAY"
+        ]
+        all_payloads = []
+        for k in all_keys:
+            all_payloads.extend(self._gather_multi_payloads(target_key=k, fleet_override=1))
+        self._transmit_payload_list(all_payloads, batch_label="ALL ESTATE PARAMETERS (AQI, Water, Energy, HVAC, Waste, Parking)")
 
     def toggle_stream(self):
         if self.streaming:
@@ -2080,12 +2176,12 @@ class IoTSenderGui:
             if self.video_status_label:
                 self.video_status_label.config(text="🔴 COMPUTER VISION STREAMING LIVE OVER LAN & WIFI", bg="#7f1d1d", fg="#fca5a5")
 
-            # Check if source needs loading
+            # Check if source needs loading or switching to user-selected file
             v_path = self.video_file_var.get().strip()
             rtsp_url = self.video_rtsp_var.get().strip()
             target_source = v_path if (v_path and os.path.exists(v_path)) else (rtsp_url or "rtsp://192.168.0.50:554/live/ch0")
 
-            if not self.vision_processor.is_open:
+            if (not self.vision_processor.is_open) or (self.vision_processor.video_source != str(target_source)):
                 self.vision_processor.load_source(target_source)
 
             source_name = os.path.basename(v_path) if v_path else target_source
@@ -2148,107 +2244,125 @@ class IoTSenderGui:
                         }
 
                         # Dual-Delivery over Ethernet & Wi-Fi:
-                        # 1. UDP Broadcast on 5005 (send lean metrics without base64 to avoid datagram buffer overrun)
+                        # 1. UDP Delivery on 5005 (lean metrics without base64 to avoid datagram buffer overrun)
                         udp_payload = {k: v for k, v in payload.items() if k != "frame_base64"}
                         udp_metrics = {k: v for k, v in payload["metrics"].items() if k != "frame_base64"}
                         udp_payload["metrics"] = udp_metrics
+                        target_ip = self.target_ip_var.get().strip() if hasattr(self, 'target_ip_var') else "192.168.0.191"
+                        if target_ip and target_ip != "255.255.255.255" and "onrender.com" not in target_ip:
+                            send_packet_lan_udp(target_ip, 5005, udp_payload)
                         send_packet_lan_udp("255.255.255.255", 5005, udp_payload)
+                        send_packet_lan_udp("127.0.0.1", 5005, udp_payload)
 
-                        # 2. HTTP POST on 8000 (Sends full payload with frame_base64)
+                        # 2. HTTP Telemetry Ingest (Lean metrics without base64 to keep Django fast and responsive)
+                        lean_http_payload = dict(udp_payload)
                         http_target = self.wifi_url_var.get().strip() or "http://127.0.0.1:8000/api/iot/ingest/"
-                        send_packet_wifi_http(http_target, payload)
+                        threading.Thread(target=send_packet_wifi_http, args=(http_target, lean_http_payload, 1.5), daemon=True).start()
 
-                        # 3. Dedicated Camera Frame Ingest (Runs YOLOv8 ONNX BPUT/best.onnx Inference)
+                        # 3. Dedicated Camera Frame Ingest (One-by-One Sequential Processing with YOLOv8s ONNX)
                         if v_metrics.get("frame_base64"):
-                            cam_endpoint = http_target.replace("/iot/ingest/", "/iot/camera/frame/").rstrip("/") + "/"
-                            send_packet_wifi_http(cam_endpoint, {
+                            cam_data = {
                                 "frame_base64": v_metrics["frame_base64"],
                                 "total_slots": total_cap,
-                                "org_id": "org-bput"
-                            })
+                                "org_id": "org-bput",
+                                "frame_idx": f_idx,
+                                "total_frames": tot_f,
+                                "source_video": source_name
+                            }
+
+                            # Dynamically determine target camera endpoint based on network config
+                            user_wifi = self.wifi_url_var.get().strip() if hasattr(self, 'wifi_url_var') else ""
+                            if user_wifi and "/api/iot/ingest" in user_wifi:
+                                cam_url = user_wifi.replace("/api/iot/ingest/", "/api/iot/camera/frame/").replace("/api/iot/ingest", "/api/iot/camera/frame/")
+                            elif target_ip and target_ip != "255.255.255.255" and "onrender.com" not in target_ip and target_ip != "127.0.0.1":
+                                cam_url = f"http://{target_ip}:8000/api/iot/camera/frame/"
+                            else:
+                                cam_url = "http://127.0.0.1:8000/api/iot/camera/frame/"
+
+                            cam_ok, cam_msg = send_packet_wifi_http(cam_url, cam_data, timeout=3.0)
+                            if not cam_ok and "127.0.0.1" not in cam_url:
+                                # Fallback to local 127.0.0.1 if running on same machine
+                                cam_ok, cam_msg = send_packet_wifi_http("http://127.0.0.1:8000/api/iot/camera/frame/", cam_data, timeout=1.5)
+
+                            if cam_ok:
+                                self.root.after(0, lambda fi=f_idx, tf=tot_f: 
+                                    self._log(f"✅ Frame #{fi}/{tf} Ingested & Rendered -> Web Dashboard", "SUCCESS")
+                                )
+                            else:
+                                self.root.after(0, lambda fi=f_idx, m=cam_msg, u=cam_url: 
+                                    self._log(f"⚠️ Delivery issue Frame #{fi} [{u[:26]}]: {m[:35]}", "WARN")
+                                )
 
                         self.packet_count += 1
                         self.root.after(0, lambda: self.stat_tx_label.config(text=f"Packets Sent: {self.packet_count}"))
                         self.root.after(0, lambda s=source_name: self.stat_last_label.config(text=f"CV2 Stream ({s[:14]})", fg="#34d399"))
 
                         self.root.after(0, lambda o=curr_occ, t=total_cap, a=avail, r=rate_pct, s=source_name, fi=f_idx, fl=flow_rate: 
-                            self._log(f"📹 [CV2 VIDEO: {s[:18]}] Frame {fi} -> Occupied: {o}/{t} ({r}%) | Free: {a} | Flow: {fl}/hr", "INFO")
+                            self._log(f"📹 [CV2 VIDEO: {s[:18]}] Frame #{fi} -> Occupied: {o}/{t} ({r}%) | Free: {a} | Flow: {fl}/hr", "INFO")
                         )
 
                     except Exception as err:
                         self.root.after(0, lambda e=err: self._log(f"Video stream error: {e}", "FAIL"))
 
-                    time.sleep(1.0)
+                    time.sleep(0.18)
 
             self.video_stream_thread = threading.Thread(target=_stream_worker, daemon=True)
             self.video_stream_thread.start()
 
     def _discover_server(self):
-        """
-        Sends an automated UDP Subnet Broadcast beacon to 255.255.255.255:5005.
-        EcoEstate backend server listens on 0.0.0.0:5005 and replies with its current IP.
-        Updates self.wifi_url_var to the real dynamic IP of Laptop B in < 50ms!
-        """
+        """Auto-discover the Django backend server on local network."""
         def _worker():
-            self._log("🔍 Probing local WiFi subnet (255.255.255.255:5005) for EcoEstate server...", "INFO")
+            self._log("🔍 Auto-Scanning WiFi & UDP Beacon for EcoEstate Server...", "INFO")
+            # 1. Try UDP Beacon first
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-                s.settimeout(1.5)
+                s.settimeout(0.8)
                 ping_payload = b"ECOESTATE_DISCOVERY_PING"
                 s.sendto(ping_payload, ("255.255.255.255", 5005))
-
                 data, addr = s.recvfrom(2048)
                 resp = json.loads(data.decode('utf-8', errors='ignore'))
                 s.close()
-
                 if resp.get('msg') == 'ECOESTATE_SERVER_ACK':
                     server_ip = resp.get('server_ip') or addr[0]
                     http_url = resp.get('http_url') or f"http://{server_ip}:8000/api/iot/ingest/"
                     self.root.after(0, lambda: self._on_server_discovered(server_ip, http_url))
                     return
-            except socket.timeout:
-                self._scan_subnet_fallback()
-            except Exception as e:
-                self._log(f"Auto-discovery notice: {e}", "WARN")
+            except Exception:
+                pass
+
+            # 2. Comprehensive concurrent subnet scan across all 254 IPs
+            found_url, desc = discover_server_url(self.detected_ip, port=8000)
+            if found_url:
+                try:
+                    server_ip = found_url.split("://")[1].split(":")[0]
+                except Exception:
+                    server_ip = self.detected_ip
+                self.root.after(0, lambda: self._on_server_discovered(server_ip, found_url))
+            else:
+                self._log(f"💡 Enter receiver IP: http://<RECEIVER_LAPTOP_IP>:8000/api/iot/ingest/", "WARN")
 
         threading.Thread(target=_worker, daemon=True).start()
 
     def _on_server_discovered(self, server_ip: str, http_url: str):
         self._discovered_server_ip = server_ip
         self._discovered_http_url = http_url
+        if hasattr(self, 'target_ip_var'):
+            self.target_ip_var.set(server_ip)
         self.wifi_url_var.set(http_url)
         self.lan_host_var.set(server_ip)
+        self.wifi_port_var.set("8000")
         self.conn_status_label.config(
-            text=f"🟢 Server Auto-Found: {server_ip}:8000 (Click to Use)",
-            bg="#064e3b", fg="#6ee7b7", cursor="hand2"
+            text=f"🟢 Server Connected: {server_ip}:8000 (Fixed Standard)",
+            bg="#064e3b", fg="#6ee7b7"
         )
-        self.conn_status_label.bind("<Button-1>", lambda e: self._apply_auto_found_ip())
-        self._log(f"🎯 Auto-Discovered Laptop B Server at {server_ip}! Ingest URL updated to {http_url}", "SUCCESS")
+        self._log(f"🎯 Connected to EcoEstate Server at {server_ip}! Ingest URL: {http_url}", "SUCCESS")
 
     def _apply_auto_found_ip(self):
         target_url = getattr(self, '_discovered_http_url', None) or f"http://{getattr(self, '_discovered_server_ip', '192.168.0.191')}:8000/api/iot/ingest/"
         self.wifi_url_var.set(target_url)
+        self.wifi_port_var.set("8000")
         self._log(f"⚡ Applied Auto-Found Ingest URL: {target_url}", "SUCCESS")
-
-    def _scan_subnet_fallback(self):
-        """Fallback subnet scan if router blocks 255.255.255.255 broadcast."""
-        parts = self.detected_ip.split('.')
-        if len(parts) == 4:
-            base = f"{parts[0]}.{parts[1]}.{parts[2]}"
-            for host_tail in [191, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 1, 2, 50]:
-                target = f"{base}.{host_tail}"
-                try:
-                    url = f"http://{target}:8000/api/iot/status/"
-                    req = urllib.request.Request(url)
-                    with urllib.request.urlopen(req, timeout=0.25) as r:
-                        if r.getcode() == 200:
-                            ingest_url = f"http://{target}:8000/api/iot/ingest/"
-                            self.root.after(0, lambda: self._on_server_discovered(target, ingest_url))
-                            return
-                except Exception:
-                    pass
-        self._log("💡 Tip: Use '📡 255.255.255.255' UDP Broadcast (works with zero config, even if IP changes!)", "INFO")
 
     def _auto_connect_server_on_startup(self):
         """Run discovery probe in background thread right after GUI opens."""

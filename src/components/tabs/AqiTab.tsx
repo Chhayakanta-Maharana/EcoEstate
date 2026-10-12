@@ -33,23 +33,37 @@ interface AqiTabProps {
 export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
   const { activeOrg: contextOrg } = useAuth();
   const activeOrg = org || contextOrg;
-  const [dbAqi, setDbAqi] = useState<any>(null);
-  const [activeStream, setActiveStream] = useState<any>(null);
-  const [liveAqiNodes, setLiveAqiNodes] = useState<any[]>([]);
+
+  // Initialize immediately from client cache for 0ms tab-switch hydration
+  const initialStatus = DjangoApi.getCachedIoTStatus();
+  const initialNodes = DjangoApi.getCachedLiveIoTNodes(activeOrg?.id);
+  const initialDbAqi = DjangoApi.getCachedAqiTelemetry(activeOrg?.id);
+  const initialAqiStream = initialStatus?.category_streams?.AQI || (initialStatus?.active_stream?.category === 'AQI' ? initialStatus?.active_stream : null);
+
+  const [dbAqi, setDbAqi] = useState<any>(initialDbAqi);
+  const [activeStream, setActiveStream] = useState<any>(initialAqiStream);
+  const [liveAqiNodes, setLiveAqiNodes] = useState<any[]>(() => {
+    if (initialNodes && Array.isArray(initialNodes.nodes)) {
+      return initialNodes.nodes.filter((n: any) => n.type === 'aqi');
+    }
+    return [];
+  });
 
   useEffect(() => {
     if (!activeOrg?.id) return;
     let isMounted = true;
 
-    const fetchTelemetry = () => {
+    // 1. High-speed In-Memory IoT Stream Poller (every 350ms) - Ultra-fast & non-blocking
+    const fetchLiveStream = () => {
       Promise.all([
-        DjangoApi.getAqiTelemetry(activeOrg.id).catch(() => null),
         DjangoApi.getIoTStatus().catch(() => null),
         DjangoApi.getLiveIoTNodes(activeOrg.id).catch(() => null),
-      ]).then(([data, status, nodesData]) => {
+      ]).then(([status, nodesData]) => {
         if (isMounted) {
-          if (data) setDbAqi(data);
-          if (status?.active_stream) setActiveStream(status.active_stream);
+          if (status) {
+            const aqiStream = status?.category_streams?.AQI || (status?.active_stream?.category === 'AQI' ? status?.active_stream : null);
+            if (aqiStream) setActiveStream(aqiStream);
+          }
           if (nodesData && Array.isArray(nodesData.nodes)) {
             const aqiNodes = nodesData.nodes.filter((n: any) => n.type === 'aqi');
             setLiveAqiNodes(aqiNodes);
@@ -58,19 +72,29 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
       });
     };
 
-    fetchTelemetry();
-    const interval = setInterval(fetchTelemetry, 1200);
+    // 2. NeonDB PostgreSQL History Sync (every 3500ms) - Never blocks live telemetry
+    const fetchDbHistory = () => {
+      DjangoApi.getAqiTelemetry(activeOrg.id).then((data) => {
+        if (isMounted && data) setDbAqi(data);
+      }).catch(() => null);
+    };
+
+    fetchLiveStream();
+    fetchDbHistory();
+
+    const streamInterval = setInterval(fetchLiveStream, 350);
+    const dbInterval = setInterval(fetchDbHistory, 3500);
 
     return () => {
       isMounted = false;
-      clearInterval(interval);
+      clearInterval(streamInterval);
+      clearInterval(dbInterval);
     };
   }, [activeOrg?.id]);
 
   const hasLiveNodes = liveAqiNodes.length > 0;
   const isStreamLive = Boolean(activeStream?.is_active ?? (activeStream?.status === 'ACTIVE')) || hasLiveNodes;
-  const currentCategory = hasLiveNodes ? 'AQI' : (isStreamLive ? (activeStream?.category || null) : null);
-  const isAqiActive = currentCategory === 'AQI';
+  const isAqiActive = isStreamLive && (activeStream?.category === 'AQI' || hasLiveNodes || !activeStream);
 
   // Multi-Node Mathematical Aggregation across N hardware sensors:
   // M_bar = (1 / N) * sum(M_i)
@@ -99,23 +123,25 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
   const streamNoise = streamMetrics.noise !== undefined ? Number(streamMetrics.noise) : (streamMetrics.noise_db !== undefined ? Number(streamMetrics.noise_db) : (streamMetrics.acoustic_noise_db !== undefined ? Number(streamMetrics.acoustic_noise_db) : undefined));
 
   const hasStreamData = isAqiActive && (streamPm25 !== undefined || streamPm10 !== undefined || Boolean(activeStream) || hasLiveNodes);
-  const hasData = isAqiActive && (hasStreamData || Boolean(dbAqi && (dbAqi.overall_aqi !== undefined || dbAqi.pm25 !== undefined)));
+  const hasData = hasStreamData || Boolean(dbAqi && (dbAqi.overall_aqi !== undefined || dbAqi.pm25 !== undefined));
 
-  const computedAqi = streamPm25 !== undefined ? Math.round(streamPm25 * 2.5) : (streamPm10 !== undefined ? Math.round(streamPm10) : 55);
+  const isAqiLive = isAqiActive && (hasStreamData || hasLiveNodes);
 
-  const baseAqi = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.overall_aqi ?? computedAqi) : 0);
-  const basePm25 = currentCategory === null ? null : (isAqiActive ? Number(streamPm25 ?? dbAqi?.pm25 ?? 0) : 0);
-  const basePm10 = currentCategory === null ? null : (isAqiActive ? Number(streamPm10 ?? dbAqi?.pm10 ?? 0) : 0);
-  const baseCo2 = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.co2 ?? (streamCo2 ?? 0)) : 0);
-  const baseVoc = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.voc ?? (streamVoc ?? 0)) : 0);
-  const baseTemp = currentCategory === null ? null : (isAqiActive ? Number(streamTemp ?? dbAqi?.temperature ?? 0) : 0);
-  const baseHum = currentCategory === null ? null : (isAqiActive ? Number(streamHum ?? dbAqi?.humidity ?? 0) : 0);
-  const baseNoise = currentCategory === null ? null : (isAqiActive ? Number(dbAqi?.noise ?? (streamNoise ?? 0)) : 0);
+  const streamAqi = streamMetrics.aqi !== undefined ? Number(streamMetrics.aqi) : (streamMetrics.overall_aqi !== undefined ? Number(streamMetrics.overall_aqi) : undefined);
+  const computedAqi = streamAqi ?? (streamPm25 !== undefined ? Math.round(streamPm25 * 2.5) : (streamPm10 !== undefined ? Math.round(streamPm10) : (dbAqi?.overall_aqi ?? 0)));
+  const baseAqi = isAqiLive ? Number(streamPm25 !== undefined ? computedAqi : (dbAqi?.overall_aqi ?? computedAqi)) : (dbAqi?.overall_aqi !== undefined ? Number(dbAqi.overall_aqi) : null);
+  const basePm25 = isAqiLive ? Number(streamPm25 ?? dbAqi?.pm25 ?? 0) : (dbAqi?.pm25 !== undefined ? Number(dbAqi.pm25) : null);
+  const basePm10 = isAqiLive ? Number(streamPm10 ?? dbAqi?.pm10 ?? 0) : (dbAqi?.pm10 !== undefined ? Number(dbAqi.pm10) : null);
+  const baseCo2 = isAqiLive ? Number(streamCo2 ?? dbAqi?.co2 ?? 0) : (dbAqi?.co2 !== undefined ? Number(dbAqi.co2) : null);
+  const baseVoc = isAqiLive ? Number(streamVoc ?? dbAqi?.voc ?? 0) : (dbAqi?.voc !== undefined ? Number(dbAqi.voc) : null);
+  const baseTemp = isAqiLive ? Number(streamTemp ?? dbAqi?.temperature ?? 0) : (dbAqi?.temperature !== undefined ? Number(dbAqi.temperature) : null);
+  const baseHum = isAqiLive ? Number(streamHum ?? dbAqi?.humidity ?? 0) : (dbAqi?.humidity !== undefined ? Number(dbAqi.humidity) : null);
+  const baseNoise = isAqiLive ? Number(streamNoise ?? dbAqi?.noise ?? 0) : (dbAqi?.noise !== undefined ? Number(dbAqi.noise) : null);
   const hotspotLoc = hasLiveNodes 
     ? `Campus Average across ${nodeCount} active sensors` 
-    : (currentCategory === null ? '--' : (isAqiActive ? (activeStream?.location || dbAqi?.hotspot_location || `${activeOrg?.name || 'Campus'} Sensor Node`) : 'Idle Node (0)'));
+    : (isAqiLive ? (activeStream?.location || dbAqi?.hotspot_location || `${activeOrg?.name || 'Campus'} CAAQMS Station`) : (dbAqi?.hotspot_location || '--'));
 
-  const liveTrend24h = (isAqiActive && baseAqi !== null && basePm25 !== null && baseAqi > 0)
+  const liveTrend24h = (baseAqi !== null && basePm25 !== null && baseAqi > 0)
     ? [
         { time: '00:00', aqi: Math.max(10, Math.round(baseAqi * 0.78)), pm25: Math.round(basePm25 * 0.72) },
         { time: '03:00', aqi: Math.max(10, Math.round(baseAqi * 0.72)), pm25: Math.round(basePm25 * 0.68) },
@@ -150,6 +176,10 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
             {isAqiActive && isStreamLive ? (
               <span className="flex items-center gap-1 text-[10px] bg-emerald-500/10 text-emerald-500 px-2 py-0.5 rounded-full border border-emerald-500/20 font-bold">
                 <Activity className="w-3 h-3 animate-pulse" /> {hasLiveNodes ? `${nodeCount} HARDWARE SENSORS LIVE` : 'LIVE STREAM ACTIVE'}
+              </span>
+            ) : hasData ? (
+              <span className="flex items-center gap-1 text-[10px] bg-cyan-500/10 text-cyan-600 dark:text-cyan-400 px-2 py-0.5 rounded-full border border-cyan-500/20 font-bold">
+                <ShieldCheck className="w-3 h-3" /> LATEST TELEMETRY INGESTED
               </span>
             ) : (
               <span className="flex items-center gap-1 text-[10px] bg-stone-500/10 text-stone-500 px-2 py-0.5 rounded-full border border-stone-500/20">
@@ -308,7 +338,7 @@ export const AqiTab: React.FC<AqiTabProps> = ({ org }) => {
             </p>
             <p className="text-stone-600 dark:text-slate-300 text-[11px] leading-relaxed">
               {hasData
-                ? (dbAqi.anomaly_detected
+                ? (dbAqi?.anomaly_detected
                     ? 'Localized PM2.5 elevation detected. Recommended action: Route delivery transit away from air intake louvers.'
                     : 'Clean air ambient levels within normal parameters.')
                 : 'Waiting for live CAAQMS sensor telemetry...'}

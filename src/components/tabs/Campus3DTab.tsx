@@ -517,25 +517,35 @@ export const Campus3DTab: React.FC = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
 
-  // Live Telemetry states & Real-time polling
-  const [aqiList, setAqiList] = useState<any[]>([]);
-  const [waterList, setWaterList] = useState<any[]>([]);
-  const [energyList, setEnergyList] = useState<any[]>([]);
-  const [activeStream, setActiveStream] = useState<any>(null);
+  // Live Telemetry states & Real-time polling (hydrated from client cache for 0ms tab return)
+  const initialIotStatus = DjangoApi.getCachedIoTStatus();
+  const [aqiList, setAqiList] = useState<any[]>(() => {
+    const cached = DjangoApi.getCachedAqiTelemetry(activeOrg?.id);
+    return cached ? [cached] : [];
+  });
+  const [waterList, setWaterList] = useState<any[]>(() => {
+    const cached = DjangoApi.getCachedWaterTelemetry(activeOrg?.id);
+    return cached ? [cached] : [];
+  });
+  const [energyList, setEnergyList] = useState<any[]>(() => {
+    const cached = DjangoApi.getCachedEnergyTelemetry(activeOrg?.id);
+    return cached ? [cached] : [];
+  });
+  const [activeStream, setActiveStream] = useState<any>(() => initialIotStatus?.active_stream || null);
+  const [categoryStreams, setCategoryStreams] = useState<any>(() => initialIotStatus?.category_streams || {});
 
   useEffect(() => {
     if (!activeOrg?.id) return;
+    let isMounted = true;
+
+    // Fast in-memory stream & 3D hardware pin generation (every 400ms)
     const fetchLiveStreams = () => {
       Promise.all([
-        DjangoApi.getAqiTelemetry(activeOrg.id).catch(() => null),
-        DjangoApi.getWaterTelemetry(activeOrg.id).catch(() => null),
-        DjangoApi.getEnergyTelemetry(activeOrg.id).catch(() => null),
         DjangoApi.getIoTStatus().catch(() => null),
         DjangoApi.getLiveIoTNodes(activeOrg.id).catch(() => null),
-      ]).then(([aqiRes, waterRes, energyRes, iotStatus, liveNodesData]) => {
-        if (aqiRes) setAqiList(Array.isArray(aqiRes) ? aqiRes : [aqiRes]);
-        if (waterRes) setWaterList(Array.isArray(waterRes) ? waterRes : [waterRes]);
-        if (energyRes) setEnergyList(Array.isArray(energyRes) ? energyRes : [energyRes]);
+      ]).then(([iotStatus, liveNodesData]) => {
+        if (!isMounted) return;
+        if (iotStatus?.category_streams) setCategoryStreams(iotStatus.category_streams);
         if (iotStatus?.active_stream) setActiveStream(iotStatus.active_stream);
 
         // Dynamic 3D Pin Generation: Match live hardware nodes streaming from IoT sender (Strict 1:1 Pin Mapping)
@@ -631,37 +641,80 @@ export const Campus3DTab: React.FC = () => {
         }
       });
     };
+
+    // Slow NeonDB historical data sync (every 4000ms)
+    const fetchHistoricalDb = () => {
+      Promise.all([
+        DjangoApi.getAqiTelemetry(activeOrg.id).catch(() => null),
+        DjangoApi.getWaterTelemetry(activeOrg.id).catch(() => null),
+        DjangoApi.getEnergyTelemetry(activeOrg.id).catch(() => null),
+      ]).then(([aqiRes, waterRes, energyRes]) => {
+        if (!isMounted) return;
+        if (aqiRes) setAqiList(Array.isArray(aqiRes) ? aqiRes : [aqiRes]);
+        if (waterRes) setWaterList(Array.isArray(waterRes) ? waterRes : [waterRes]);
+        if (energyRes) setEnergyList(Array.isArray(energyRes) ? energyRes : [energyRes]);
+      });
+    };
+
     fetchLiveStreams();
-    const interval = setInterval(fetchLiveStreams, 1200);
-    return () => clearInterval(interval);
+    fetchHistoricalDb();
+
+    const streamInterval = setInterval(fetchLiveStreams, 400);
+    const dbInterval = setInterval(fetchHistoricalDb, 4000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(streamInterval);
+      clearInterval(dbInterval);
+    };
   }, [activeOrg?.id, isCalibrateMode]);
 
   const currentCategory = activeStream?.category || null;
-  const isAqiActive = currentCategory === 'AQI';
-  const isWaterActive = currentCategory === 'WATER';
-  const isEnergyActive = currentCategory === 'ENERGY';
+  const aqiStream = categoryStreams?.AQI || (currentCategory === 'AQI' ? activeStream : null);
+  const waterStream = categoryStreams?.WATER || (currentCategory === 'WATER' ? activeStream : null);
+  const energyStream = categoryStreams?.ENERGY || (currentCategory === 'ENERGY' ? activeStream : null);
+
+  const isAqiActive = Boolean(aqiStream?.is_active ?? (aqiStream?.status === 'ACTIVE'));
+  const isWaterActive = Boolean(waterStream?.is_active ?? (waterStream?.status === 'ACTIVE'));
+  const isEnergyActive = Boolean(energyStream?.is_active ?? (energyStream?.status === 'ACTIVE'));
 
   const hasAqiData = aqiList.length > 0;
   const hasWaterData = waterList.length > 0;
   const hasEnergyData = energyList.length > 0;
 
-  const streamMetrics = activeStream?.metrics || {};
+  const aqiMetrics = aqiStream?.metrics || {};
+  const waterMetrics = waterStream?.metrics || {};
+  const energyMetrics = energyStream?.metrics || {};
 
-  const streamPm25 = streamMetrics.pm25 !== undefined ? Number(streamMetrics.pm25) : (streamMetrics.pm25_ug_m3 !== undefined ? Number(streamMetrics.pm25_ug_m3) : undefined);
-  const streamComputedAqi = streamPm25 !== undefined ? Math.round(streamPm25 * 2.5) : (streamMetrics.pm10_ug_m3 ? Math.round(Number(streamMetrics.pm10_ug_m3)) : 55);
+  const streamPm25 = aqiMetrics.pm25 !== undefined ? Number(aqiMetrics.pm25) : (aqiMetrics.pm25_ug_m3 !== undefined ? Number(aqiMetrics.pm25_ug_m3) : undefined);
+  const streamComputedAqi = streamPm25 !== undefined ? Math.round(streamPm25 * 2.5) : (aqiMetrics.pm10_ug_m3 ? Math.round(Number(aqiMetrics.pm10_ug_m3)) : 55);
 
-  // Averages for AQI & Weather (Live when AQI active; 0 when other stream active; null/-- when awaiting)
-  const avgAqi = currentCategory === null ? null : (isAqiActive ? (hasAqiData ? Math.round(aqiList.reduce((acc, r) => acc + (r.overall_aqi || 0), 0) / aqiList.length) : streamComputedAqi) : 0);
-  const avgPm25 = currentCategory === null ? null : (isAqiActive ? (hasAqiData ? Math.round((aqiList.reduce((acc, r) => acc + (r.pm25 || 0), 0) / aqiList.length) * 10) / 10 : (streamPm25 ?? 0)) : 0);
-  const avgPm10 = currentCategory === null ? null : (isAqiActive ? (hasAqiData ? Math.round((aqiList.reduce((acc, r) => acc + (r.pm10 || 0), 0) / aqiList.length) * 10) / 10 : Number(streamMetrics.pm10_ug_m3 || streamMetrics.pm10 || 0)) : 0);
-  const avgTemp = currentCategory === null ? null : (isAqiActive ? (hasAqiData ? Math.round((aqiList.reduce((acc, r) => acc + (r.temperature || 0), 0) / aqiList.length) * 10) / 10 : Number(streamMetrics.operating_temp_c || streamMetrics.temperature || 0)) : 0);
-  const avgHumidity = currentCategory === null ? null : (isAqiActive ? (hasAqiData ? Math.round((aqiList.reduce((acc, r) => acc + (r.humidity || 0), 0) / aqiList.length) * 10) / 10 : Number(streamMetrics.humidity_pct || streamMetrics.humidity || 0)) : 0);
+  // Averages for AQI & Weather (Live stream prioritized, graceful database fallback)
+  const dbAvgAqi = hasAqiData ? Math.round(aqiList.reduce((acc, r) => acc + (r.overall_aqi || 0), 0) / aqiList.length) : null;
+  const avgAqi = isAqiActive ? (streamComputedAqi ?? dbAvgAqi) : dbAvgAqi;
 
-  // Averages for Water (Live when Water active; 0 when other stream active; null/-- when awaiting)
-  const streamFlow = streamMetrics.flow_rate_lps !== undefined ? Number(streamMetrics.flow_rate_lps) : undefined;
-  const avgFlow = currentCategory === null ? null : (isWaterActive ? (hasWaterData ? Math.round((waterList.reduce((acc, r) => acc + (r.flow_rate_lps || 0), 0) / waterList.length) * 10) / 10 : (streamFlow ?? 0)) : 0);
-  const avgTreated = currentCategory === null ? null : (isWaterActive ? (hasWaterData ? Math.round((waterList.reduce((acc, r) => acc + (r.stp_treated_water_kl || r.treated_output_kl || 0), 0) / waterList.length) * 10) / 10 : (streamFlow ? Number((streamFlow * 3.6 * 8 * 0.72).toFixed(1)) : 230)) : 0);
-  const avgTds = currentCategory === null ? null : (isWaterActive ? (hasWaterData ? Math.round((waterList.reduce((acc, r) => acc + (r.tds_ppm || 140), 0) / waterList.length) * 10) / 10 : 140) : 0);
+  const dbAvgPm25 = hasAqiData ? Math.round((aqiList.reduce((acc, r) => acc + (r.pm25 || 0), 0) / aqiList.length) * 10) / 10 : null;
+  const avgPm25 = isAqiActive ? (streamPm25 ?? dbAvgPm25) : dbAvgPm25;
+
+  const dbAvgPm10 = hasAqiData ? Math.round((aqiList.reduce((acc, r) => acc + (r.pm10 || 0), 0) / aqiList.length) * 10) / 10 : null;
+  const avgPm10 = isAqiActive ? (aqiMetrics.pm10_ug_m3 ? Number(aqiMetrics.pm10_ug_m3) : dbAvgPm10) : dbAvgPm10;
+
+  const dbAvgTemp = hasAqiData ? Math.round((aqiList.reduce((acc, r) => acc + (r.temperature || 0), 0) / aqiList.length) * 10) / 10 : null;
+  const avgTemp = isAqiActive ? (aqiMetrics.operating_temp_c ? Number(aqiMetrics.operating_temp_c) : dbAvgTemp) : dbAvgTemp;
+
+  const dbAvgHumidity = hasAqiData ? Math.round((aqiList.reduce((acc, r) => acc + (r.humidity || 0), 0) / aqiList.length) * 10) / 10 : null;
+  const avgHumidity = isAqiActive ? (aqiMetrics.humidity_pct ? Number(aqiMetrics.humidity_pct) : dbAvgHumidity) : dbAvgHumidity;
+
+  // Averages for Water (Live stream prioritized, graceful database fallback)
+  const streamFlow = waterMetrics.flow_rate_lps !== undefined ? Number(waterMetrics.flow_rate_lps) : undefined;
+  const dbAvgFlow = hasWaterData ? Math.round((waterList.reduce((acc, r) => acc + (r.flow_rate_lps || 0), 0) / waterList.length) * 10) / 10 : null;
+  const avgFlow = isWaterActive ? (streamFlow ?? dbAvgFlow) : dbAvgFlow;
+
+  const dbAvgTreated = hasWaterData ? Math.round((waterList.reduce((acc, r) => acc + (r.stp_treated_water_kl || r.treated_output_kl || 0), 0) / waterList.length) * 10) / 10 : null;
+  const avgTreated = isWaterActive ? ((streamFlow ? Number((streamFlow * 3.6 * 8 * 0.72).toFixed(1)) : null) ?? dbAvgTreated) : dbAvgTreated;
+
+  const dbAvgTds = hasWaterData ? Math.round((waterList.reduce((acc, r) => acc + (r.tds_ppm || 140), 0) / waterList.length) * 10) / 10 : 140;
+  const avgTds = isWaterActive ? (waterMetrics.tds_ppm ? Number(waterMetrics.tds_ppm) : dbAvgTds) : dbAvgTds;
 
   // Dynamic campus averages across all active water source pins
   const activeWaterNodes = nodes.filter((n) => n.type === 'water');
@@ -675,12 +728,17 @@ export const Campus3DTab: React.FC = () => {
     ? Math.round((activeWaterNodes.reduce((acc, n) => acc + (parseFloat(String(n.metric3Value || n.metrics?.ph_level || 7.2)) || 7.2), 0) / activeWaterNodes.length) * 10) / 10
     : 7.2;
 
-  // Averages for Energy (Live when Energy active; 0 when other stream active; null/-- when awaiting)
-  const streamLoad = streamMetrics.active_load_kw !== undefined ? Number(streamMetrics.active_load_kw) : (streamMetrics.current_load_kw !== undefined ? Number(streamMetrics.current_load_kw) : undefined);
-  const streamSolar = streamMetrics.solar_kw !== undefined ? Number(streamMetrics.solar_kw) : (streamMetrics.solar_rooftop_kw !== undefined ? Number(streamMetrics.solar_rooftop_kw) : undefined);
-  const avgPower = currentCategory === null ? null : (isEnergyActive ? (hasEnergyData ? Math.round((energyList.reduce((acc, r) => acc + (r.current_load_kw || r.real_power_kw || 0), 0) / energyList.length) * 10) / 10 : (streamLoad ?? 420)) : 0);
-  const avgPowerFactor = currentCategory === null ? null : (isEnergyActive ? (hasEnergyData ? Math.round((energyList.reduce((acc, r) => acc + (r.power_factor || 0.95), 0) / energyList.length) * 100) / 100 : Number(streamMetrics.power_factor || 0.98)) : 0);
-  const avgSolar = currentCategory === null ? null : (isEnergyActive ? (hasEnergyData ? Math.round((energyList.reduce((acc, r) => acc + (r.solar_rooftop_kw || r.solar_generation_kw || 0), 0) / energyList.length) * 10) / 10 : (streamSolar ?? 180)) : 0);
+  // Averages for Energy (Live stream prioritized, graceful database fallback)
+  const streamLoad = energyMetrics.active_load_kw !== undefined ? Number(energyMetrics.active_load_kw) : (energyMetrics.current_load_kw !== undefined ? Number(energyMetrics.current_load_kw) : undefined);
+  const streamSolar = energyMetrics.solar_kw !== undefined ? Number(energyMetrics.solar_kw) : (energyMetrics.solar_rooftop_kw !== undefined ? Number(energyMetrics.solar_rooftop_kw) : undefined);
+  const dbAvgPower = hasEnergyData ? Math.round((energyList.reduce((acc, r) => acc + (r.current_load_kw || r.real_power_kw || 0), 0) / energyList.length) * 10) / 10 : null;
+  const avgPower = isEnergyActive ? (streamLoad ?? dbAvgPower) : dbAvgPower;
+
+  const dbAvgPowerFactor = hasEnergyData ? Math.round((energyList.reduce((acc, r) => acc + (r.power_factor || 0.95), 0) / energyList.length) * 100) / 100 : 0.96;
+  const avgPowerFactor = isEnergyActive ? (energyMetrics.power_factor ? Number(energyMetrics.power_factor) : dbAvgPowerFactor) : dbAvgPowerFactor;
+
+  const dbAvgSolar = hasEnergyData ? Math.round((energyList.reduce((acc, r) => acc + (r.solar_rooftop_kw || r.solar_generation_kw || 0), 0) / energyList.length) * 10) / 10 : null;
+  const avgSolar = isEnergyActive ? (streamSolar ?? dbAvgSolar) : dbAvgSolar;
 
   // Fetch latest 3D campus twin image & nodes from NeonDB whenever activeOrg changes
   useEffect(() => {
